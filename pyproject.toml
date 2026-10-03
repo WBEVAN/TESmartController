@@ -11,6 +11,13 @@ requires-python = ">=3.10"
 license = { text = "MIT" }
 dependencies = []
 
+[project.urls]
+Homepage = "https://github.com/WBEVAN/TESmartController"
+Documentation = "https://github.com/WBEVAN/TESmartController#readme"
+Source = "https://github.com/WBEVAN/TESmartController"
+Issues = "https://github.com/WBEVAN/TESmartController/issues"
+Changelog = "https://github.com/WBEVAN/TESmartController/releases"
+
 [project.optional-dependencies]
 serial = ["pyserial>=3.5"]
 

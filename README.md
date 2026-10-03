@@ -4,7 +4,9 @@ Command-line, HTTP, and browser control for TESmart 8×1 and 16×1 HDMI switches
 
 This is an independent project. It is not published by, or affiliated with, TESmart.
 
-LAN control uses only the Python standard library. RS232 needs `pyserial`. Python 3.10 or newer. Licensed under the [MIT License](LICENSE).
+LAN control uses only the Python standard library. RS232 needs `pyserial`. Python 3.10 or newer. Licensed under the [MIT License](https://github.com/WBEVAN/TESmartController/blob/main/LICENSE).
+
+Install with `pip install tesmartctl`. The package is on [PyPI](https://pypi.org/project/tesmartctl/); the source is on [GitHub](https://github.com/WBEVAN/TESmartController).
 
 ## What it does
 
@@ -24,19 +26,30 @@ The switch cannot say which HDMI inputs have a signal. A cycle is the list you c
 | Document | What it covers |
 | --- | --- |
 | This file | Install, configuration, every command |
-| [`Docs/protocol.md`](Docs/protocol.md) | Byte protocol the switch speaks |
-| [`Docs/listener.md`](Docs/listener.md) | Long-running line protocol and HTTP URLs |
-| [`Docs/panel.md`](Docs/panel.md) | Browser control panel at `/panel` |
-| [`Docs/embed.md`](Docs/embed.md) | Input buttons on a page you already have |
+| [`Docs/protocol.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/protocol.md) | Byte protocol the switch speaks |
+| [`Docs/listener.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/listener.md) | Long-running line protocol and HTTP URLs |
+| [`Docs/panel.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/panel.md) | Browser control panel at `/panel` |
+| [`Docs/embed.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/embed.md) | Input buttons on a page you already have |
 
 ## Install
+
+From PyPI:
+
+```bash
+pip install tesmartctl               # adds the tesmartctl command
+pip install 'tesmartctl[serial]'     # also installs pyserial, for the RS232 port
+pip install --upgrade tesmartctl     # move to the newest release
+```
+
+`pipx install tesmartctl` works too and keeps the command out of any one project's environment.
+
+From a clone, for working on the code:
 
 ```bash
 git clone https://github.com/WBEVAN/TESmartController.git
 cd TESmartController
-pip install .                 # adds the tesmartctl command
-pip install '.[serial]'       # also installs pyserial, for the RS232 port
-pip install -e .              # editable: edits in this tree take effect immediately
+pip install -e .                     # editable: edits in this tree take effect immediately
+pip install -e '.[serial]'
 ```
 
 Without installing, run from the repository directory:
@@ -232,7 +245,7 @@ tesmartctl peek 3 --seconds 8 --save   # and make 8 seconds the default
 
 `peek` flips to the input, waits, and flips back to the one that was active. Ctrl-C comes back at once. If the input is changed by something else during the peek (front panel, remote, another client), `peek` leaves that choice alone, reports it, and exits non-zero. The default duration is `5` seconds, stored as `TESMART_PEEK_SECONDS` in the env file.
 
-The listener can also make the *next* ordinary input change a peek, so a button that calls `/input/3` peeks instead of sticking. `GET /peek/once` arms a single change. `GET /peek/always` keeps doing it until `GET /peek/off`. Detail is in [`Docs/listener.md`](Docs/listener.md).
+The listener can also make the *next* ordinary input change a peek, so a button that calls `/input/3` peeks instead of sticking. `GET /peek/once` arms a single change. `GET /peek/always` keeps doing it until `GET /peek/off`. Detail is in [`Docs/listener.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/listener.md).
 
 ### Write-only settings
 
@@ -269,11 +282,11 @@ tesmartctl raw AA BB 03 10 00 EE
 #   frame cmd=0x11 value=0x01 term=0xEE -> input 2
 ```
 
-`--listen 3` waits longer for the reply. See [`Docs/protocol.md`](Docs/protocol.md) for the frame layout. The input query value is 0-based in the reply (`0x01` is input 2).
+`--listen 3` waits longer for the reply. See [`Docs/protocol.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/protocol.md) for the frame layout. The input query value is 0-based in the reply (`0x01` is input 2).
 
 ## Listener
 
-`listen` keeps one connection open. Use it when something else (a script, `nc`, a browser, a home-automation "open URL" action) needs to change inputs without starting a new process each time. Full detail is in [`Docs/listener.md`](Docs/listener.md).
+`listen` keeps one connection open. Use it when something else (a script, `nc`, a browser, a home-automation "open URL" action) needs to change inputs without starting a new process each time. Full detail is in [`Docs/listener.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/listener.md).
 
 ```bash
 tesmartctl listen                         # one command per line on stdin
@@ -290,13 +303,13 @@ tesmartctl listen --http 0.0.0.0:8080 --panel
 
 `--bind` and `--http` cannot be combined. Run two processes if you want both. A port number alone binds `127.0.0.1`, so only this computer can connect. `0.0.0.0` accepts every network interface. Other devices then use the address of the computer running `tesmartctl`, for example `http://192.168.1.20:8080/input/3`. There is no authentication, so only do this on a network you trust.
 
-`--panel` is off unless you add it. It serves a browser page for selecting inputs, stepping the cycle, peeking, and the switch settings the vendor Windows controller exposes (buzzer, front-panel display timeout, auto input detection, LAN address). Detail is in [`Docs/panel.md`](Docs/panel.md).
+`--panel` is off unless you add it. It serves a browser page for selecting inputs, stepping the cycle, peeking, and the switch settings the vendor Windows controller exposes (buzzer, front-panel display timeout, auto input detection, LAN address). Detail is in [`Docs/panel.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/panel.md).
 
-![Control panel](Docs/images/panel.png)
+![Control panel](https://raw.githubusercontent.com/WBEVAN/TESmartController/main/Docs/images/panel.png)
 
 The **API** button in the top bar opens an explorer that lists every `/api` route, sends it, and shows the raw status and body the listener returned.
 
-![API explorer](Docs/images/api-explorer.png)
+![API explorer](https://raw.githubusercontent.com/WBEVAN/TESmartController/main/Docs/images/api-explorer.png)
 
 Line commands: `get` (also `port`, `status`, `?`) prints the active input; `set 3`, `set Office`, or just `3` switches and prints the input the switch reports; `next` or `rotate 1,2,4` moves to the next input; `peek 3` or `peek 3 10` shows an input briefly and replies once back; `quit` closes the session. `--json` makes each reply one JSON object. The line command `status` is only the active input. The full readable status is the HTTP route and `tesmartctl status`.
 
@@ -384,4 +397,4 @@ with TesmartSwitch(TcpTransport("192.168.1.50")) as sw:
 
 ## License
 
-[MIT](LICENSE). This software is provided as is, without warranty. Changing the switch's network address can make it unreachable over the LAN; that risk, and the absence of any liability for it, is spelled out in [LAN address](#lan-address) and in the panel before a write is accepted.
+[MIT](https://github.com/WBEVAN/TESmartController/blob/main/LICENSE). This software is provided as is, without warranty. Changing the switch's network address can make it unreachable over the LAN; that risk, and the absence of any liability for it, is spelled out in [LAN address](#lan-address) and in the panel before a write is accepted.
