@@ -134,7 +134,8 @@ EXAMPLES: dict[str, list[tuple[str, str]]] = {
     "listen": [
         ("tesmartctl listen", "read commands from stdin: get, set 3, 3, next, peek 3, quit"),
         ("printf 'get\\nset 3\\nquit\\n' | tesmartctl listen", "scripted session"),
-        ("tesmartctl listen --bind 9753", "raw TCP on 127.0.0.1:9753"),
+        ("tesmartctl listen --bind 9753", "raw TCP on this computer only, 127.0.0.1:9753"),
+        ("tesmartctl listen --bind 0.0.0.0:9753", "raw TCP on every interface"),
         ("echo set 4 | nc -w 3 127.0.0.1 9753", "client for the TCP mode; prints the input the switch reports"),
         ("tesmartctl listen --http 8080", "HTTP on http://127.0.0.1:8080/"),
         ("curl http://127.0.0.1:8080/input", '{"active_input": 2}'),
@@ -148,7 +149,7 @@ EXAMPLES: dict[str, list[tuple[str, str]]] = {
         ("curl http://127.0.0.1:8080/peek/off", "plain input changes stick again"),
         ("curl http://127.0.0.1:8080/status", "input, names and LAN settings"),
         ("curl 'http://127.0.0.1:8080/input/3?format=text'", "plain `3` instead of JSON"),
-        ("tesmartctl listen --http 0.0.0.0:8080", "accept other machines (no authentication)"),
+        ("tesmartctl listen --http 0.0.0.0:8080", "HTTP on every interface; other devices use this computer's address (no authentication)"),
         ("tesmartctl listen --http 8080 --panel", "also serve the control panel at http://127.0.0.1:8080/panel"),
         ("curl http://127.0.0.1:8080/api/state", "panel API: everything the panel shows, as JSON"),
     ],

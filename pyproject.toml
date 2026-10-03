@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tesmartctl"
-version = "0.0.7.1"
+version = "0.0.7.2"
 description = "Command-line control for TESmart 8x1 / 16x1 HDMI switches over LAN or RS232"
 readme = "README.md"
 requires-python = ">=3.10"

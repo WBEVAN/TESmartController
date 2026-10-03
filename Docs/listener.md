@@ -11,15 +11,15 @@ Both use the same device connection and the same one-second pacing described in 
 
 ```bash
 tesmartctl listen                    # commands on stdin
-tesmartctl listen --bind 9753        # raw TCP, 127.0.0.1:9753
-tesmartctl listen --bind 0.0.0.0:9753
+tesmartctl listen --bind 9753        # raw TCP, this computer only (127.0.0.1:9753)
+tesmartctl listen --bind 0.0.0.0:9753 # raw TCP on every interface
 tesmartctl listen --json             # one JSON object per line (line protocol only)
-tesmartctl listen --http 8080        # HTTP, http://127.0.0.1:8080/
-tesmartctl listen --http 0.0.0.0:8080
+tesmartctl listen --http 8080        # HTTP, this computer only (http://127.0.0.1:8080/)
+tesmartctl listen --http 0.0.0.0:8080 # HTTP on every interface
 tesmartctl listen --http 8080 --panel # also the control panel at /panel
 ```
 
-A bare port binds `127.0.0.1`. `--bind` and `--http` cannot be used together; start two processes to expose both. Ctrl-C stops the process. Connection flags (`--host`, `--serial`, `--inputs`, `--timeout`, `--env-file`) work the same way as the rest of `tesmartctl`; see the README.
+A bare port binds `127.0.0.1`, so only this computer can connect. `0.0.0.0` accepts every network interface. Other devices then use the address of the computer running `tesmartctl`, for example `http://192.168.1.20:8080/input/3`. There is no authentication. `--bind` and `--http` cannot be used together; start two processes to expose both. Ctrl-C stops the process. Connection flags (`--host`, `--serial`, `--inputs`, `--timeout`, `--env-file`) work the same way as the rest of `tesmartctl`; see the README.
 
 There is no authentication. Leave the bind address on `127.0.0.1` unless every machine that can open the port is trusted.
 

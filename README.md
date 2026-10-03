@@ -279,14 +279,16 @@ tesmartctl raw AA BB 03 10 00 EE
 tesmartctl listen                         # one command per line on stdin
 printf 'get\nset 3\nquit\n' | tesmartctl listen
 
-tesmartctl listen --bind 9753             # raw TCP on 127.0.0.1:9753
+tesmartctl listen --bind 9753             # raw TCP on this computer only, 127.0.0.1:9753
+tesmartctl listen --bind 0.0.0.0:9753     # raw TCP on every interface
 echo set 4 | nc 127.0.0.1 9753            # prints the input the switch reports
 
-tesmartctl listen --http 8080             # HTTP on http://127.0.0.1:8080/
-tesmartctl listen --http 8080 --panel     # also http://127.0.0.1:8080/panel
+tesmartctl listen --http 8080             # HTTP on this computer only, http://127.0.0.1:8080/
+tesmartctl listen --http 0.0.0.0:8080     # HTTP on every interface; other devices use this computer's address
+tesmartctl listen --http 0.0.0.0:8080 --panel
 ```
 
-`--bind` and `--http` cannot be combined. Run two processes if you want both. A port number alone binds `127.0.0.1`. `0.0.0.0:8080` accepts other machines. There is no authentication.
+`--bind` and `--http` cannot be combined. Run two processes if you want both. A port number alone binds `127.0.0.1`, so only this computer can connect. `0.0.0.0` accepts every network interface. Other devices then use the address of the computer running `tesmartctl`, for example `http://192.168.1.20:8080/input/3`. There is no authentication, so only do this on a network you trust.
 
 `--panel` is off unless you add it. It serves a browser page for selecting inputs, stepping the cycle, peeking, and the switch settings the vendor Windows controller exposes (buzzer, front-panel display timeout, auto input detection, LAN address). Detail is in [`Docs/panel.md`](Docs/panel.md).
 
