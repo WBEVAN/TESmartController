@@ -273,6 +273,9 @@ class Panel {
     this.el.autoCycle.addEventListener("change", () => this.#applyAutoCycle());
     this.el.peekBack.addEventListener("click", () => this.cancelPeek());
     this.el.peekSeconds.addEventListener("change", () => this.savePeekSeconds());
+    document.querySelectorAll("[data-follow]").forEach((button) => {
+      button.addEventListener("click", () => this.setFollow(button.dataset.follow));
+    });
 
     document.querySelectorAll("[data-setting]").forEach((group) => {
       group.addEventListener("click", (event) => {
@@ -415,11 +418,32 @@ class Panel {
     if (result) this.#applyInputResult(result);
   }
 
+  async setFollow(mode) {
+    const result = await this.#call(() => this.api.post("/api/peek-follow", { mode }));
+    if (!result) return;
+    this.state.peek = { ...(this.state.peek || {}), follow: result.peek_follow };
+    this.renderFollow();
+    const note = {
+      once: "The next input change will peek, then stick again.",
+      always: "Input changes will peek until you turn this off.",
+      off: "Input changes stick.",
+    };
+    this.toaster.success(note[mode] || "Peek follow updated.");
+  }
+
   #applyInputResult(result) {
     this.state.active_input = result.active_input;
     this.state.active_name = result.active_name || null;
+    if (result.peek_follow) {
+      this.state.peek = { ...(this.state.peek || {}), follow: result.peek_follow };
+    }
+    if (result.peek) {
+      this.state.peek = { ...(this.state.peek || {}), active: result.peek };
+      this.renderPeek();
+    }
     this.renderInputs();
-    if (result.requested !== undefined && result.requested !== result.active_input) {
+    this.renderFollow();
+    if (result.requested !== undefined && result.requested !== result.active_input && !result.peek) {
       this.toaster.error(`Asked for input ${result.requested}; the switch reports ${result.active_input}.`);
     }
   }
@@ -570,6 +594,7 @@ class Panel {
     this.el.endpoint.textContent = this.state.endpoint || "";
     this.renderInputs();
     this.renderPeek();
+    this.renderFollow();
     this.renderSettings();
     this.renderNames();
     this.renderCycle();
@@ -649,6 +674,15 @@ class Panel {
       }
       draw();
     }, 1000);
+  }
+
+  renderFollow() {
+    const mode = (this.state.peek && this.state.peek.follow) || "off";
+    document.querySelectorAll("[data-follow]").forEach((button) => {
+      const on = button.dataset.follow === mode;
+      button.classList.toggle("active", on);
+      button.setAttribute("aria-pressed", on ? "true" : "false");
+    });
   }
 
   renderSettings() {

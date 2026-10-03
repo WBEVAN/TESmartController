@@ -51,6 +51,10 @@ body {
   gap: 0.75rem;
 }
 
+.row-3 {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+
 .key {
   display: grid;
   place-items: center;
@@ -77,6 +81,10 @@ body {
 .key:focus-visible {
   border-color: var(--key-hot);
   outline: none;
+}
+
+.key-peek {
+  border-color: #f59e0b;
 }
 
 .key:active {

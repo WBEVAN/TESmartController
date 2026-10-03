@@ -36,6 +36,8 @@ Names, cycle, and the peek duration have no Save button. They involve no switch 
 
 Peek is not a cycle: one flip there, one flip back. Clicking another input while a peek is running moves the peek to that input and restarts the countdown; the return point stays the original input. If the input is changed by anything else during the peek (front panel, remote, another client), the peek does not snap back over that choice. The auto cycle pauses while a peek is running.
 
+**Peek** beside the duration is this page only: while it is on, the input buttons on this page peek. **Once**, **Always**, and **Off** are the listener. **Once** makes the next plain input change from any client (this page, `/input/3`, another site's button) peek, then later changes stick. **Always** keeps doing that until **Off**. The armed mode is remembered in this listener process and is not written to the env file. The page highlights the mode that is armed.
+
 ## Changing the address
 
 This is the one action on the page that can take the switch out of reach, so it is deliberately slow:
@@ -60,6 +62,7 @@ The page talks to JSON routes under `/api`. `GET /api` lists them. Errors are `{
 | `POST /api/peek` | `{"input": 3, "seconds": 5}` | Switches now and returns at once. `/api/state` carries `peek.active` with `previous`, `peeked`, `seconds`, `remaining` until the listener has returned. |
 | `POST /api/peek` | `{"cancel": true}` | Return to the previous input now |
 | `POST /api/peek-default` | `{"seconds": 8}` | Save the default peek duration |
+| `POST /api/peek-follow` | `{"mode": "once"}` | `once`, `always`, or `off`. Optional `"seconds"` overrides the duration for changes taken while this mode is armed |
 | `POST /api/buzzer` | `{"on": false}` | Sent. The switch does not confirm it. |
 | `POST /api/led` | `{"timeout": "never"}`, `"10"`, or `"30"` | Sent. The switch does not confirm it. |
 | `POST /api/autodetect` | `{"on": true}` | Sent. The switch does not confirm it. |

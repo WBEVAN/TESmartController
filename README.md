@@ -232,6 +232,8 @@ tesmartctl peek 3 --seconds 8 --save   # and make 8 seconds the default
 
 `peek` flips to the input, waits, and flips back to the one that was active. Ctrl-C comes back at once. If the input is changed by something else during the peek (front panel, remote, another client), `peek` leaves that choice alone, reports it, and exits non-zero. The default duration is `5` seconds, stored as `TESMART_PEEK_SECONDS` in the env file.
 
+The listener can also make the *next* ordinary input change a peek, so a button that calls `/input/3` peeks instead of sticking. `GET /peek/once` arms a single change. `GET /peek/always` keeps doing it until `GET /peek/off`. Detail is in [`Docs/listener.md`](Docs/listener.md).
+
 ### Write-only settings
 
 ```bash
@@ -326,6 +328,9 @@ http://127.0.0.1:8080/rotate?only=1,2,4     next input within that list
 http://127.0.0.1:8080/input?rotate=1        same as /rotate
 http://127.0.0.1:8080/peek/3                 show 3 for the saved seconds, then back; replies once back
 http://127.0.0.1:8080/peek?input=3&seconds=8 same with an explicit duration
+http://127.0.0.1:8080/peek/once              the next input change peeks, then later changes stick
+http://127.0.0.1:8080/peek/always            every plain input change peeks until /peek/off
+http://127.0.0.1:8080/peek/off               plain input changes stick again
 http://127.0.0.1:8080/input?set=3            {"active_input": 3, "requested": 3}
 http://127.0.0.1:8080/input/3                same as /input?set=3
 http://127.0.0.1:8080/input/Office           switch by a local name

@@ -38,7 +38,10 @@ One command per line. The reply is one line, flushed immediately. The number in 
 | `set Office` | select by a local name from `tesmartctl name` | `2` |
 | `peek 3` | show input 3 for the saved seconds, then return; replies once back | `2` |
 | `peek 3 10` | same, for 10 seconds | `2` |
-| `help` or `h` | no switch traffic | `commands: get \| set <n> \| <n> \| next \| previous \| rotate [1,2,4] \| peek <n> [seconds] \| quit` |
+| `peek once` | the next `set`, bare number, `next`, or `previous` peeks; later changes stick | `peek once` |
+| `peek always` | every one of those peeks until `peek off` | `peek always` |
+| `peek off` | those commands stick again | `peek off` |
+| `help` or `h` | no switch traffic | the command list, including `peek once`, `peek always`, and `peek off` |
 | `quit` or `exit` | close this session | none |
 | blank line | ignored | none |
 
@@ -58,7 +61,7 @@ An unknown line is `error: ...` and the listener stays up.
 {"active_input": 2}
 {"active_input": 3, "requested": 3}
 {"error": "input must be between 1 and 8, got 9"}
-{"help": "commands: get | set <n> | <n> | next | previous | rotate [1,2,4] | peek <n> [seconds] | quit"}
+{"help": "commands: get | set <n> | <n> | next | previous | rotate [1,2,4] | peek <n> [seconds] | peek once [seconds] | peek always [seconds] | peek off | quit"}
 {"active_input": 3, "requested": 3, "previous": 2, "active_name": "Den", "requested_name": "Den", "previous_name": "Office"}
 {"previous": 2, "peeked": 3, "seconds": 5, "restored": 2, "interrupted": false, "cancelled": false, "active_input": 2, "error": null}
 ```
@@ -94,6 +97,9 @@ JSON is the default. Add `format=text` to get plain text: a bare input number, o
 | `/input?rotate=1` | same as `/rotate` | same shape |
 | `/peek/3` | show 3 for the saved seconds, then return; replies once back | `{"previous": 2, "peeked": 3, "seconds": 5, "restored": 2, "interrupted": false, "cancelled": false, "active_input": 2, "error": null}` |
 | `/peek?input=Office&seconds=8` | same, by name, with an explicit duration | same shape |
+| `/peek/once` | the next `/input/N`, `/next`, or `/previous` peeks; later changes stick | `{"peek_follow": "once"}` |
+| `/peek/always` | every one of those peeks until `/peek/off` | `{"peek_follow": "always"}` |
+| `/peek/off` | those routes stick again | `{"peek_follow": "off"}` |
 | `/input?set=3` | switch to 3, then read it back | `{"active_input": 3, "requested": 3}` |
 | `/input/3` | same as `/input?set=3` | `{"active_input": 3, "requested": 3}` |
 | `/input/Office`, `/set?input=Office` | select by a local name | `{"active_input": 2, "requested": 2, "active_name": "Office", ...}` |
@@ -103,6 +109,8 @@ JSON is the default. Add `format=text` to get plain text: a bare input number, o
 | `/status?network=0` | active input only | `"network": null` |
 
 `network=0` also accepts `off`, `false`, and `no`. Skipping the LAN queries avoids four extra paced round trips.
+
+`/peek/once` and `/peek/always` do not move the switch. They arm this listener so the next plain input change — `/input/N`, `/set/N`, `/next`, `/previous`, `/rotate` — peeks for the saved number of seconds and then returns. `?seconds=8` on the arm request uses 8 seconds for those peeks instead. `once` clears itself when that change is taken, so the change after that sticks. `always` stays until `/peek/off`. An explicit `/peek/3` does not use up a `once`. The arm lives in the listener process and is forgotten when the process stops. Reading `/input` does not use it up. The line commands `peek once`, `peek always`, and `peek off` are the same idea on stdin and on `--bind`.
 
 `GET /status` returns everything the switch can report:
 

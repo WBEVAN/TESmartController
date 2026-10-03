@@ -42,6 +42,80 @@ class PeekResult:
         return asdict(self)
 
 
+class PeekFollow:
+    """Decide whether the next plain input change should peek instead of stick.
+
+    ``once`` applies to a single later input change (``/input/3``, ``set 3``,
+    next, previous) and then clears. ``always`` keeps applying until set back
+    to ``off``. An explicit peek does not consume either mode. The state is
+    in this process only; it is not written to the env file.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._mode = "off"
+        self._seconds: int | None = None
+
+    def status(self) -> dict:
+        with self._lock:
+            return {"mode": self._mode, "seconds": self._seconds}
+
+    def set_mode(self, mode: str, seconds: int | None = None) -> dict:
+        if mode not in {"once", "always", "off"}:
+            raise ValueError("peek follow must be once, always, or off")
+        if mode == "off":
+            seconds = None
+        elif seconds is not None and (isinstance(seconds, bool) or not isinstance(seconds, int) or seconds < 1):
+            raise ValueError("peek seconds must be a whole number, 1 or more")
+        with self._lock:
+            self._mode = mode
+            self._seconds = seconds
+            return {"mode": self._mode, "seconds": self._seconds}
+
+    def claim(self) -> dict | None:
+        """Return the mode to apply to this input change, or ``None`` when off.
+
+        ``once`` clears as it is claimed, so a second change sticks.
+        ``always`` stays armed.
+        """
+        with self._lock:
+            if self._mode == "off":
+                return None
+            claimed = {"mode": self._mode, "seconds": self._seconds}
+            if self._mode == "once":
+                self._mode = "off"
+                self._seconds = None
+            return claimed
+
+
+def apply_follow(
+    follow: PeekFollow,
+    peeker: Peeker,
+    number: int,
+    default_seconds: int,
+    *,
+    block: bool,
+) -> dict | None:
+    """Peek at ``number`` when follow mode is armed. ``None`` means stick instead.
+
+    ``block`` waits until the switch is back (the plain HTTP and line
+    listeners). The panel passes ``False`` so it can show the countdown.
+    """
+    claim = follow.claim()
+    if claim is None:
+        return None
+    seconds = claim["seconds"] if claim["seconds"] is not None else default_seconds
+    if block:
+        result = peeker.run(number, seconds).to_dict()
+    else:
+        started = peeker.start(number, seconds)
+        result = {"requested": number, "active_input": started["peeked"], "peek": started}
+    result["requested"] = number
+    result["followed"] = claim["mode"]
+    result["peek_follow"] = follow.status()["mode"]
+    return result
+
+
 class Peeker:
     """Peek at an input and come back. One peek at a time per switch."""
 

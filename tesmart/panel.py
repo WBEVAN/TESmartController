@@ -24,8 +24,9 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, urlsplit
 
 from . import config, notices
+from .peek import apply_follow
 from .protocol import LedTimeout
-from .switch import SwitchError
+from .switch import SwitchError, next_input, previous_input
 from .transport import TransportError
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -49,6 +50,12 @@ API_CATALOG: list[dict[str, Any]] = [
     {"method": "POST", "path": "/api/previous", "summary": "previous input in the saved cycle", "sample": {}},
     {"method": "POST", "path": "/api/peek", "summary": "show an input briefly, then return. {\"cancel\": true} comes back now", "sample": {"input": 3, "seconds": 5}},
     {"method": "POST", "path": "/api/peek-default", "summary": "save the default peek duration", "sample": {"seconds": 8}},
+    {
+        "method": "POST",
+        "path": "/api/peek-follow",
+        "summary": "once: the next plain input change peeks. always: every one does, until off",
+        "sample": {"mode": "once"},
+    },
     {"method": "POST", "path": "/api/buzzer", "summary": "buzzer on or off (write-only)", "sample": {"on": True}},
     {"method": "POST", "path": "/api/led", "summary": "front-panel display timeout: never, 10, or 30", "sample": {"timeout": "30"}},
     {"method": "POST", "path": "/api/autodetect", "summary": "auto input detection on or off (write-only)", "sample": {"on": True}},
@@ -137,6 +144,7 @@ def build_state(handler: "_Handler", include_network: bool) -> dict[str, Any]:
     status["rotate"] = config.rotate_info(server.env_file, input_count=switch.input_count)
     status["peek"] = config.peek_info(server.env_file)
     status["peek"]["active"] = server.peeker.status()
+    status["peek"]["follow"] = server.peek_follow.status()["mode"]
     status["last_sent"] = dict(server.last_sent)
     status["inputs"] = [
         {"number": number, "name": names.get(number)} for number in range(1, switch.input_count + 1)
@@ -152,6 +160,23 @@ def _input_payload(handler: "_Handler", payload: dict[str, Any]) -> dict[str, An
 # --- actions -----------------------------------------------------------------
 
 
+def _follow_or_stick(handler: "_Handler", number: int, previous: int | None = None) -> dict[str, Any] | None:
+    """Peek when follow mode is armed. ``None`` means the caller should stick."""
+    server = handler.server
+    followed = apply_follow(
+        server.peek_follow,
+        server.peeker,
+        number,
+        config.read_peek_seconds(server.env_file),
+        block=False,
+    )
+    if followed is None:
+        return None
+    if previous is not None:
+        followed["previous"] = previous
+    return _input_payload(handler, followed)
+
+
 def _action_input(handler: "_Handler", body: dict[str, Any]) -> dict[str, Any]:
     server = handler.server
     raw = body.get("input")
@@ -159,6 +184,9 @@ def _action_input(handler: "_Handler", body: dict[str, Any]) -> dict[str, Any]:
         raise PanelError('"input" is required')
     names = config.read_names(server.env_file)
     number = config.resolve_named_input(str(raw), input_count=server.switch.input_count, names=names)
+    followed = _follow_or_stick(handler, number)
+    if followed is not None:
+        return followed
     with server.lock:
         reported = server.switch.set_input(number, verify=True)
     return _input_payload(handler, {"requested": number, "active_input": reported})
@@ -168,8 +196,16 @@ def _action_step(handler: "_Handler", direction: int) -> dict[str, Any]:
     server = handler.server
     only = config.read_rotate(server.env_file)
     with server.lock:
-        previous, reported = server.switch.rotate(only, direction=direction)
-    return _input_payload(handler, {"previous": previous, "requested": reported, "active_input": reported})
+        current = server.switch.get_active_input()
+        step = previous_input if direction < 0 else next_input
+        target = step(current, server.switch.input_count, only)
+    followed = _follow_or_stick(handler, target, previous=current)
+    if followed is not None:
+        return followed
+    with server.lock:
+        reported = server.switch.set_input(target, verify=True)
+    reported = reported if reported is not None else target
+    return _input_payload(handler, {"previous": current, "requested": reported, "active_input": reported})
 
 
 def _action_peek(handler: "_Handler", body: dict[str, Any]) -> dict[str, Any]:
@@ -189,6 +225,17 @@ def _action_peek(handler: "_Handler", body: dict[str, Any]) -> dict[str, Any]:
         raise PanelError('"seconds" must be a whole number of seconds, 1 or more')
     started = server.peeker.start(number, seconds)
     return _input_payload(handler, {"peek": started, "active_input": started["peeked"] if started else number})
+
+
+def _action_peek_follow(handler: "_Handler", body: dict[str, Any]) -> dict[str, Any]:
+    mode = body.get("mode")
+    if not isinstance(mode, str):
+        raise PanelError('"mode" must be once, always, or off')
+    seconds = body.get("seconds")
+    if seconds is not None and (isinstance(seconds, bool) or not isinstance(seconds, int) or seconds < 1):
+        raise PanelError('"seconds" must be a whole number of seconds, 1 or more')
+    state = handler.server.peek_follow.set_mode(mode, seconds)
+    return {"peek_follow": state["mode"], "seconds": state["seconds"]}
 
 
 def _action_peek_default(handler: "_Handler", body: dict[str, Any]) -> dict[str, Any]:
@@ -358,7 +405,7 @@ def _api(handler: "_Handler", method: str, segments: list[str], query_text: str)
         return _action_network_get(handler)
 
     writable = {
-        "input", "next", "previous", "peek", "peek-default",
+        "input", "next", "previous", "peek", "peek-default", "peek-follow",
         "buzzer", "led", "autodetect", "network", "names", "cycle",
     }
     if name not in writable:
@@ -372,6 +419,7 @@ def _api(handler: "_Handler", method: str, segments: list[str], query_text: str)
         "previous": lambda: _action_step(handler, -1),
         "peek": lambda: _action_peek(handler, body),
         "peek-default": lambda: _action_peek_default(handler, body),
+        "peek-follow": lambda: _action_peek_follow(handler, body),
         "buzzer": lambda: _action_buzzer(handler, body),
         "led": lambda: _action_led(handler, body),
         "autodetect": lambda: _action_autodetect(handler, body),

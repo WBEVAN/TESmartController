@@ -78,7 +78,7 @@ Notes:
 
 | Protocol operation | CLI | Line listener | HTTP |
 | --- | --- | --- | --- |
-| Query / set active input | `input`, `status`, `rotate`, `peek` | `get`, `set N`, `next`, `peek N` | `/input`, `/input?set=N`, `/rotate`, `/peek/N`, `/status` |
+| Query / set active input | `input`, `status`, `rotate`, `peek` | `get`, `set N`, `next`, `peek N`, `peek once` | `/input`, `/input?set=N`, `/rotate`, `/peek/N`, `/peek/once`, `/status` |
 | Read LAN settings | `status`, `net show` | — | `/status` |
 | Write LAN settings | `net set --yes` (warns twice, reads back) | — | `POST /api/network` only with `--panel`, and only with both `"confirm": true` and `"accept_risk": true`; reads back |
 | Buzzer, LED timeout, auto-detect | `buzzer`, `led`, `autodetect` | — | `/api/buzzer`, `/api/led`, `/api/autodetect` only with `--panel` |

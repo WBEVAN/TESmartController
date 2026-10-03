@@ -43,7 +43,7 @@ A form button is the same request:
 
 Style those links and buttons in your own stylesheet. If the site already uses Bootstrap, `class="btn btn-primary"` on the link or button is enough.
 
-A finished page of this kind is in [`examples/buttons/`](../examples/buttons/): `index.html` with eight input links plus Previous and Next, and `buttons.css` beside it. No script, no framework, nothing fetched beyond the listener. Copy the folder, change `127.0.0.1:8080` in the links to the address of the computer running `tesmartctl`, and open it.
+A finished page of this kind is in [`examples/buttons/`](../examples/buttons/): `index.html` with eight input links, Previous and Next, and Peek next / Always / Off, and `buttons.css` beside it. No script, no framework, nothing fetched beyond the listener. Copy the folder, change `127.0.0.1:8080` in the links to the address of the computer running `tesmartctl`, and open it. **Peek next** calls `/peek/once`. The following number button then peeks and returns. **Always** keeps that behaviour until **Off**.
 
 ![Sample buttons page](images/buttons.png)
 
@@ -95,6 +95,9 @@ Start the listener with `--panel`. The frame is the full control panel: inputs, 
 | Next within a list, this click only | `/rotate?only=1,2,4` | same shape |
 | Peek at 3 for the saved seconds | `/peek/3` | the peek result, sent once the switch is back |
 | Peek for 8 seconds | `/peek?input=3&seconds=8` | same |
+| Arm the next click | `/peek/once` | `{"peek_follow": "once"}`. The next `/input/N`, `/next`, or `/previous` peeks, then later clicks stick |
+| Arm every click | `/peek/always` | `{"peek_follow": "always"}` until `/peek/off` |
+| Clear that arm | `/peek/off` | `{"peek_follow": "off"}` |
 
 `/rotate` is the same as `/next`. `active_input` is the input the switch reports after the command. Compare it with `requested` when the two might differ.
 

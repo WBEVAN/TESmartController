@@ -20,6 +20,9 @@ Routes (GET or POST)
 ``/input?rotate=1``          same as ``/rotate``
 ``/peek/3``                  show input 3 for the saved number of seconds, then return
 ``/peek?input=3&seconds=8``  same with an explicit duration; replies once back
+``/peek/once``               the next plain input change peeks, then later changes stick
+``/peek/always``             every plain input change peeks until ``/peek/off``
+``/peek/off``                plain input changes stick again
 ``/panel``, ``/api/...``      browser control panel; only with ``--panel`` (see :mod:`tesmart.panel`)
 """
 
@@ -34,8 +37,8 @@ from typing import NamedTuple
 from urllib.parse import parse_qs, urlsplit
 
 from . import config, panel
-from .peek import Peeker
-from .switch import SwitchError, TesmartSwitch, parse_input_list
+from .peek import PeekFollow, Peeker, apply_follow
+from .switch import SwitchError, TesmartSwitch, next_input, parse_input_list, previous_input
 from .transport import TransportError
 
 ROUTES = {
@@ -55,6 +58,9 @@ ROUTES = {
     "/input?rotate=1": "same as /rotate",
     "/peek/N": "show input N for the saved number of seconds, then return; replies once back",
     "/peek?input=N&seconds=S": "same with an explicit duration",
+    "/peek/once": "the next plain input change peeks, then later changes stick",
+    "/peek/always": "every plain input change peeks until /peek/off",
+    "/peek/off": "plain input changes stick again",
     "/panel": "browser control panel (only when started with --panel)",
     "?format=text": "add to any route for plain text instead of JSON",
 }
@@ -74,6 +80,14 @@ def _only_from_query(query: dict[str, list[str]]) -> tuple[int, ...] | None:
     if "only" not in query:
         return None
     return parse_input_list(query["only"][0])
+
+
+def _peek_seconds(text: str | None) -> int | None:
+    if text is None:
+        return None
+    if not text.isdigit() or int(text) < 1:
+        raise ValueError("seconds must be a whole number, 1 or more")
+    return int(text)
 
 
 def _flag_off(query: dict[str, list[str]], name: str) -> bool:
@@ -108,15 +122,17 @@ def _parse_request(path: str) -> WebRequest:
     if head == "peek":
         if len(segments) > 2:
             raise LookupError(parts.path)
+        mode = segments[1].lower() if len(segments) == 2 else None
+        if mode in {"once", "always", "off"}:
+            seconds_text = query.get("seconds", [None])[0]
+            if mode == "off" and seconds_text is not None:
+                raise ValueError("/peek/off does not take a duration")
+            seconds = _peek_seconds(seconds_text)
+            return WebRequest("peek-mode", None, as_text, include_network, None, mode, seconds)
         target = segments[1] if len(segments) == 2 else query.get("input", [None])[0]
         if not target:
             raise ValueError("missing input: use /peek/N or /peek?input=N")
-        seconds_text = query.get("seconds", [None])[0]
-        seconds = None
-        if seconds_text is not None:
-            if not seconds_text.isdigit() or int(seconds_text) < 1:
-                raise ValueError("seconds must be a whole number, 1 or more")
-            seconds = int(seconds_text)
+        seconds = _peek_seconds(query.get("seconds", [None])[0])
         if target.isdigit():
             return WebRequest("peek", int(target), as_text, include_network, None, None, seconds)
         return WebRequest("peek", None, as_text, include_network, None, target, seconds)
@@ -171,6 +187,9 @@ def _status_text(payload: dict) -> str:
     peek = payload.get("peek") or {}
     if peek:
         lines.append(f"peek: {peek.get('seconds')}s then back")
+        follow = peek.get("follow") or "off"
+        if follow != "off":
+            lines.append(f"peek follow: {follow}")
     return "\n".join(lines)
 
 
@@ -201,6 +220,13 @@ class _Handler(BaseHTTPRequestHandler):
         if request.verb == "help":
             self._send(HTTPStatus.OK, {"routes": ROUTES}, False)
             return
+        if request.verb == "peek-mode":
+            state = self.server.peek_follow.set_mode(request.label or "off", request.seconds)
+            payload = {"peek_follow": state["mode"]}
+            if state["seconds"] is not None:
+                payload["seconds"] = state["seconds"]
+            self._send(HTTPStatus.OK, payload, request.as_text, state["mode"])
+            return
 
         try:
             if request.verb == "peek":
@@ -221,6 +247,7 @@ class _Handler(BaseHTTPRequestHandler):
         if request.verb == "status":
             payload["rotate"] = config.rotate_info(self.server.env_file, input_count=self.server.switch.input_count)
             payload["peek"] = config.peek_info(self.server.env_file)
+            payload["peek"]["follow"] = self.server.peek_follow.status()["mode"]
         text = _status_text(payload) if request.verb == "status" else None
         self._send(HTTPStatus.OK, payload, request.as_text, text)
 
@@ -237,17 +264,43 @@ class _Handler(BaseHTTPRequestHandler):
         seconds = request.seconds if request.seconds is not None else config.read_peek_seconds(self.server.env_file)
         return self.server.peeker.run(self._resolve(request), seconds).to_dict()
 
+    def _followed(self, number: int) -> dict | None:
+        """Peek at ``number`` when follow mode is armed. The request waits until back."""
+        return apply_follow(
+            self.server.peek_follow,
+            self.server.peeker,
+            number,
+            config.read_peek_seconds(self.server.env_file),
+            block=True,
+        )
+
     def _with_switch(self, request: WebRequest) -> dict:
         switch = self.server.switch
+        if request.verb in {"rotate", "previous"}:
+            only = request.only if request.only is not None else config.read_rotate(self.server.env_file)
+            direction = -1 if request.verb == "previous" else 1
+            with self.server.lock:
+                current = switch.get_active_input()
+                step = previous_input if direction < 0 else next_input
+                target = step(current, switch.input_count, only)
+            followed = self._followed(target)
+            if followed is not None:
+                followed["previous"] = current
+                return followed
+            with self.server.lock:
+                reported = switch.set_input(target, verify=True)
+            reported = reported if reported is not None else target
+            return {"previous": current, "requested": reported, "active_input": reported}
+        if request.verb == "set":
+            number = self._resolve(request)
+            followed = self._followed(number)
+            if followed is not None:
+                return followed
         with self.server.lock:
             if request.verb == "status":
                 return switch.read_status(include_network=request.include_network).to_dict()
             if request.verb == "get":
                 return {"active_input": switch.get_active_input()}
-            if request.verb in {"rotate", "previous"}:
-                only = request.only if request.only is not None else config.read_rotate(self.server.env_file)
-                previous, reported = switch.rotate(only, direction=-1 if request.verb == "previous" else 1)
-                return {"previous": previous, "requested": reported, "active_input": reported}
             number = self._resolve(request)
             return {"active_input": switch.set_input(number, verify=True), "requested": number}
 
@@ -288,6 +341,8 @@ class WebServer(ThreadingHTTPServer):
         self.lock = threading.Lock()
         # Shared so a peek started from /peek or the panel is visible to /api/state.
         self.peeker = Peeker(switch, self.lock)
+        # Armed by /peek/once or /peek/always. The next plain input change peeks.
+        self.peek_follow = PeekFollow()
 
 
 def serve_http(

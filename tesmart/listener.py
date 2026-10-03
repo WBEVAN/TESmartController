@@ -13,6 +13,9 @@ Commands
     Step along the saved cycle.
 ``peek <n> [seconds]``
     Show input ``n`` for a few seconds, then return. Replies once back.
+``peek once [seconds]``
+    The next ``set``, bare number, ``next``, or ``previous`` peeks, then
+    later changes stick. ``peek always`` keeps doing that until ``peek off``.
 ``quit``
     Close this client. On stdin, that ends the process.
 ``help``
@@ -32,11 +35,14 @@ import threading
 from typing import TextIO
 
 from . import config
-from .peek import Peeker
-from .switch import SwitchError, TesmartSwitch, parse_input_list
+from .peek import PeekFollow, Peeker, apply_follow
+from .switch import SwitchError, TesmartSwitch, next_input, parse_input_list, previous_input
 from .transport import TransportError
 
-HELP = "commands: get | set <n> | <n> | next | previous | rotate [1,2,4] | peek <n> [seconds] | quit"
+HELP = (
+    "commands: get | set <n> | <n> | next | previous | rotate [1,2,4] | "
+    "peek <n> [seconds] | peek once [seconds] | peek always [seconds] | peek off | quit"
+)
 
 
 class SessionQuit(Exception):
@@ -73,6 +79,17 @@ def parse_command(line: str) -> tuple[str, int | None, tuple[int, ...] | None, s
         return "noop", None, None, None
     word = parts[0].lower()
     if word == "peek":
+        if len(parts) >= 2 and parts[1].lower() in {"once", "always", "off"}:
+            mode = parts[1].lower()
+            if mode == "off":
+                if len(parts) != 2:
+                    raise ValueError("usage: peek off")
+                return "peek-mode", None, None, mode
+            if len(parts) == 2:
+                return "peek-mode", None, None, mode
+            if len(parts) == 3 and parts[2].isdigit() and int(parts[2]) >= 1:
+                return "peek-mode", None, (int(parts[2]),), mode
+            raise ValueError("usage: peek once [seconds] | peek always [seconds] | peek off")
         if len(parts) not in {2, 3}:
             raise ValueError("usage: peek <input> [seconds]")
         seconds: tuple[int, ...] | None = None
@@ -134,39 +151,92 @@ def format_reply(
     return str(active)
 
 
-def dispatch(switch: TesmartSwitch, line: str, *, as_json: bool = False, env_file: str | None = None) -> str | None:
-    """Run one command. ``None`` means the line was blank and needs no reply."""
+def _format_follow(result: dict, *, as_json: bool, names: dict) -> str:
+    if as_json:
+        return json.dumps(config.apply_names(result, names))
+    return str(result.get("active_input"))
+
+
+def dispatch(
+    switch: TesmartSwitch,
+    line: str,
+    *,
+    as_json: bool = False,
+    env_file: str | None = None,
+    follow: PeekFollow | None = None,
+    peeker: Peeker | None = None,
+) -> str | None:
+    """Run one command. ``None`` means the line was blank and needs no reply.
+
+    ``follow`` and ``peeker`` are shared for the life of one listener so
+    ``peek once`` applies to a later ``set`` on any client of that process.
+    """
     verb, number, only, label = parse_command(line)
-    names = config.read_names(env_file) if as_json or label else {}
+    names = config.read_names(env_file) if as_json or (label and verb != "peek-mode") else {}
     if verb == "noop":
         return None
     if verb == "quit":
         raise SessionQuit()
     if verb == "help":
         return json.dumps({"help": HELP}) if as_json else HELP
+    if verb == "peek-mode":
+        if follow is None:
+            raise SwitchError("peek once, peek always, and peek off are listener commands")
+        state = follow.set_mode(label or "off", only[0] if only else None)
+        if as_json:
+            return json.dumps({"peek_follow": state["mode"], "seconds": state["seconds"]})
+        if state["seconds"] is None:
+            return f"peek {state['mode']}"
+        return f"peek {state['mode']} {state['seconds']}"
     if verb == "get":
         return format_reply(active=switch.get_active_input(), as_json=as_json, names=names)
     if verb in {"rotate", "previous"}:
         if only is None:
             only = config.read_rotate(env_file)
         direction = -1 if verb == "previous" else 1
-        previous, reported = switch.rotate(only, direction=direction)
-        return format_reply(active=reported, requested=reported, previous=previous, as_json=as_json, names=names)
+        current = switch.get_active_input()
+        step = previous_input if direction < 0 else next_input
+        target = step(current, switch.input_count, only)
+        if follow is not None and peeker is not None:
+            followed = apply_follow(
+                follow, peeker, target, config.read_peek_seconds(env_file), block=True
+            )
+            if followed is not None:
+                followed["previous"] = current
+                return _format_follow(followed, as_json=as_json, names=names)
+        reported = switch.set_input(target, verify=True)
+        reported = reported if reported is not None else target
+        return format_reply(active=reported, requested=reported, previous=current, as_json=as_json, names=names)
     if label:
         number = config.resolve_named_input(label, input_count=switch.input_count, names=config.read_names(env_file))
     if verb == "peek":
         seconds = only[0] if only else config.read_peek_seconds(env_file)
-        result = Peeker(switch).run(number if number is not None else 0, seconds)
+        worker = peeker if peeker is not None else Peeker(switch)
+        result = worker.run(number if number is not None else 0, seconds)
         if as_json:
             return json.dumps(config.apply_names(result.to_dict(), names))
         return str(result.active_input)
-    reported = switch.set_input(number if number is not None else 0, verify=True)
+    if number is None:
+        raise SwitchError("missing input number")
+    if follow is not None and peeker is not None:
+        followed = apply_follow(follow, peeker, number, config.read_peek_seconds(env_file), block=True)
+        if followed is not None:
+            return _format_follow(followed, as_json=as_json, names=names)
+    reported = switch.set_input(number, verify=True)
     return format_reply(active=reported, requested=number, as_json=as_json, names=names)
 
 
-def _reply_for(switch: TesmartSwitch, line: str, *, as_json: bool, env_file: str | None = None) -> str | None:
+def _reply_for(
+    switch: TesmartSwitch,
+    line: str,
+    *,
+    as_json: bool,
+    env_file: str | None = None,
+    follow: PeekFollow | None = None,
+    peeker: Peeker | None = None,
+) -> str | None:
     try:
-        return dispatch(switch, line, as_json=as_json, env_file=env_file)
+        return dispatch(switch, line, as_json=as_json, env_file=env_file, follow=follow, peeker=peeker)
     except (SwitchError, TransportError, config.ConfigError, ValueError) as exc:
         return format_reply(error=str(exc), as_json=as_json)
 
@@ -177,10 +247,14 @@ def serve_stdio(switch: TesmartSwitch, *, as_json: bool = False, stdin: TextIO |
     sink = stdout if stdout is not None else sys.stdout
     print(f"Command listener on stdin for {switch.endpoint} (Ctrl-C or 'quit' to stop).", file=sys.stderr)
     print(HELP, file=sys.stderr)
+    follow = PeekFollow()
+    peeker = Peeker(switch)
     try:
         for line in source:
             try:
-                reply = _reply_for(switch, line, as_json=as_json, env_file=env_file)
+                reply = _reply_for(
+                    switch, line, as_json=as_json, env_file=env_file, follow=follow, peeker=peeker
+                )
             except SessionQuit:
                 break
             if reply is None:
@@ -204,7 +278,14 @@ class _CommandHandler(socketserver.StreamRequestHandler):
                 line = raw.decode("utf-8", errors="replace")
                 try:
                     with server.lock:
-                        reply = _reply_for(server.switch, line, as_json=server.as_json, env_file=server.env_file)
+                        reply = _reply_for(
+                            server.switch,
+                            line,
+                            as_json=server.as_json,
+                            env_file=server.env_file,
+                            follow=server.peek_follow,
+                            peeker=server.peeker,
+                        )
                 except SessionQuit:
                     break
                 if reply is None:
@@ -227,6 +308,10 @@ class CommandServer(socketserver.ThreadingTCPServer):
         self.as_json = as_json
         self.env_file = env_file
         self.lock = threading.Lock()
+        self.peek_follow = PeekFollow()
+        # Not given the server lock: dispatch already runs inside that lock,
+        # and the lock is not re-entrant.
+        self.peeker = Peeker(switch)
 
 
 def serve_tcp(switch: TesmartSwitch, host: str, port: int, *, as_json: bool = False, env_file: str | None = None) -> int:
