@@ -11,7 +11,11 @@ tesmartctl listen --http 8080 --panel
 
 The page is a replacement for the vendor Windows controller. It uses Bootstrap from a CDN and styles from `/static/panel.css`. Outcomes appear as toasts. Changing the switch's address opens a three-step dialog in the page; the browser's own alert and confirm dialogs are not used.
 
+![Control panel](images/panel.png)
+
 **API** in the top bar opens a dialog that lists every `/api` route (`GET /api` returns the same list as `catalog`). Picking a route fills the path and a sample body; **Send** shows the status code and the raw body. `POST /api/network` is listed but not sent from there: address changes stay on **Change address**.
+
+![API explorer](images/api-explorer.png)
 
 ## What the page controls
 

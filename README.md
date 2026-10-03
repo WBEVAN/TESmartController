@@ -287,6 +287,12 @@ tesmartctl listen --http 8080 --panel     # also http://127.0.0.1:8080/panel
 
 `--panel` is off unless you add it. It serves a browser page for selecting inputs, stepping the cycle, peeking, and the switch settings the vendor Windows controller exposes (buzzer, front-panel display timeout, auto input detection, LAN address). Detail is in [`Docs/panel.md`](Docs/panel.md).
 
+![Control panel](Docs/images/panel.png)
+
+The **API** button in the top bar opens an explorer that lists every `/api` route, sends it, and shows the raw status and body the listener returned.
+
+![API explorer](Docs/images/api-explorer.png)
+
 Line commands: `get` (also `port`, `status`, `?`) prints the active input; `set 3`, `set Office`, or just `3` switches and prints the input the switch reports; `next` or `rotate 1,2,4` moves to the next input; `peek 3` or `peek 3 10` shows an input briefly and replies once back; `quit` closes the session. `--json` makes each reply one JSON object. The line command `status` is only the active input. The full readable status is the HTTP route and `tesmartctl status`.
 
 A full session on stdin:
@@ -363,6 +369,7 @@ with TesmartSwitch(TcpTransport("192.168.1.50")) as sw:
 | `Docs/protocol.md` | Wire protocol |
 | `Docs/listener.md` | Line protocol and HTTP routes |
 | `Docs/panel.md` | Browser control panel |
+| `Docs/images/` | Screenshots used in the documentation |
 | `LICENSE` | MIT License |
 
 ## License
