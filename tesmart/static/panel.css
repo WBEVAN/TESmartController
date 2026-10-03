@@ -1,0 +1,110 @@
+/* TESmart control panel. Bootstrap does the layout; this file only adds what it lacks. */
+
+.input-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr));
+  gap: 0.75rem;
+}
+
+.input-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 5.5rem;
+  line-height: 1.2;
+}
+
+.input-btn .input-number {
+  font-size: 1.75rem;
+  font-weight: 600;
+}
+
+.input-btn .input-name {
+  font-size: 0.8rem;
+  opacity: 0.85;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.input-btn.is-active {
+  box-shadow: 0 0 0 0.2rem rgba(var(--bs-primary-rgb), 0.35);
+}
+
+.input-btn.is-peek {
+  box-shadow: 0 0 0 0.2rem rgba(var(--bs-warning-rgb), 0.6);
+}
+
+.peek-seconds {
+  width: 5.5rem;
+}
+
+#peek-status:not(.d-none) {
+  display: inline-flex;
+}
+
+.link-dot {
+  display: inline-block;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: currentColor;
+  margin-right: 0.25rem;
+  vertical-align: middle;
+}
+
+#link.is-busy .link-dot {
+  animation: pulse 1s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
+.api-list {
+  max-height: 32rem;
+  overflow: auto;
+}
+
+.api-list .list-group-item {
+  cursor: pointer;
+}
+
+.api-body,
+.api-response {
+  font-size: 0.8rem;
+}
+
+.api-response {
+  background: var(--bs-tertiary-bg);
+  border-radius: var(--bs-border-radius);
+  min-height: 12rem;
+  max-height: 22rem;
+  overflow: auto;
+  padding: 0.75rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.saved-flag {
+  white-space: nowrap;
+  color: var(--bs-success);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.saved-flag.is-visible {
+  opacity: 1;
+}
+
+.names-row .form-control {
+  max-width: 100%;
+}
+
+.names-row .input-group-text {
+  min-width: 2.75rem;
+  justify-content: center;
+}

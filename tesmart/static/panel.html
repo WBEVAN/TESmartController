@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="en" data-bs-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TESmart control</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+        integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+  <link rel="stylesheet" href="/static/panel.css">
+</head>
+<body>
+
+<nav class="navbar bg-body-tertiary border-bottom">
+  <div class="container-xl">
+    <span class="navbar-brand fw-semibold">TESmart control</span>
+    <div class="d-flex align-items-center gap-3 small text-body-secondary">
+      <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#api-modal">API</button>
+      <span id="endpoint" class="font-monospace">connecting…</span>
+      <span id="link" class="badge rounded-pill text-bg-secondary" title="Connection to the switch">
+        <span class="link-dot"></span> waiting
+      </span>
+    </div>
+  </div>
+</nav>
+
+<main class="container-xl py-4">
+
+  <div class="row g-4">
+
+    <!-- Inputs -->
+    <section class="col-lg-8">
+      <div class="card h-100">
+        <div class="card-header d-flex justify-content-between align-items-center gap-3">
+          <span>Inputs</span>
+          <span id="peek-status" class="d-none align-items-center gap-2 small">
+            <span class="badge text-bg-warning">Peek</span>
+            <span id="peek-text"></span>
+            <button id="btn-peek-back" type="button" class="btn btn-outline-secondary btn-sm py-0">Back now</button>
+          </span>
+          <span class="small text-body-secondary">Active: <strong id="active-label">—</strong></span>
+        </div>
+        <div class="card-body">
+          <div id="inputs" class="input-grid" role="group" aria-label="Select input"></div>
+        </div>
+        <div class="card-footer d-flex flex-wrap align-items-center gap-2">
+          <div class="btn-group" role="group" aria-label="Step through the cycle">
+            <button id="btn-previous" type="button" class="btn btn-outline-secondary">&larr; Previous</button>
+            <button id="btn-next" type="button" class="btn btn-outline-secondary">Next &rarr;</button>
+          </div>
+          <div class="d-flex align-items-center gap-2" title="With Peek on, an input button shows that input briefly and then comes back">
+            <input type="checkbox" class="btn-check" id="peek-mode" autocomplete="off">
+            <label class="btn btn-outline-warning" for="peek-mode">Peek</label>
+            <div class="input-group input-group-sm peek-seconds">
+              <input type="number" class="form-control" id="peek-seconds" min="1" step="1" value="5" aria-label="Peek duration in seconds">
+              <span class="input-group-text">s</span>
+            </div>
+          </div>
+          <div class="form-check form-switch ms-lg-auto mb-0">
+            <input class="form-check-input" type="checkbox" role="switch" id="auto-cycle">
+            <label class="form-check-label" for="auto-cycle">
+              Auto cycle <span id="auto-cycle-info" class="text-body-secondary small"></span>
+            </label>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Switch settings -->
+    <section class="col-lg-4">
+      <div class="card h-100">
+        <div class="card-header">Switch settings</div>
+        <div class="card-body d-flex flex-column gap-4">
+
+          <div>
+            <div class="d-flex justify-content-between">
+              <label class="form-label mb-1">Buzzer</label>
+              <span class="small text-body-secondary" id="buzzer-last"></span>
+            </div>
+            <div class="btn-group w-100" role="group" aria-label="Buzzer" data-setting="buzzer">
+              <button type="button" class="btn btn-outline-secondary" data-value="on">On</button>
+              <button type="button" class="btn btn-outline-secondary" data-value="off">Off</button>
+            </div>
+          </div>
+
+          <div>
+            <div class="d-flex justify-content-between">
+              <label class="form-label mb-1">Front-panel display timeout</label>
+              <span class="small text-body-secondary" id="led-last"></span>
+            </div>
+            <div class="btn-group w-100" role="group" aria-label="Display timeout" data-setting="led">
+              <button type="button" class="btn btn-outline-secondary" data-value="never">Never</button>
+              <button type="button" class="btn btn-outline-secondary" data-value="10">10 s</button>
+              <button type="button" class="btn btn-outline-secondary" data-value="30">30 s</button>
+            </div>
+          </div>
+
+          <div>
+            <div class="d-flex justify-content-between">
+              <label class="form-label mb-1">Auto input detection</label>
+              <span class="small text-body-secondary" id="autodetect-last"></span>
+            </div>
+            <div class="btn-group w-100" role="group" aria-label="Auto input detection" data-setting="autodetect">
+              <button type="button" class="btn btn-outline-secondary" data-value="on">On</button>
+              <button type="button" class="btn btn-outline-secondary" data-value="off">Off</button>
+            </div>
+          </div>
+
+        </div>
+        <div class="card-footer small text-body-secondary">
+          The switch cannot report these values. Highlighted is the last value sent from this panel.
+        </div>
+      </div>
+    </section>
+
+    <!-- Names -->
+    <section class="col-lg-4">
+      <div class="card h-100">
+        <div class="card-header">Input names</div>
+        <div class="card-body">
+          <form id="names-form" class="vstack gap-2" autocomplete="off"></form>
+        </div>
+        <div class="card-footer d-flex justify-content-between align-items-center small text-body-secondary">
+          <span>Saved as you type. Stored on this computer, not in the switch.</span>
+          <span class="saved-flag" id="names-saved" aria-live="polite"></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Cycle -->
+    <section class="col-lg-4">
+      <div class="card h-100">
+        <div class="card-header">Cycle</div>
+        <div class="card-body">
+          <form id="cycle-form" class="vstack gap-3">
+            <div>
+              <label class="form-label mb-1">Inputs to walk</label>
+              <div id="cycle-inputs" class="d-flex flex-wrap gap-2"></div>
+              <div class="form-text">None selected means every input.</div>
+            </div>
+            <div>
+              <label class="form-label mb-1">Mode</label>
+              <div class="btn-group w-100" role="group" aria-label="Cycle mode">
+                <input type="radio" class="btn-check" name="cycle-mode" id="mode-manual" value="manual" autocomplete="off">
+                <label class="btn btn-outline-secondary" for="mode-manual">Manual</label>
+                <input type="radio" class="btn-check" name="cycle-mode" id="mode-automatic" value="automatic" autocomplete="off">
+                <label class="btn btn-outline-secondary" for="mode-automatic">Automatic</label>
+              </div>
+            </div>
+            <div>
+              <label for="cycle-seconds" class="form-label mb-1">Interval</label>
+              <div class="input-group">
+                <input type="number" class="form-control" id="cycle-seconds" min="1" step="1" value="10">
+                <span class="input-group-text">seconds</span>
+              </div>
+            </div>
+          </form>
+        </div>
+        <div class="card-footer d-flex justify-content-between align-items-center small text-body-secondary">
+          <span>Saved as you change it. Automatic runs while this page is open with Auto cycle on.</span>
+          <span class="saved-flag" id="cycle-saved" aria-live="polite"></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Network -->
+    <section class="col-lg-4">
+      <div class="card h-100">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <span>Network</span>
+          <button id="btn-network-query" type="button" class="btn btn-link btn-sm p-0">Query</button>
+        </div>
+        <div class="card-body">
+          <dl class="row mb-3 small" id="network-view">
+            <dt class="col-5">IP address</dt><dd class="col-7 font-monospace" data-net="ip">—</dd>
+            <dt class="col-5">Port</dt><dd class="col-7 font-monospace" data-net="port">—</dd>
+            <dt class="col-5">Gateway</dt><dd class="col-7 font-monospace" data-net="gateway">—</dd>
+            <dt class="col-5">Mask</dt><dd class="col-7 font-monospace" data-net="mask">—</dd>
+          </dl>
+          <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#network-edit" aria-expanded="false" aria-controls="network-edit">
+            Change address…
+          </button>
+          <div class="collapse mt-3" id="network-edit">
+            <div class="alert alert-warning small py-2 mb-2" role="alert">
+              A wrong value here makes the switch unreachable over the network. There is no factory reset; recovery needs an RS232 cable. You will be asked to confirm twice.
+            </div>
+            <form id="network-form" class="vstack gap-2" autocomplete="off">
+              <div class="form-floating">
+                <input type="text" class="form-control form-control-sm" id="net-ip" placeholder="192.168.1.50">
+                <label for="net-ip">IP address</label>
+              </div>
+              <div class="form-floating">
+                <input type="text" class="form-control form-control-sm" id="net-port" placeholder="5000" inputmode="numeric">
+                <label for="net-port">Port</label>
+              </div>
+              <div class="form-floating">
+                <input type="text" class="form-control form-control-sm" id="net-gateway" placeholder="192.168.1.1">
+                <label for="net-gateway">Gateway</label>
+              </div>
+              <div class="form-floating">
+                <input type="text" class="form-control form-control-sm" id="net-mask" placeholder="255.255.255.0">
+                <label for="net-mask">Mask</label>
+              </div>
+              <button type="submit" class="btn btn-warning btn-sm align-self-start">Apply…</button>
+            </form>
+          </div>
+        </div>
+        <div class="card-footer small text-body-secondary">
+          Stored immediately; takes effect after a power cycle. A wrong address is only recoverable over RS232.
+        </div>
+      </div>
+    </section>
+
+  </div>
+</main>
+
+<!-- Network change: two acknowledgements, then the read-back -->
+<div class="modal fade" id="network-modal" tabindex="-1" aria-labelledby="network-modal-title" aria-hidden="true"
+     data-bs-backdrop="static" data-bs-keyboard="false">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h1 class="modal-title fs-5" id="network-modal-title">Change the switch's address</h1>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+
+        <section data-step="1">
+          <p class="text-body-secondary small mb-2">Warning 1 of 2</p>
+          <p>These values will be written to the switch now and used after its next power cycle:</p>
+          <dl class="row small mb-3" id="network-modal-summary"></dl>
+          <div class="alert alert-warning" role="alert">
+            <ul class="mb-0 ps-3" id="network-risk-list">
+              <li>A wrong IP address, port, gateway, or mask makes the switch unreachable over the network.</li>
+              <li>There is no factory reset for these settings. Recovery is only possible with a serial (RS232) cable.</li>
+            </ul>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="net-ack-1">
+            <label class="form-check-label" for="net-ack-1">
+              I have checked every value above and understand the switch may become unreachable.
+            </label>
+          </div>
+        </section>
+
+        <section data-step="2" class="d-none">
+          <p class="text-body-secondary small mb-2">Warning 2 of 2</p>
+          <div class="alert alert-danger" role="alert">
+            <p class="fw-semibold mb-2">You do this at your own risk.</p>
+            <p class="mb-2">This software sends the values exactly as entered. It cannot check that they are valid for your network, cannot undo the change, and cannot recover a switch that is no longer reachable.</p>
+            <p class="mb-0">This software and its authors accept no liability for any loss, damage, downtime, or cost that results from changing these settings.</p>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="net-ack-2">
+            <label class="form-check-label" for="net-ack-2">
+              I accept the risk and the terms above. I have a way to recover the switch over RS232 if this goes wrong.
+            </label>
+          </div>
+        </section>
+
+        <section data-step="3" class="d-none">
+          <div id="network-result-alert" class="alert" role="alert"></div>
+          <table class="table table-sm align-middle mb-3">
+            <thead>
+              <tr><th scope="col">Setting</th><th scope="col">Requested</th><th scope="col">Switch reports</th><th scope="col"></th></tr>
+            </thead>
+            <tbody id="network-result-rows"></tbody>
+          </table>
+          <p class="small text-body-secondary mb-0" id="network-result-note"></p>
+        </section>
+
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" id="network-cancel">Cancel</button>
+        <button type="button" class="btn btn-warning" id="network-continue" disabled>Continue</button>
+        <button type="button" class="btn btn-danger d-none" id="network-confirm" disabled>Write to switch</button>
+        <button type="button" class="btn btn-primary d-none" id="network-done" data-bs-dismiss="modal">Done</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- API explorer -->
+<div class="modal fade" id="api-modal" tabindex="-1" aria-labelledby="api-modal-title" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h1 class="modal-title fs-5" id="api-modal-title">API explorer</h1>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-lg-5">
+            <div class="list-group api-list" id="api-list" role="listbox" aria-label="API routes"></div>
+          </div>
+          <div class="col-lg-7 d-flex flex-column">
+            <div class="input-group input-group-sm mb-2">
+              <span class="input-group-text font-monospace" id="api-method">GET</span>
+              <input type="text" class="form-control font-monospace" id="api-path" spellcheck="false" aria-label="Request path">
+              <button type="button" class="btn btn-primary" id="api-send">Send</button>
+            </div>
+            <label class="form-label small mb-1" for="api-body">Request body</label>
+            <textarea class="form-control font-monospace api-body" id="api-body" rows="5" spellcheck="false" aria-label="Request body"></textarea>
+            <div class="form-text" id="api-hint"></div>
+            <div class="d-flex justify-content-between align-items-baseline mt-3 mb-1">
+              <span class="small text-body-secondary">Raw response</span>
+              <span class="small font-monospace" id="api-status"></span>
+            </div>
+            <pre class="api-response flex-grow-1 mb-0" id="api-response">Choose a route and send it. The status line and body appear here, exactly as the listener returned them.</pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast-container position-fixed bottom-0 end-0 p-3" id="toasts"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+        integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+<script src="/static/panel.js"></script>
+</body>
+</html>

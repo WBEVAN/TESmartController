@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tesmartctl"
+version = "0.1.0"
+description = "Command-line control for TESmart 8x1 / 16x1 HDMI switches over LAN or RS232"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = []
+
+[project.optional-dependencies]
+serial = ["pyserial>=3.5"]
+
+[project.scripts]
+tesmartctl = "tesmart.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["tesmart*"]
+
+[tool.setuptools.package-data]
+tesmart = ["static/*"]
