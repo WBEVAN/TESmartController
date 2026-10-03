@@ -27,6 +27,7 @@ The switch cannot say which HDMI inputs have a signal. A cycle is the list you c
 | [`Docs/protocol.md`](Docs/protocol.md) | Byte protocol the switch speaks |
 | [`Docs/listener.md`](Docs/listener.md) | Long-running line protocol and HTTP URLs |
 | [`Docs/panel.md`](Docs/panel.md) | Browser control panel at `/panel` |
+| [`Docs/embed.md`](Docs/embed.md) | Input buttons on a page you already have |
 
 ## Install
 
@@ -369,6 +370,8 @@ with TesmartSwitch(TcpTransport("192.168.1.50")) as sw:
 | `Docs/protocol.md` | Wire protocol |
 | `Docs/listener.md` | Line protocol and HTTP routes |
 | `Docs/panel.md` | Browser control panel |
+| `Docs/embed.md` | Input buttons on another page |
+| `examples/buttons/` | Sample page of input links, no script or framework |
 | `Docs/images/` | Screenshots used in the documentation |
 | `LICENSE` | MIT License |
 

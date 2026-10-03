@@ -150,6 +150,8 @@ mask: 255.255.255.0
 
 Error bodies are `{"error": "..."}`. With `format=text` the body is that message as plain text. Responses send `Cache-Control: no-store`.
 
+Putting these URLs on a page you already have is covered in [`embed.md`](embed.md). A link aimed at a hidden iframe works from another site. `fetch` from that page works when the page is served from this listener's own origin.
+
 ### Examples
 
 ```bash

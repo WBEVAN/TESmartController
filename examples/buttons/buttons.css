@@ -1,0 +1,86 @@
+/* Input buttons for tesmartctl. Plain CSS, no framework. */
+
+:root {
+  color-scheme: light dark;
+  --page-bg: #ffffff;
+  --key-bg: #f3f4f6;
+  --key-fg: #111827;
+  --key-edge: #d1d5db;
+  --key-hot: #2563eb;
+  --key-hot-fg: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --page-bg: #111827;
+    --key-bg: #1f2937;
+    --key-fg: #f9fafb;
+    --key-edge: #374151;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  background: var(--page-bg);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+.pad {
+  display: grid;
+  gap: 1rem;
+  width: min(100%, 26rem);
+  padding: 1rem;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.75rem;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.key {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  border: 1px solid var(--key-edge);
+  border-radius: 0.75rem;
+  background: var(--key-bg);
+  color: var(--key-fg);
+  font-size: 1.75rem;
+  font-weight: 600;
+  text-decoration: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.key-wide {
+  aspect-ratio: auto;
+  padding: 1rem;
+  font-size: 1.125rem;
+  font-weight: 500;
+}
+
+.key:hover,
+.key:focus-visible {
+  border-color: var(--key-hot);
+  outline: none;
+}
+
+.key:active {
+  background: var(--key-hot);
+  border-color: var(--key-hot);
+  color: var(--key-hot-fg);
+}

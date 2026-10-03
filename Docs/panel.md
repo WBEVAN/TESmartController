@@ -75,6 +75,8 @@ The plain listener route `/peek/N` blocks until the switch is back and returns t
 
 These routes exist only so the page can drive the device. The plain listener URLs (`/input`, `/status`, `/rotate`, and the rest in [`listener.md`](listener.md)) are unchanged and still do not mute the buzzer or move the switch's address.
 
+To put input buttons on a page you already have, or to place this panel in an iframe on that page, see [`embed.md`](embed.md).
+
 ## Files
 
 | Path | Responsibility |

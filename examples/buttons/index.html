@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HDMI inputs</title>
+  <link rel="stylesheet" href="buttons.css">
+</head>
+<body>
+  <!--
+    Input buttons for tesmartctl. Start the listener first:
+
+        tesmartctl listen --http 8080
+
+    Every link below is a request to that listener. Replace 127.0.0.1:8080
+    with the address of the computer running tesmartctl when this page is
+    opened from another device (the listener must then be started with
+    --http 0.0.0.0:8080). The reply lands in the hidden frame, so the page
+    stays put. No script, no other files, no network beyond the listener.
+  -->
+  <iframe name="tesmart" title="listener reply" hidden></iframe>
+
+  <main class="pad">
+    <section class="grid" aria-label="Inputs">
+      <a class="key" href="http://127.0.0.1:8080/input/1" target="tesmart">1</a>
+      <a class="key" href="http://127.0.0.1:8080/input/2" target="tesmart">2</a>
+      <a class="key" href="http://127.0.0.1:8080/input/3" target="tesmart">3</a>
+      <a class="key" href="http://127.0.0.1:8080/input/4" target="tesmart">4</a>
+      <a class="key" href="http://127.0.0.1:8080/input/5" target="tesmart">5</a>
+      <a class="key" href="http://127.0.0.1:8080/input/6" target="tesmart">6</a>
+      <a class="key" href="http://127.0.0.1:8080/input/7" target="tesmart">7</a>
+      <a class="key" href="http://127.0.0.1:8080/input/8" target="tesmart">8</a>
+    </section>
+
+    <section class="row" aria-label="Cycle">
+      <a class="key key-wide" href="http://127.0.0.1:8080/previous" target="tesmart">&larr; Previous</a>
+      <a class="key key-wide" href="http://127.0.0.1:8080/next" target="tesmart">Next &rarr;</a>
+    </section>
+  </main>
+</body>
+</html>
