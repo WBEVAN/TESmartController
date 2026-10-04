@@ -32,7 +32,8 @@ tesmartctl supports the TESmart LAN/RS232 protocol used by many
 Other TESmart models using the same AA BB 03 ... EE protocol may also work.
 
 > [!IMPORTANT]
-> **Independent project.** This is an independent, community-developed project. It is not published by, endorsed by, sponsored by, or affiliated with TESmart.
+> **Independent project.** 
+> This is an independent, community-developed project. It is not published by, endorsed by, sponsored by, or affiliated with TESmart.
 >
 > TESmart is a trademark of its respective owner.
 
