@@ -1,5 +1,10 @@
 # TESmart HDMI Switch & KVM Controller — REST API, Web UI and CLI
 
+
+![Python](https://img.shields.io/badge/python-3.10%2B-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)
+
 Control TESmart 8-port and 16-port HDMI switches and KVM switches over
 Ethernet/LAN or RS232 using Python.
 
