@@ -31,7 +31,10 @@ tesmartctl supports the TESmart LAN/RS232 protocol used by many
 
 Other TESmart models using the same AA BB 03 ... EE protocol may also work.
 
-This is an independent project. It is not published by, or affiliated with, TESmart.
+> [!IMPORTANT]
+> **Independent project.** This is an independent, community-developed project. It is not published by, endorsed by, sponsored by, or affiliated with TESmart.
+>
+> TESmart is a trademark of its respective owner.
 
 LAN control uses only the Python standard library. RS232 needs `pyserial`. Python 3.10 or newer. Licensed under the [MIT License](https://github.com/WBEVAN/TESmartController/blob/main/LICENSE).
 
