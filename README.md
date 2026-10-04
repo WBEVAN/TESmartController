@@ -14,14 +14,41 @@ Ethernet/LAN or RS232 using Python.
 - Input switching, input naming, cycling and peeking
 - Network/IP configuration
 
-Supported TESmart families include HSW0801, HKS0801, HSW1601, HKS1601
-and compatible TESmart LAN/RS232 models. It talks to the switch over its LAN port or the 3-pin RS232 port.
+## Supported TESmart models
+
+tesmartctl supports the TESmart LAN/RS232 protocol used by many
+8-port and 16-port HDMI/KVM switches, including:
+
+- HSW0801 / HSW0801A10 / HSW0801A1U
+- HKS0801 / HKS0801A20 / HKS0801A30 / HKS0801A40
+- HSW1601 / HSW1601A10 / HSW1601A1U
+- HKS1601 / HKS1601A10 / HKS1601A1U
+
+Other TESmart models using the same AA BB 03 ... EE protocol may also work.
 
 This is an independent project. It is not published by, or affiliated with, TESmart.
 
 LAN control uses only the Python standard library. RS232 needs `pyserial`. Python 3.10 or newer. Licensed under the [MIT License](https://github.com/WBEVAN/TESmartController/blob/main/LICENSE).
 
 Install with `pip install tesmartctl`. The package is on [PyPI](https://pypi.org/project/tesmartctl/); the source is on [GitHub](https://github.com/WBEVAN/TESmartController).
+
+## Why tesmartctl?
+
+Unlike tools that provide only a CLI or a Home Assistant integration,
+tesmartctl can run as a standalone TESmart controller and exposes the
+switch through:
+
+- REST/HTTP
+- Web browser
+- Python
+- Command line
+- TCP
+- RS232
+
+This allows a TESmart switch to be controlled from Home Assistant,
+Hubitat, Stream Deck, Bitfocus Companion, curl, shell scripts or any
+application capable of making an HTTP request.
+
 
 ## What it does
 
