@@ -1,6 +1,21 @@
-# tesmartctl
+# TESmart HDMI Switch & KVM Controller — REST API, Web UI and CLI
 
-Command-line, HTTP, and browser control for TESmart 8×1 and 16×1 HDMI switches (HSW0801, HKS0801, HSW1601, HKS1601 and the same protocol family). It talks to the switch over its LAN port or the 3-pin RS232 port.
+Control TESmart 8-port and 16-port HDMI switches and KVM switches over
+Ethernet/LAN or RS232 using Python.
+
+`tesmartctl` provides:
+
+- TESmart REST API / HTTP API
+- Browser-based TESmart control panel
+- Command-line TESmart controller
+- Python API/library
+- LAN and RS232 control
+- Home Assistant, Hubitat, Stream Deck and Bitfocus Companion integration
+- Input switching, input naming, cycling and peeking
+- Network/IP configuration
+
+Supported TESmart families include HSW0801, HKS0801, HSW1601, HKS1601
+and compatible TESmart LAN/RS232 models. It talks to the switch over its LAN port or the 3-pin RS232 port.
 
 This is an independent project. It is not published by, or affiliated with, TESmart.
 
