@@ -66,11 +66,11 @@ Bind to <code>0.0.0.0</code> (or your LAN IP). There is no authentication — us
                 page: "connectionPage"
             )
         }
-        section("3. Port names (from the listener)") {
+        section("3. Port names") {
             href(
                 name: "toNames",
-                title: "View port names",
-                description: "Names live on the tesmartctl listener (tesmartctl name / panel), not in Hubitat. This page pulls and shows them.",
+                title: "Edit port names",
+                description: "Stored on the tesmartctl listener. Load from /status, edit here, save with Done to write back via POST /names.",
                 page: "namesPage"
             )
         }
@@ -129,6 +129,9 @@ def connectionPage() {
 def appButtonHandler(String btn) {
     if (btn == "btnTestConnection" || btn == "btnRefreshNames") {
         runConnectionTest()
+        if (btn == "btnRefreshNames") {
+            applyListenerNamesToSettings()
+        }
         if (logEnable) {
             log.debug "TESmart Manager listener fetch: ${atomicState.lastTestMessage}"
         }
@@ -141,28 +144,25 @@ def namesPage() {
 
     dynamicPage(name: "namesPage", title: "Port names", nextPage: "mainPage") {
         section {
-            paragraph "<b>Names are stored on the tesmartctl listener</b> (its env file), not on the TESmart hardware and not as a separate Hubitat copy."
-            paragraph "Hubitat reads them from <code>GET /status</code> on each refresh. To change a name, use the listener:"
-            paragraph """<pre style="white-space:pre-wrap">tesmartctl name set 2 Office
-# or start the listener with --panel and edit names in the browser</pre>"""
-            input name: "btnRefreshNames", type: "button", title: "Refresh names from listener"
+            paragraph "<b>Names are stored on the tesmartctl listener</b> (env file on the machine running <code>tesmartctl listen</code>), not in the TESmart hardware."
+            paragraph "Load current values, edit the fields, then tap <b>Done</b> on the main page — Hubitat writes them with <code>POST /names</code>."
+            input name: "btnRefreshNames", type: "button", title: "Load names from listener"
+            if (atomicState.lastNamesPushMessage) {
+                paragraph atomicState.lastNamesPushMessage
+            }
             if (atomicState.lastTestMessage) {
                 paragraph atomicState.lastTestMessage
             }
         }
-        section("Current names (ports 1–${count})") {
-            if (!listenerNames && !state.connectionOk) {
-                paragraph "No names loaded yet. Run a connection test (or tap <b>Refresh names from listener</b>) first."
-            } else if (!listenerNames) {
-                paragraph "The listener reported <b>no names</b>. Set them with <code>tesmartctl name set N Label</code>, then refresh."
-            }
+        section("Ports 1–${count}") {
             (1..count).each { Integer n ->
-                String label = listenerNames["${n}"] ?: listenerNames[n]
-                if (label) {
-                    paragraph "<b>Input ${n}</b> — ${label}"
-                } else {
-                    paragraph "<b>Input ${n}</b> — <i>(unnamed)</i>"
+                String fromListener = listenerNames["${n}"] ?: ""
+                String current = settings."inputName${n}"?.toString()
+                if (current == null || current.toString().isEmpty()) {
+                    current = fromListener
                 }
+                input name: "inputName${n}", type: "text", title: "Input ${n}",
+                    required: false, defaultValue: current ?: ""
             }
         }
     }
@@ -185,7 +185,9 @@ def uninstalled() {
 def initialize() {
     if (runTest) {
         runConnectionTest()
+        applyListenerNamesToSettings()
     }
+    pushNamesToListener()
     if (doCreateDevice) {
         upsertControllerDevice()
     } else if (getControllerDevice()) {
@@ -265,7 +267,6 @@ private void pushSettingsToDevice(device) {
     if (!device) {
         return
     }
-    // Names come from the listener on each device refresh — do not push Hubitat-only overrides.
     Map payload = [
         listenerHost     : listenerHost,
         listenerPort     : listenerPort as Integer,
@@ -291,7 +292,64 @@ private void pushSettingsToDevice(device) {
     }
 }
 
-/** Names last returned by GET /status on the listener. */
+/** Copy listener names into app settings so the edit fields show current values. */
+private void applyListenerNamesToSettings() {
+    Integer count = (atomicState.lastInputCount ?: prefInputCount ?: "8") as Integer
+    Map names = currentListenerNames()
+    (1..count).each { Integer n ->
+        String label = names["${n}"] ?: ""
+        app.updateSetting("inputName${n}", [type: "text", value: label])
+    }
+}
+
+/** Write Hubitat name fields to the listener via POST /names. */
+private void pushNamesToListener() {
+    String base = listenerBaseUrl()
+    if (!base) {
+        return
+    }
+    Integer count = (atomicState.lastInputCount ?: prefInputCount ?: "8") as Integer
+    Map names = [:]
+    (1..count).each { Integer n ->
+        String label = settings."inputName${n}"?.toString()?.trim() ?: ""
+        names["${n}"] = label
+    }
+    // Skip POST if every field is still blank and we never loaded names (avoid wiping).
+    boolean anySet = names.values().any { it }
+    if (!anySet && !atomicState.lastListenerNames) {
+        return
+    }
+    String body = new JsonBuilder([names: names]).toString()
+    if (logEnable) {
+        log.debug "TESmart Manager POST ${base}/names ${body}"
+    }
+    try {
+        httpPost([
+            uri                : "${base}/names",
+            contentType        : "application/json",
+            requestContentType : "application/json",
+            body               : body,
+            timeout            : 20
+        ]) { resp ->
+            if (resp.status == 200) {
+                def json = resp.data instanceof Map ? resp.data : new JsonSlurper().parseText(resp.data?.toString() ?: "{}")
+                Map saved = (json.names instanceof Map) ? (json.names as Map) : [:]
+                atomicState.lastListenerNames = new JsonBuilder(saved).toString()
+                atomicState.lastNamesPushMessage = "<span style='color:green'><b>Saved ${saved.size()} name(s)</b> to the listener.</span>"
+                applyListenerNamesToSettings()
+            } else {
+                atomicState.lastNamesPushMessage = "<span style='color:red'>Could not save names (HTTP ${resp.status}). Update tesmartctl so <code>POST /names</code> is available.</span>"
+            }
+        }
+    } catch (Exception e) {
+        atomicState.lastNamesPushMessage = "<span style='color:red'>Could not save names: ${e.message}</span><br/>Need a recent tesmartctl with <code>POST /names</code>."
+        if (logEnable) {
+            log.warn "TESmart Manager POST /names failed: ${e.message}"
+        }
+    }
+}
+
+/** Names last returned by GET /status or POST /names on the listener. */
 private Map currentListenerNames() {
     try {
         String raw = atomicState.lastListenerNames

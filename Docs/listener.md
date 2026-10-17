@@ -107,6 +107,8 @@ JSON is the default. Add `format=text` to get plain text: a bare input number, o
 | `/set/3` | same as `/input?set=3` | `{"active_input": 3, "requested": 3}` |
 | `/status` | active input and saved LAN settings | see below |
 | `/status?network=0` | active input only | `"network": null` |
+| `/names` | GET local input names | `{"names": {"2": "Office"}}` |
+| `POST /names` | set or clear local names (JSON body) | `{"names": {"2": "Office", "3": ""}}` — empty string clears |
 
 `network=0` also accepts `off`, `false`, and `no`. Skipping the LAN queries avoids four extra paced round trips.
 

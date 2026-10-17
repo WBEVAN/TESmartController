@@ -78,11 +78,11 @@ Packaging follows the [HPM developer documentation](https://hubitatpackagemanage
 1. **Apps** → **Add User App** → **TESmart Manager** (skipped if HPM already opened it)
 2. Read the intro (banner / button images load from GitHub).
 3. **Configure listener host & port** — enter the machine running `tesmartctl`, run the connection test.
-4. **View port names** — names live on the **tesmartctl listener** (`tesmartctl name set N Label` or the `--panel` UI), not as a separate Hubitat copy. The Manager page pulls them from `/status`.
+4. **Edit port names** — **Load names from listener**, edit the fields, then **Done**. Hubitat writes them with `POST /names` to the tesmartctl listener (needs a recent tesmartctl that includes that route). You can still use `tesmartctl name set N Label` on the host.
 5. Set the device label, leave **Create child switch per input** on if you want dashboard tiles.
-6. **Done** — the app creates/updates the **TESmart Controller** device and pushes connection settings.
+6. **Done** — creates/updates the **TESmart Controller** device, saves names to the listener, and pushes connection settings.
 
-After the first device refresh, child devices show labels like `Office` or `Input 3`, with `inputNumber` / `inputName` from the listener.
+After the next device refresh, child devices show labels like `Office` or `Input 3`.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/WBEVAN/TESmartController/main/Docs/images/demo.gif" alt="Control panel demo" width="480"/>

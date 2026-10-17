@@ -395,6 +395,7 @@ http://127.0.0.1:8080/                       list of routes
 http://127.0.0.1:8080/input                  {"active_input": 2}
 http://127.0.0.1:8080/status                 input plus saved IP, port, gateway, mask
 http://127.0.0.1:8080/status?network=0       input only, skips the LAN queries
+http://127.0.0.1:8080/names                  local input names (GET); POST JSON to set
 http://127.0.0.1:8080/status?format=text     same fields as plain lines
 http://127.0.0.1:8080/rotate                 next input; {"previous": 2, "active_input": 3}
 http://127.0.0.1:8080/rotate?only=1,2,4     next input within that list

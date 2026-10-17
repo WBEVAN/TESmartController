@@ -23,6 +23,7 @@ Routes (GET or POST)
 ``/peek/once``               the next plain input change peeks, then later changes stick
 ``/peek/always``             every plain input change peeks until ``/peek/off``
 ``/peek/off``                plain input changes stick again
+``/names``                   local input names (GET list; POST JSON to set)
 ``/panel``, ``/api/...``      browser control panel; only with ``--panel`` (see :mod:`tesmart.panel`)
 """
 
@@ -61,6 +62,7 @@ ROUTES = {
     "/peek/once": "the next plain input change peeks, then later changes stick",
     "/peek/always": "every plain input change peeks until /peek/off",
     "/peek/off": "plain input changes stick again",
+    "/names": "GET local input names; POST {\"names\": {\"2\": \"Office\", \"3\": \"\"}} to set or clear",
     "/panel": "browser control panel (only when started with --panel)",
     "?format=text": "add to any route for plain text instead of JSON",
 }
@@ -114,6 +116,10 @@ def _parse_request(path: str) -> WebRequest:
         if len(segments) != 1:
             raise LookupError(parts.path)
         return WebRequest("status", None, as_text, include_network)
+    if head == "names":
+        if len(segments) != 1:
+            raise LookupError(parts.path)
+        return WebRequest("names", None, as_text, include_network)
     if head in {"rotate", "next", "previous"}:
         if len(segments) != 1:
             raise LookupError(parts.path)
@@ -227,6 +233,24 @@ class _Handler(BaseHTTPRequestHandler):
                 payload["seconds"] = state["seconds"]
             self._send(HTTPStatus.OK, payload, request.as_text, state["mode"])
             return
+        if request.verb == "names":
+            try:
+                payload = self._names(self.command)
+            except config.ConfigError as exc:
+                self._send(HTTPStatus.BAD_REQUEST, {"error": str(exc)}, request.as_text)
+                return
+            except ValueError as exc:
+                self._send(HTTPStatus.BAD_REQUEST, {"error": str(exc)}, request.as_text)
+                return
+            text = None
+            if request.as_text:
+                lines = [f"{number}: {label}" for number, label in sorted(
+                    ((int(k), v) for k, v in (payload.get("names") or {}).items()),
+                    key=lambda item: item[0],
+                )]
+                text = "\n".join(lines) if lines else "(none)"
+            self._send(HTTPStatus.OK, payload, request.as_text, text)
+            return
 
         try:
             if request.verb == "peek":
@@ -250,6 +274,46 @@ class _Handler(BaseHTTPRequestHandler):
             payload["peek"]["follow"] = self.server.peek_follow.status()["mode"]
         text = _status_text(payload) if request.verb == "status" else None
         self._send(HTTPStatus.OK, payload, request.as_text, text)
+
+    def _read_json_body(self) -> dict:
+        length = int(self.headers.get("Content-Length", "0") or "0")
+        if length <= 0:
+            return {}
+        raw = self.rfile.read(length)
+        if not raw:
+            return {}
+        try:
+            parsed = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError(f"invalid JSON body: {exc}") from exc
+        if not isinstance(parsed, dict):
+            raise ValueError("JSON body must be an object")
+        return parsed
+
+    def _names(self, method: str) -> dict:
+        """List or update local input names stored in the listener env file."""
+        if method.upper() == "GET":
+            names = config.read_names(self.server.env_file)
+            return {"names": {str(number): label for number, label in names.items()}}
+
+        if method.upper() not in {"POST", "PUT"}:
+            raise ValueError("use GET to list names or POST to set them")
+
+        body = self._read_json_body()
+        table = body.get("names", body)
+        if not isinstance(table, dict):
+            raise ValueError('"names" must be an object of input number -> label')
+        count = self.server.switch.input_count
+        for key, label in table.items():
+            if not str(key).isdigit():
+                raise ValueError(f"input number expected, got {key!r}")
+            number = int(key)
+            if label is None or str(label).strip() == "":
+                config.unset_input_name(number, self.server.env_file)
+            else:
+                config.set_input_name(number, str(label), self.server.env_file, input_count=count)
+        names = config.read_names(self.server.env_file)
+        return {"names": {str(number): label for number, label in names.items()}}
 
     def _resolve(self, request: WebRequest) -> int:
         if request.label:
