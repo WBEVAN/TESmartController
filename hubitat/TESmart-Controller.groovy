@@ -15,7 +15,7 @@ import groovy.transform.Field
 import groovy.json.JsonSlurper
 import groovy.json.JsonBuilder
 
-@Field static final String DRIVER_VERSION = "1.3.2"
+@Field static final String DRIVER_VERSION = "1.3.3"
 @Field static final String CHILD_NAMESPACE = "tesmart"
 @Field static final String CHILD_TYPE = "TESmart Input"
 @Field static final String BUILTIN_CHILD_NAMESPACE = "hubitat"
@@ -84,8 +84,9 @@ metadata {
         input name: "listenerHost", type: "text", title: "Listener host / IP",
             description: "Host running ``tesmartctl listen --http`` (reachable from Hubitat)",
             required: true, defaultValue: "192.168.1.20"
-        input name: "listenerPort", type: "number", title: "Listener port",
-            required: true, defaultValue: 8080, range: 1..65535
+        input name: "listenerPort", type: "text", title: "Listener port",
+            description: "e.g. 7272 (plain digits, no commas)",
+            required: true, defaultValue: "8080"
         input name: "useHttps", type: "bool", title: "Use HTTPS",
             description: "Only if you terminate TLS in front of the listener",
             defaultValue: false
@@ -403,7 +404,7 @@ void configureFromApp(String settingsJson) {
         device.updateSetting("listenerHost", [type: "text", value: opts.listenerHost.toString()])
     }
     if (opts.listenerPort != null) {
-        device.updateSetting("listenerPort", [type: "number", value: opts.listenerPort.toString()])
+        device.updateSetting("listenerPort", [type: "text", value: opts.listenerPort.toString()])
     }
     if (opts.useHttps != null) {
         device.updateSetting("useHttps", [type: "bool", value: opts.useHttps.toString()])
@@ -587,9 +588,19 @@ private String listenerBaseUrl() {
     if (host.startsWith("http://") || host.startsWith("https://")) {
         return host.replaceAll(/\/$/, "")
     }
-    Integer port = (listenerPort ?: 8080) as Integer
+    Integer port = parseListenerPort(listenerPort)
     String scheme = useHttps ? "https" : "http"
     return "${scheme}://${host}:${port}"
+}
+
+/** Plain text port field — strip commas Hubitat may have stored from the old number input. */
+private Integer parseListenerPort(raw) {
+    String text = (raw ?: "8080").toString().replaceAll(/[,_\s]/, "").trim()
+    if (!text.isInteger()) {
+        return 8080
+    }
+    Integer port = text as Integer
+    return (port >= 1 && port <= 65535) ? port : 8080
 }
 
 private Integer resolveInputCount() {

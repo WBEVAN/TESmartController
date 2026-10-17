@@ -102,8 +102,9 @@ def connectionPage() {
             paragraph "Point Hubitat at the host running <code>tesmartctl listen --http</code>."
             input name: "listenerHost", type: "text", title: "Listener host / IP",
                 required: true, defaultValue: "192.168.1.20", submitOnChange: true
-            input name: "listenerPort", type: "number", title: "Listener port",
-                required: true, defaultValue: 8080, range: "1..65535", submitOnChange: true
+            input name: "listenerPort", type: "text", title: "Listener port",
+                description: "e.g. 7272 (plain digits, no commas)",
+                required: true, defaultValue: "8080", submitOnChange: true
             input name: "useHttps", type: "bool", title: "Use HTTPS", defaultValue: false, submitOnChange: true
             input name: "prefInputCount", type: "enum", title: "Port count",
                 options: ["8": "8 ports", "16": "16 ports"], defaultValue: "8"
@@ -287,7 +288,7 @@ private void pushSettingsToDevice(device) {
     }
     Map payload = [
         listenerHost     : listenerHost,
-        listenerPort     : listenerPort as Integer,
+        listenerPort     : parseListenerPort(listenerPort),
         useHttps         : useHttps == true,
         refreshInterval  : (refreshInterval ?: "60").toString(),
         prefInputCount   : (prefInputCount ?: "8").toString(),
@@ -301,7 +302,7 @@ private void pushSettingsToDevice(device) {
         log.warn "configureFromApp failed (${e.message}); trying settings directly"
         try {
             device.updateSetting("listenerHost", [type: "text", value: listenerHost?.toString()])
-            device.updateSetting("listenerPort", [type: "number", value: (listenerPort ?: 8080).toString()])
+            device.updateSetting("listenerPort", [type: "text", value: parseListenerPort(listenerPort).toString()])
             device.updateSetting("createChildren", [type: "bool", value: (createChildSwitches != false).toString()])
             device.updated()
         } catch (Exception e2) {
@@ -403,7 +404,17 @@ private String listenerBaseUrl() {
         return host.replaceAll(/\/$/, "")
     }
     String scheme = useHttps ? "https" : "http"
-    return "${scheme}://${host}:${listenerPort ?: 8080}"
+    return "${scheme}://${host}:${parseListenerPort(listenerPort)}"
+}
+
+/** Plain text port field — strip commas Hubitat may have stored from the old number input. */
+private Integer parseListenerPort(raw) {
+    String text = (raw ?: "8080").toString().replaceAll(/[,_\s]/, "").trim()
+    if (!text.isInteger()) {
+        return 8080
+    }
+    Integer port = text as Integer
+    return (port >= 1 && port <= 65535) ? port : 8080
 }
 
 private String imgHtml(String url, String alt, Integer maxWidth = null) {
