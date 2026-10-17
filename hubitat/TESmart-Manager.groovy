@@ -66,11 +66,11 @@ Bind to <code>0.0.0.0</code> (or your LAN IP). There is no authentication — us
                 page: "connectionPage"
             )
         }
-        section("3. Input names (optional)") {
+        section("3. Port names (from the listener)") {
             href(
                 name: "toNames",
-                title: "Name each port for Hubitat",
-                description: "Overrides shown on child devices and in the setInputSource dropdown. Listener names from tesmartctl name are merged too.",
+                title: "View port names",
+                description: "Names live on the tesmartctl listener (tesmartctl name / panel), not in Hubitat. This page pulls and shows them.",
                 page: "namesPage"
             )
         }
@@ -127,25 +127,42 @@ def connectionPage() {
 }
 
 def appButtonHandler(String btn) {
-    if (btn == "btnTestConnection") {
+    if (btn == "btnTestConnection" || btn == "btnRefreshNames") {
         runConnectionTest()
         if (logEnable) {
-            log.debug "TESmart Manager connection test: ${atomicState.lastTestMessage}"
+            log.debug "TESmart Manager listener fetch: ${atomicState.lastTestMessage}"
         }
     }
 }
 
 def namesPage() {
-    Integer count = (prefInputCount ?: "8") as Integer
-    dynamicPage(name: "namesPage", title: "Input names", nextPage: "mainPage") {
+    Integer count = (atomicState.lastInputCount ?: prefInputCount ?: "8") as Integer
+    Map listenerNames = currentListenerNames()
+
+    dynamicPage(name: "namesPage", title: "Port names", nextPage: "mainPage") {
         section {
-            paragraph "These labels appear on child devices and in the <b>setInputSource</b> dropdown as <code>2 — Office</code>."
-            paragraph "They override blank listener names. You can also set names on the listener with <code>tesmartctl name 2 Office</code>."
+            paragraph "<b>Names are stored on the tesmartctl listener</b> (its env file), not on the TESmart hardware and not as a separate Hubitat copy."
+            paragraph "Hubitat reads them from <code>GET /status</code> on each refresh. To change a name, use the listener:"
+            paragraph """<pre style="white-space:pre-wrap">tesmartctl name set 2 Office
+# or start the listener with --panel and edit names in the browser</pre>"""
+            input name: "btnRefreshNames", type: "button", title: "Refresh names from listener"
+            if (atomicState.lastTestMessage) {
+                paragraph atomicState.lastTestMessage
+            }
         }
-        section("Ports 1–${count}") {
+        section("Current names (ports 1–${count})") {
+            if (!listenerNames && !state.connectionOk) {
+                paragraph "No names loaded yet. Run a connection test (or tap <b>Refresh names from listener</b>) first."
+            } else if (!listenerNames) {
+                paragraph "The listener reported <b>no names</b>. Set them with <code>tesmartctl name set N Label</code>, then refresh."
+            }
             (1..count).each { Integer n ->
-                input name: "inputName${n}", type: "text", title: "Input ${n}",
-                    required: false, defaultValue: settings."inputName${n}" ?: ""
+                String label = listenerNames["${n}"] ?: listenerNames[n]
+                if (label) {
+                    paragraph "<b>Input ${n}</b> — ${label}"
+                } else {
+                    paragraph "<b>Input ${n}</b> — <i>(unnamed)</i>"
+                }
             }
         }
     }
@@ -248,6 +265,7 @@ private void pushSettingsToDevice(device) {
     if (!device) {
         return
     }
+    // Names come from the listener on each device refresh — do not push Hubitat-only overrides.
     Map payload = [
         listenerHost     : listenerHost,
         listenerPort     : listenerPort as Integer,
@@ -255,7 +273,7 @@ private void pushSettingsToDevice(device) {
         refreshInterval  : (refreshInterval ?: "60").toString(),
         prefInputCount   : (prefInputCount ?: "8").toString(),
         createChildren   : createChildSwitches != false,
-        nameOverrides    : collectNameOverrides()
+        nameOverrides    : [:]
     ]
     String json = new JsonBuilder(payload).toString()
     try {
@@ -273,16 +291,27 @@ private void pushSettingsToDevice(device) {
     }
 }
 
-private Map collectNameOverrides() {
-    Integer count = (prefInputCount ?: "8") as Integer
-    Map names = [:]
-    (1..count).each { Integer n ->
-        String label = settings."inputName${n}"?.toString()?.trim()
-        if (label) {
-            names["${n}"] = label
+/** Names last returned by GET /status on the listener. */
+private Map currentListenerNames() {
+    try {
+        String raw = atomicState.lastListenerNames
+        if (!raw) {
+            return [:]
         }
+        def parsed = new JsonSlurper().parseText(raw)
+        if (!(parsed instanceof Map)) {
+            return [:]
+        }
+        Map out = [:]
+        (parsed as Map).each { k, v ->
+            if (v != null && v.toString().trim()) {
+                out[k.toString()] = v.toString().trim()
+            }
+        }
+        return out
+    } catch (ignored) {
+        return [:]
     }
-    return names
 }
 
 private def getControllerDevice() {
