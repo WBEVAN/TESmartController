@@ -286,7 +286,9 @@ private void pushSettingsToDevice(device) {
         refreshInterval  : (refreshInterval ?: "60").toString(),
         prefInputCount   : (prefInputCount ?: "8").toString(),
         createChildren   : createChildSwitches != false,
-        nameOverrides    : [:]
+        nameOverrides    : [:],
+        // From the last connection test / Refresh Names — so children get real labels.
+        listenerNames    : currentListenerNames()
     ]
     String json = new JsonBuilder(payload).toString()
     try {

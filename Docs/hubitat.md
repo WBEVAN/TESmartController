@@ -78,7 +78,7 @@ Packaging follows the [HPM developer documentation](https://hubitatpackagemanage
 5. Set the device label, leave **Create child switch per input** on if you want dashboard tiles.
 6. **Done** — creates/updates the **TESmart Controller** device, saves names to the server, and pushes connection settings.
 
-After the next device refresh, child devices show labels like `Office` or `Input 3`.
+After the next device **Refresh**, children labeled `Input N` are recreated with server names (e.g. `Old Mac`, `New Mac`). Unnamed ports stay `Input N`.
 
 ## Commands and attributes
 

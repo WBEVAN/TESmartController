@@ -2,10 +2,10 @@
   "packageName": "TESmart Controller",
   "minimumHEVersion": "2.2.0",
   "author": "WBEVAN",
-  "version": "1.3.10",
+  "version": "1.3.11",
   "dateReleased": "2026-10-17",
   "licenseFile": "https://raw.githubusercontent.com/WBEVAN/TESmartController/main/LICENSE",
-  "releaseNotes": "Remove web-button preview from TESmart Manager (not relevant to Hubitat).",
+  "releaseNotes": "Child devices pick up server input names (recreate Input N → named labels on refresh).",
   "documentationLink": "https://github.com/WBEVAN/TESmartController/blob/main/Docs/hubitat.md",
   "communityLink": "https://github.com/WBEVAN/TESmartController",
   "apps": [

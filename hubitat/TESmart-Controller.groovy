@@ -15,7 +15,7 @@ import groovy.transform.Field
 import groovy.json.JsonSlurper
 import groovy.json.JsonBuilder
 
-@Field static final String DRIVER_VERSION = "1.3.4"
+@Field static final String DRIVER_VERSION = "1.3.5"
 @Field static final String CHILD_NAMESPACE = "tesmart"
 @Field static final String CHILD_TYPE = "TESmart Input"
 @Field static final String BUILTIN_CHILD_NAMESPACE = "hubitat"
@@ -341,10 +341,9 @@ private void applyStatus(Map json, Map data = [:]) {
     String activeName = (json.active_name ?: json.activeName) as String
     Integer count = (json.input_count ?: json.inputCount ?: resolveInputCount()) as Integer
 
-    // Listener names (tesmartctl name); merge with Hubitat/app overrides.
-    // Only /status includes a "names" map. /input, /next, /previous omit it —
-    // do not wipe previously loaded names on those replies.
-    if (json.containsKey("names")) {
+    // Server names (tesmartctl name); merge with Hubitat/app overrides.
+    // When the JSON has no "names" key, keep whatever we already loaded.
+    if (json.names != null) {
         state.listenerNames = coerceNamesMap(json.names)
     }
     Map names = effectiveNames()
@@ -420,6 +419,11 @@ void configureFromApp(String settingsJson) {
     }
     if (opts.nameOverrides instanceof Map) {
         state.nameOverrides = coerceNamesMap(opts.nameOverrides)
+    }
+    // Seed names from Manager (connection test) so children are created labeled correctly.
+    if (opts.listenerNames instanceof Map) {
+        state.listenerNames = coerceNamesMap(opts.listenerNames)
+        state.names = effectiveNames()
     }
     logInfo "configured from TESmart Manager"
     updated()
@@ -532,15 +536,37 @@ private void syncChildIdentity(child, Integer number, Integer active) {
         currentLabel == "Input ${number}" ||
         (inputName && currentLabel == inputName)
     if (stillManaged && currentLabel != autoLabel) {
-        try {
-            child.setLabel(autoLabel)
-        } catch (ignored) {
-            // older hubs
-        }
-        try {
-            child.setName(autoLabel)
-        } catch (ignored) {
-            // older hubs
+        // Component children often keep the create-time name in the Devices list;
+        // recreating with the correct label is reliable when upgrading from "Input N".
+        boolean wasGeneric = currentLabel == "Input ${number}" ||
+            currentLabel == number.toString() ||
+            previousAuto == "Input ${number}" ||
+            previousAuto == number.toString()
+        if (wasGeneric && inputName) {
+            logInfo "recreating child ${child.deviceNetworkId}: ${currentLabel} → ${autoLabel}"
+            try {
+                deleteChildDevice(child.deviceNetworkId)
+            } catch (Exception e) {
+                logWarn "could not remove child ${child.deviceNetworkId} for rename: ${e.message}"
+            }
+            child = ensureChild(number)
+            if (!child) {
+                return
+            }
+            child.updateDataValue("inputNumber", number.toString())
+            child.updateDataValue("autoLabel", autoLabel)
+            child.updateDataValue("parentDevice", parentLabel)
+            child.updateDataValue("inputName", inputName)
+        } else {
+            try {
+                child.setLabel(autoLabel)
+            } catch (ignored) {
+            }
+            try {
+                child.setName(autoLabel)
+            } catch (ignored) {
+            }
+            child.updateDataValue("autoLabel", autoLabel)
         }
     }
 
