@@ -2,10 +2,10 @@
   "packageName": "TESmart Controller",
   "minimumHEVersion": "2.2.0",
   "author": "WBEVAN",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "dateReleased": "2026-10-17",
   "licenseFile": "https://raw.githubusercontent.com/WBEVAN/TESmartController/main/LICENSE",
-  "releaseNotes": "Namespace changed to wbevan_tesmart (reinstall app/drivers if upgrading from tesmart).",
+  "releaseNotes": "Fix input name lookup so menus show 1 - Old Mac (Hubitat GString key mismatch).",
   "documentationLink": "https://github.com/WBEVAN/TESmartController/blob/main/Docs/hubitat.md",
   "communityLink": "https://github.com/WBEVAN/TESmartController",
   "apps": [

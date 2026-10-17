@@ -15,7 +15,7 @@ import groovy.transform.Field
 import groovy.json.JsonSlurper
 import groovy.json.JsonBuilder
 
-@Field static final String DRIVER_VERSION = "1.4.0"
+@Field static final String DRIVER_VERSION = "1.4.1"
 @Field static final String CHILD_NAMESPACE = "wbevan_tesmart"
 @Field static final String CHILD_TYPE = "TESmart Input"
 @Field static final String BUILTIN_CHILD_NAMESPACE = "hubitat"
@@ -350,8 +350,14 @@ private void applyStatus(Map json, Map data = [:]) {
 
     // Server names (tesmartctl name); merge with Hubitat/app overrides.
     // When the JSON has no "names" key, keep whatever we already loaded.
+    // Never replace a good table with an empty parse of a non-Map JSON object.
     if (json.names != null) {
-        state.listenerNames = coerceNamesMap(json.names)
+        Map parsedNames = coerceNamesMap(json.names)
+        if (parsedNames || isExplicitlyEmptyNames(json.names)) {
+            state.listenerNames = parsedNames
+        } else {
+            logWarn "status names present but could not parse; keeping existing server names"
+        }
     }
     Map names = effectiveNames()
     state.names = names
@@ -769,14 +775,22 @@ private String displayLabelForInput(Integer number, Map names) {
 }
 
 private String lookupInputName(Integer number, Map names) {
-    if (number == null || names == null) {
+    if (number == null || names == null || names.isEmpty()) {
         return null
     }
-    // Prefer string keys (JSON from /status); fall back to integer keys.
-    // Avoid names?[n] — Hubitat's Groovy parses ?[ as a ternary.
-    def named = names.get("${number}")
+    // Hubitat/Java maps: GString keys from "${n}" do not match String keys.
+    // Always use number.toString(), then scan entries as a fallback.
+    String want = number.toString()
+    def named = names.get(want)
     if (named == null) {
         named = names.get(number)
+    }
+    if (named == null) {
+        names.each { k, v ->
+            if (named == null && k != null && k.toString() == want) {
+                named = v
+            }
+        }
     }
     if (named == null || named.toString().trim().isEmpty()) {
         return null
@@ -784,16 +798,24 @@ private String lookupInputName(Integer number, Map names) {
     return named.toString().trim()
 }
 
-/** Listener names plus Hubitat/app overrides (overrides win). */
+/** Server names plus Hubitat/app overrides (overrides win). */
 private Map effectiveNames() {
     Map merged = [:]
-    coerceNamesMap(state.listenerNames).each { k, v -> merged[k] = v }
-    coerceNamesMap(state.nameOverrides).each { k, v -> merged[k] = v }
+    coerceNamesMap(state.listenerNames).each { k, v -> merged[k.toString()] = v }
+    coerceNamesMap(state.nameOverrides).each { k, v -> merged[k.toString()] = v }
     // Legacy: older builds only kept state.names
-    if (!merged && state.names instanceof Map) {
-        merged.putAll(coerceNamesMap(state.names))
+    if (!merged) {
+        coerceNamesMap(state.names).each { k, v -> merged[k.toString()] = v }
     }
     return merged
+}
+
+private boolean isExplicitlyEmptyNames(raw) {
+    if (raw instanceof Map) {
+        return (raw as Map).isEmpty()
+    }
+    String text = raw?.toString()?.trim()
+    return text == "{}" || text == "[:]" || text == ""
 }
 
 private Map coerceNamesMap(raw) {
@@ -808,6 +830,18 @@ private Map coerceNamesMap(raw) {
             return out
         }
     }
+    // Hubitat async JSON may yield a non-Map (e.g. JSONObject); re-parse via JSON.
+    if (!(raw instanceof Map)) {
+        try {
+            raw = new JsonSlurper().parseText(new JsonBuilder(raw).toString())
+        } catch (ignored) {
+            try {
+                raw = new JsonSlurper().parseText(raw.toString())
+            } catch (ignored2) {
+                return out
+            }
+        }
+    }
     if (!(raw instanceof Map)) {
         return out
     }
@@ -819,7 +853,8 @@ private Map coerceNamesMap(raw) {
         if (!label) {
             return
         }
-        out[k.toString()] = label
+        // Force Java String keys (not GString) so later .get(number.toString()) matches.
+        out.put(k.toString(), label)
     }
     return out
 }
