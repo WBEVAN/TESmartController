@@ -49,16 +49,23 @@ There is no authentication on the listener — only do this on a trusted network
 
 ### Option A — Hubitat Package Manager (recommended)
 
+Packaging follows the [HPM developer documentation](https://hubitatpackagemanager.hubitatcommunity.com/devs1.html): a **package manifest** plus a **repository file**.
+
 1. Install [Hubitat Package Manager](https://hubitatpackagemanager.hubitatcommunity.com/) if needed.
-2. Prefer **Install → From a URL** and paste the **package** manifest (not the repository file):
+2. **Install → From a URL** — paste the **package manifest** (required field `packageName`):
 
    `https://raw.githubusercontent.com/WBEVAN/TESmartController/main/hubitat/packageManifest.json`
 
-   That should say you are about to install **TESmart Controller**. If it says **null**, the wrong URL was used (usually `repository.json`).
+   HPM should say you are about to install **TESmart Controller**. If it says **null**, you used the repository URL by mistake.
 
-3. Or **Add a custom repository** with `repository.json`, refresh repositories, then browse/install **TESmart Controller**:
+3. Or **Package Repositories → Add custom repository**, then refresh and install **TESmart Controller** from the list:
 
    `https://raw.githubusercontent.com/WBEVAN/TESmartController/main/hubitat/repository.json`
+
+| HPM file | URL |
+| --- | --- |
+| Package manifest | [`packageManifest.json`](https://raw.githubusercontent.com/WBEVAN/TESmartController/main/hubitat/packageManifest.json) |
+| Repository file | [`repository.json`](https://raw.githubusercontent.com/WBEVAN/TESmartController/main/hubitat/repository.json) |
 
 ### Option B — Manual import
 

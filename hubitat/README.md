@@ -1,19 +1,54 @@
-# Hubitat integration
+# Hubitat Package (HPM)
 
-Guided setup app plus drivers for Hubitat Elevation. They talk to `tesmartctl listen --http` over REST.
+Files follow the [Hubitat Package Manager developer documentation](https://hubitatpackagemanager.hubitatcommunity.com/devs1.html).
 
 | File | Role |
 | --- | --- |
-| [`TESmart-Manager.groovy`](TESmart-Manager.groovy) | **Setup app** — walk through host/port, name ports, create the device |
-| [`TESmart-Controller.groovy`](TESmart-Controller.groovy) | Parent device — `MediaInputSource`, refresh poll, peek, next/previous |
-| [`TESmart-Input.groovy`](TESmart-Input.groovy) | Child switch — one per input (radio group for dashboards) |
-| [`packageManifest.json`](packageManifest.json) | HPM **package** file — use this URL for Install → From a URL |
-| [`repository.json`](repository.json) | HPM **repository** listing — add as a custom repository, then browse |
+| [`packageManifest.json`](packageManifest.json) | **Package manifest** — apps/drivers in this package |
+| [`repository.json`](repository.json) | **Repository file** — lists packages (add this as a custom repository) |
+| [`TESmart-Manager.groovy`](TESmart-Manager.groovy) | Setup app (`primary`) |
+| [`TESmart-Controller.groovy`](TESmart-Controller.groovy) | Parent driver |
+| [`TESmart-Input.groovy`](TESmart-Input.groovy) | Child input driver |
 
-Images used in the app (from this repo):
+## Install with HPM
+
+**From a URL** (package manifest — this is what shows the package name):
+
+```text
+https://raw.githubusercontent.com/WBEVAN/TESmartController/main/hubitat/packageManifest.json
+```
+
+**Custom repository** (then browse / search):
+
+```text
+https://raw.githubusercontent.com/WBEVAN/TESmartController/main/hubitat/repository.json
+```
+
+Do not paste `repository.json` into Install → From a URL. That file has no `packageName`, so HPM shows **null**.
+
+## Versioning
+
+Package-level SemVer only (`version` on the manifest root), not mixed with per-app/driver versions — per the [HPM developer docs](https://hubitatpackagemanager.hubitatcommunity.com/devs1.html).
+
+## Categories and tags
+
+From the [official settings list](https://raw.githubusercontent.com/HubitatCommunity/hubitat-packagerepositories/master/settings.json):
+
+- Category: `Integrations`
+- Tags: `LAN`, `Multimedia`
+
+## Publishing to the public HPM catalog
+
+When ready for all HPM users (not only a custom repo), open a PR against:
+
+https://github.com/HubitatCommunity/hubitat-packagerepositories
+
+adding an entry that points at this `repository.json`.
+
+Images used by the Manager app:
 
 - [Banner](https://raw.githubusercontent.com/WBEVAN/TESmartController/main/Docs/images/readme-banner.png)
 - [Buttons](https://raw.githubusercontent.com/WBEVAN/TESmartController/main/Docs/images/buttons.png)
 - [Demo GIF](https://raw.githubusercontent.com/WBEVAN/TESmartController/main/Docs/images/demo.gif)
 
-Full install and usage: [`Docs/hubitat.md`](../Docs/hubitat.md).
+Full setup: [`Docs/hubitat.md`](../Docs/hubitat.md).
