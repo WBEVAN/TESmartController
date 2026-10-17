@@ -1,14 +1,12 @@
 {
   "packageName": "TESmart Controller",
   "author": "WBEVAN",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "minimumHEVersion": "2.2.0",
   "dateReleased": "2026-10-17",
-  "releaseNotes": "TESmart Manager setup app; fix child inputName; combined setInputSource dropdown with port and name.",
   "documentationLink": "https://github.com/WBEVAN/TESmartController/blob/main/Docs/hubitat.md",
   "communityLink": "https://github.com/WBEVAN/TESmartController",
-  "category": "Integrations",
-  "tags": ["LAN", "Multimedia"],
+  "releaseNotes": "Fix HPM packageName display; TESmart Manager setup app; child inputName; setInputSource dropdown.",
   "apps": [
     {
       "id": "d7d49241-a32e-4fb1-81d6-3e10ba461622",
@@ -17,7 +15,6 @@
       "location": "https://raw.githubusercontent.com/WBEVAN/TESmartController/main/hubitat/TESmart-Manager.groovy",
       "required": true,
       "oauth": false,
-      "version": "1.3.0",
       "primary": true
     }
   ],
@@ -27,16 +24,14 @@
       "name": "TESmart Controller",
       "namespace": "tesmart",
       "location": "https://raw.githubusercontent.com/WBEVAN/TESmartController/main/hubitat/TESmart-Controller.groovy",
-      "required": true,
-      "version": "1.3.0"
+      "required": true
     },
     {
       "id": "537d0deb-e93e-40fb-991d-1c1df45753ae",
       "name": "TESmart Input",
       "namespace": "tesmart",
       "location": "https://raw.githubusercontent.com/WBEVAN/TESmartController/main/hubitat/TESmart-Input.groovy",
-      "required": true,
-      "version": "1.3.0"
+      "required": true
     }
   ]
 }

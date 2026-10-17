@@ -50,11 +50,15 @@ There is no authentication on the listener — only do this on a trusted network
 ### Option A — Hubitat Package Manager (recommended)
 
 1. Install [Hubitat Package Manager](https://hubitatpackagemanager.hubitatcommunity.com/) if needed.
-2. **Add a custom repository** with:
+2. Prefer **Install → From a URL** and paste the **package** manifest (not the repository file):
+
+   `https://raw.githubusercontent.com/WBEVAN/TESmartController/main/hubitat/packageManifest.json`
+
+   That should say you are about to install **TESmart Controller**. If it says **null**, the wrong URL was used (usually `repository.json`).
+
+3. Or **Add a custom repository** with `repository.json`, refresh repositories, then browse/install **TESmart Controller**:
 
    `https://raw.githubusercontent.com/WBEVAN/TESmartController/main/hubitat/repository.json`
-
-3. Install the **TESmart Controller** package (app + both drivers).
 
 ### Option B — Manual import
 
