@@ -41,10 +41,6 @@ curl http://192.168.1.20:8080/status?network=0
 
 There is no authentication on the server — only do this on a trusted network. Details: [`listener.md`](listener.md).
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/WBEVAN/TESmartController/main/Docs/images/buttons.png" alt="Input buttons" width="400"/>
-</p>
-
 ## Install
 
 Packaging follows the [HPM developer documentation](https://hubitatpackagemanager.hubitatcommunity.com/devs1.html).
@@ -76,17 +72,13 @@ Packaging follows the [HPM developer documentation](https://hubitatpackagemanage
 ## Setup walkthrough (TESmart Manager)
 
 1. **Apps** → **Add User App** → **TESmart Manager** (skipped if HPM already opened it)
-2. Read the intro (banner / button images load from GitHub).
+2. Read the intro (banner loads from GitHub).
 3. **Configure server host & port** — enter the machine running `tesmartctl`, run the connection test.
 4. **Edit port names** — **Refresh Names**, edit the fields, then **Done**. Hubitat writes them with `POST /names` to the tesmartctl server (needs a recent tesmartctl that includes that route). You can still use `tesmartctl name set N Label` on the host.
 5. Set the device label, leave **Create child switch per input** on if you want dashboard tiles.
 6. **Done** — creates/updates the **TESmart Controller** device, saves names to the server, and pushes connection settings.
 
 After the next device refresh, child devices show labels like `Office` or `Input 3`.
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/WBEVAN/TESmartController/main/Docs/images/demo.gif" alt="Control panel demo" width="480"/>
-</p>
 
 ## Commands and attributes
 

@@ -15,8 +15,6 @@ import groovy.json.JsonSlurper
 import groovy.transform.Field
 
 @Field static final String IMG_BANNER = "https://raw.githubusercontent.com/WBEVAN/TESmartController/main/Docs/images/readme-banner.png"
-@Field static final String IMG_BUTTONS = "https://raw.githubusercontent.com/WBEVAN/TESmartController/main/Docs/images/buttons.png"
-@Field static final String IMG_DEMO = "https://raw.githubusercontent.com/WBEVAN/TESmartController/main/Docs/images/demo.gif"
 @Field static final String DOCS_URL = "https://github.com/WBEVAN/TESmartController/blob/main/Docs/hubitat.md"
 @Field static final String LISTENER_DOCS = "https://github.com/WBEVAN/TESmartController/blob/main/Docs/listener.md"
 
@@ -26,9 +24,9 @@ definition(
     author: "WBEVAN",
     description: "Set up and manage a TESmart HDMI/KVM switch via tesmartctl REST",
     category: "Convenience",
-    iconUrl: "https://raw.githubusercontent.com/WBEVAN/TESmartController/main/Docs/images/buttons.png",
-    iconX2Url: "https://raw.githubusercontent.com/WBEVAN/TESmartController/main/Docs/images/buttons.png",
-    iconX3Url: "https://raw.githubusercontent.com/WBEVAN/TESmartController/main/Docs/images/buttons.png",
+    iconUrl: "https://raw.githubusercontent.com/WBEVAN/TESmartController/main/Docs/images/readme-banner.png",
+    iconX2Url: "https://raw.githubusercontent.com/WBEVAN/TESmartController/main/Docs/images/readme-banner.png",
+    iconX3Url: "https://raw.githubusercontent.com/WBEVAN/TESmartController/main/Docs/images/readme-banner.png",
     importUrl: "https://raw.githubusercontent.com/WBEVAN/TESmartController/main/hubitat/TESmart-Manager.groovy",
     singleInstance: false,
     installOnOpen: true
@@ -46,11 +44,6 @@ def mainPage() {
             paragraph imgHtml(IMG_BANNER, "tesmartctl")
             paragraph "<b>Control a TESmart 8-port or 16-port HDMI/KVM switch</b> from Hubitat through the tesmartctl REST server."
             paragraph "Exactly one input is active at a time. This app creates a <b>TESmart Controller</b> device (MediaInputSource) and optional child switches for your dashboard."
-        }
-        section("How it looks") {
-            paragraph imgHtml(IMG_BUTTONS, "input buttons", 320)
-            paragraph "Optional browser panel and HTTP routes are documented with tesmartctl — Hubitat uses the same server."
-            paragraph imgHtml(IMG_DEMO, "control panel demo", 360)
         }
         section("1. Prerequisites") {
             paragraph """Before continuing, on a machine Hubitat can reach run:
