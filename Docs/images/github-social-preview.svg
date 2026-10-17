@@ -11,7 +11,7 @@
 <text x="64" y="355" font-size="51" font-weight="bold" fill="#67e7f3">Your controls.</text>
 <text x="64" y="430" font-size="24" fill="#b6c9d8">Control supported 8- and 16-port</text>
 <text x="64" y="465" font-size="24" fill="#b6c9d8">HDMI/KVM switches over LAN or RS232.</text>
-<text x="64" y="518" font-size="22" fill="#f2f7fc">Web UI  /  REST API  /  Python  /  CLI  /  <tspan fill="#67e7f3" font-weight="bold">Hubitat</tspan></text>
+<text x="64" y="518" font-size="22" fill="#f2f7fc">Web UI  /  REST API  /  Python  /  CLI  /  Hubitat</text>
 <text x="64" y="552" font-size="18" fill="#9db3c3">Hubitat Elevation — Manager app · MediaInputSource · HPM package</text>
 <rect x="64" y="575" width="466" height="56" rx="9" fill="#07121d" stroke="#2e5665"/>
 <text x="86" y="611" font-family="DejaVu Sans Mono, monospace" font-size="23" fill="#79eaf6">pip install tesmartctl</text>
