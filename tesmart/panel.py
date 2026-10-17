@@ -71,7 +71,8 @@ API_CATALOG: list[dict[str, Any]] = [
     {"method": "POST", "path": "/api/cycle", "summary": "save the cycle list, mode, and interval", "sample": {"inputs": [1, 2, 4], "mode": "manual", "seconds": 15}},
     {"method": "GET", "path": "/api/callbacks", "summary": "list HTTP callback URLs notified on input change"},
     {"method": "POST", "path": "/api/callbacks", "summary": "register a callback URL (duplicates ignored)", "sample": {"url": "http://192.168.1.5/hook"}},
-    {"method": "POST", "path": "/api/callbacks/remove", "summary": "remove a registered callback URL", "sample": {"url": "http://192.168.1.5/hook"}},
+    {"method": "DELETE", "path": "/api/callbacks", "summary": "remove a registered callback URL", "sample": {"url": "http://192.168.1.5/hook"}},
+    {"method": "POST", "path": "/api/callbacks/remove", "summary": "same as DELETE /api/callbacks (for clients that cannot send DELETE)", "sample": {"url": "http://192.168.1.5/hook"}},
 ]
 
 
@@ -473,11 +474,15 @@ def _action_callbacks(handler: "_Handler", method: str, rest: list[str]) -> dict
         if not url:
             raise PanelError('provide {"url": "http://..."}')
         return callbacks.add_callback(str(url), env)
-    if rest and rest[0].lower() == "remove" and method == "POST":
+    if (not rest and method == "DELETE") or (rest and rest[0].lower() == "remove" and method in {"POST", "DELETE"}):
         body = _read_json(handler)
         url = body.get("url") or body.get("callback")
         if not url:
-            raise PanelError('provide {"url": "http://..."}')
+            # Allow ?url= when the explorer or client cannot send a DELETE body.
+            query = parse_qs(urlsplit(handler.path).query)
+            url = (query.get("url") or [None])[0]
+        if not url:
+            raise PanelError('provide {"url": "http://..."} or ?url=')
         return callbacks.remove_callback(str(url), env)
     raise PanelError("unknown callbacks route", HTTPStatus.NOT_FOUND)
 

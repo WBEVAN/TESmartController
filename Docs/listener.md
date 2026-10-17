@@ -138,7 +138,7 @@ curl -X POST http://127.0.0.1:8080/callbacks \
 }
 ```
 
-`source` is `unsolicited` for switch-originated reports and `command` when this listener changed the input. The same URL registered twice stays a single entry. URLs are stored in the env file (`TESMART_CALLBACKS`) and reloaded on the next start. The control panel (**Change callbacks** card, with `--panel`) can add and remove them as well.
+`source` is `unsolicited` for switch-originated reports and `command` when this listener changed the input. The same URL registered twice stays a single entry. URLs are stored in the env file (`TESMART_CALLBACKS`) and reloaded on the next start. With `--panel`, manage them from the **API** dialog (`GET` / `POST` / `DELETE /api/callbacks`).
 
 `network=0` also accepts `off`, `false`, and `no`. Skipping the LAN queries avoids four extra paced round trips.
 

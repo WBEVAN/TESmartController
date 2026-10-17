@@ -131,29 +131,6 @@
       </div>
     </section>
 
-    <!-- Callbacks -->
-    <section class="col-lg-4">
-      <div class="card h-100">
-        <div class="card-header">Change callbacks</div>
-        <div class="card-body vstack gap-3">
-          <p class="small text-body-secondary mb-0">
-            On every input change (panel, remote, or API), this listener POSTs JSON to each URL.
-            Registering the same address twice does nothing.
-          </p>
-          <ul id="callbacks-list" class="list-group list-group-flush"></ul>
-          <form id="callbacks-form" class="vstack gap-2" autocomplete="off">
-            <label for="callback-url" class="form-label mb-0">Callback URL</label>
-            <input type="url" class="form-control" id="callback-url" placeholder="http://192.168.1.5/hook" required>
-            <button type="submit" class="btn btn-primary">Add callback</button>
-          </form>
-        </div>
-        <div class="card-footer d-flex justify-content-between align-items-center small text-body-secondary">
-          <span>Stored in the listener env file.</span>
-          <span class="saved-flag" id="callbacks-saved" aria-live="polite"></span>
-        </div>
-      </div>
-    </section>
-
     <!-- Cycle -->
     <section class="col-lg-4">
       <div class="card h-100">

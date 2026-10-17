@@ -234,10 +234,6 @@ class Panel {
       peekBack: document.getElementById("btn-peek-back"),
       namesForm: document.getElementById("names-form"),
       namesSaved: document.getElementById("names-saved"),
-      callbacksList: document.getElementById("callbacks-list"),
-      callbacksForm: document.getElementById("callbacks-form"),
-      callbackUrl: document.getElementById("callback-url"),
-      callbacksSaved: document.getElementById("callbacks-saved"),
       cycleForm: document.getElementById("cycle-form"),
       cycleSaved: document.getElementById("cycle-saved"),
       cycleInputs: document.getElementById("cycle-inputs"),
@@ -254,7 +250,6 @@ class Panel {
     this.wizard = new NetworkWizard(document.getElementById("network-modal"), (values) => this.applyNetwork(values));
     this.cycleSnapshot = null;
     this.namesSnapshot = null;
-    this.callbacksSnapshot = null;
     this.cycleSaveTimer = null;
     this.namesSaveTimer = null;
     this.pendingNames = {};
@@ -294,14 +289,6 @@ class Panel {
     this.el.namesForm.addEventListener("change", (event) => {
       const field = event.target.closest("input[data-number]");
       if (field) this.queueNameSave(Number(field.dataset.number), field.value.trim());
-    });
-    this.el.callbacksForm.addEventListener("submit", (event) => {
-      event.preventDefault();
-      this.addCallback();
-    });
-    this.el.callbacksList.addEventListener("click", (event) => {
-      const button = event.target.closest("[data-remove-callback]");
-      if (button) this.removeCallback(button.dataset.removeCallback);
     });
     this.el.cycleForm.addEventListener("submit", (event) => event.preventDefault());
     this.el.cycleForm.addEventListener("change", () => this.queueCycleSave());
@@ -610,7 +597,6 @@ class Panel {
     this.renderFollow();
     this.renderSettings();
     this.renderNames();
-    this.renderCallbacks();
     this.renderCycle();
     this.renderNetwork();
     if (!this.el.autoCycle.dataset.initialised) {
@@ -726,63 +712,6 @@ class Panel {
     this.el.lastSent.led.textContent = sent.led_timeout == null ? unknown : `last sent: ${sent.led_timeout}`;
     this.el.lastSent.autodetect.textContent =
       sent.auto_detect == null ? unknown : sent.auto_detect ? "last sent: on" : "last sent: off";
-  }
-
-  async addCallback() {
-    const url = (this.el.callbackUrl.value || "").trim();
-    if (!url) return;
-    const result = await this.#call(() => this.api.post("/api/callbacks", { url }));
-    if (!result) return;
-    this.el.callbackUrl.value = "";
-    this.state.callbacks = result.callbacks || [];
-    this.callbacksSnapshot = null;
-    this.renderCallbacks();
-    this.el.callbacksSaved.textContent = result.added === false ? "Already registered" : "Saved";
-    setTimeout(() => {
-      if (this.el.callbacksSaved.textContent) this.el.callbacksSaved.textContent = "";
-    }, 1500);
-  }
-
-  async removeCallback(url) {
-    const result = await this.#call(() => this.api.post("/api/callbacks/remove", { url }));
-    if (!result) return;
-    this.state.callbacks = result.callbacks || [];
-    this.callbacksSnapshot = null;
-    this.renderCallbacks();
-    this.el.callbacksSaved.textContent = result.removed ? "Removed" : "Not found";
-    setTimeout(() => {
-      if (this.el.callbacksSaved.textContent) this.el.callbacksSaved.textContent = "";
-    }, 1500);
-  }
-
-  renderCallbacks() {
-    const urls = this.state.callbacks || [];
-    const snapshot = JSON.stringify(urls);
-    if (snapshot === this.callbacksSnapshot) return;
-    this.callbacksSnapshot = snapshot;
-    if (!urls.length) {
-      const empty = document.createElement("li");
-      empty.className = "list-group-item small text-body-secondary px-0";
-      empty.textContent = "No callbacks registered.";
-      this.el.callbacksList.replaceChildren(empty);
-      return;
-    }
-    this.el.callbacksList.replaceChildren(
-      ...urls.map((url) => {
-        const row = document.createElement("li");
-        row.className = "list-group-item d-flex justify-content-between align-items-start gap-2 px-0";
-        const text = document.createElement("code");
-        text.className = "small text-break";
-        text.textContent = url;
-        const remove = document.createElement("button");
-        remove.type = "button";
-        remove.className = "btn btn-outline-danger btn-sm flex-shrink-0";
-        remove.dataset.removeCallback = url;
-        remove.textContent = "Remove";
-        row.append(text, remove);
-        return row;
-      }),
-    );
   }
 
   renderNames() {
@@ -932,7 +861,13 @@ class Explorer {
         button.className = "list-group-item list-group-item-action";
         button.dataset.index = String(index);
         const method = document.createElement("span");
-        method.className = `badge me-2 ${route.method === "GET" ? "text-bg-secondary" : "text-bg-primary"}`;
+        const methodClass =
+          route.method === "GET"
+            ? "text-bg-secondary"
+            : route.method === "DELETE"
+              ? "text-bg-danger"
+              : "text-bg-primary";
+        method.className = `badge me-2 ${methodClass}`;
         method.textContent = route.method;
         const path = document.createElement("span");
         path.className = "font-monospace";
