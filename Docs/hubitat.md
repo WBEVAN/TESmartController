@@ -47,25 +47,23 @@ There is no authentication on the listener — only do this on a trusted network
 
 ## Install
 
+Packaging follows the [HPM developer documentation](https://hubitatpackagemanager.hubitatcommunity.com/devs1.html).
+
 ### Option A — Hubitat Package Manager (recommended)
 
-Packaging follows the [HPM developer documentation](https://hubitatpackagemanager.hubitatcommunity.com/devs1.html): a **package manifest** plus a **repository file**.
-
 1. Install [Hubitat Package Manager](https://hubitatpackagemanager.hubitatcommunity.com/) if needed.
-2. **Install → From a URL** — paste the **package manifest** (required field `packageName`):
 
-   `https://raw.githubusercontent.com/WBEVAN/TESmartController/main/hubitat/packageManifest.json`
+2. **If you already see a package named `null` in Uninstall:** select it → uninstall it. That entry was an incomplete install and blocks a clean setup.
 
-   HPM should say you are about to install **TESmart Controller**. If it says **null**, you used the repository URL by mistake.
+3. Install the package (either method works; both show **TESmart Controller**):
 
-3. Or **Package Repositories → Add custom repository**, then refresh and install **TESmart Controller** from the list:
+   | Method | URL |
+   | --- | --- |
+   | **Install → From a URL** | [`packageManifest.json`](https://raw.githubusercontent.com/WBEVAN/TESmartController/main/hubitat/packageManifest.json) |
+   | **Install → From a URL** (same package) | [`repository.json`](https://raw.githubusercontent.com/WBEVAN/TESmartController/main/hubitat/repository.json) |
+   | **Add custom repository**, refresh, then browse | [`repository.json`](https://raw.githubusercontent.com/WBEVAN/TESmartController/main/hubitat/repository.json) |
 
-   `https://raw.githubusercontent.com/WBEVAN/TESmartController/main/hubitat/repository.json`
-
-| HPM file | URL |
-| --- | --- |
-| Package manifest | [`packageManifest.json`](https://raw.githubusercontent.com/WBEVAN/TESmartController/main/hubitat/packageManifest.json) |
-| Repository file | [`repository.json`](https://raw.githubusercontent.com/WBEVAN/TESmartController/main/hubitat/repository.json) |
+4. Leave **Configure the installed package after installation completes** enabled when offered. HPM opens **TESmart Manager** to finish setup.
 
 ### Option B — Manual import
 
@@ -77,7 +75,7 @@ Packaging follows the [HPM developer documentation](https://hubitatpackagemanage
 
 ## Setup walkthrough (TESmart Manager)
 
-1. **Apps** → **Add User App** → **TESmart Manager**
+1. **Apps** → **Add User App** → **TESmart Manager** (skipped if HPM already opened it)
 2. Read the intro (banner / button images load from GitHub).
 3. **Configure listener host & port** — enter the machine running `tesmartctl`, run the connection test.
 4. **Name each port** (optional) — Hubitat labels for child devices and the `setInputSource` dropdown. Merged with listener names from `tesmartctl name`.
@@ -99,7 +97,7 @@ After the first refresh, child devices show labels like `Office` or `Input 3`, w
 | `refresh` | `GET /status?network=0` (rebuilds dropdown + child names) |
 | `setInputSource` | Dropdown `2 — Office` (or `5`) → sends port number via `GET /input/n` |
 | `nextInput` / `previousInput` | `GET /next` / `GET /previous` |
-| `peek` | Same dropdown → `GET /peek/n`, then refresh |
+| `peek` | Same `2 — Office` dropdown as setInputSource → `GET /peek/n` (port number), then refresh |
 | `createChildInputs` / `deleteChildInputs` | manage child devices |
 
 | Attribute | Meaning |
@@ -147,8 +145,8 @@ Full route list: [`listener.md`](listener.md).
 
 | Path | Role |
 | --- | --- |
-| [`hubitat/TESmart-Manager.groovy`](../hubitat/TESmart-Manager.groovy) | Setup app |
+| [`hubitat/TESmart-Manager.groovy`](../hubitat/TESmart-Manager.groovy) | Setup app (`primary`) |
 | [`hubitat/TESmart-Controller.groovy`](../hubitat/TESmart-Controller.groovy) | Parent driver |
 | [`hubitat/TESmart-Input.groovy`](../hubitat/TESmart-Input.groovy) | Child driver |
-| [`hubitat/packageManifest.json`](../hubitat/packageManifest.json) | HPM package |
-| [`hubitat/repository.json`](../hubitat/repository.json) | HPM custom repository |
+| [`hubitat/packageManifest.json`](../hubitat/packageManifest.json) | HPM package manifest ([devs docs](https://hubitatpackagemanager.hubitatcommunity.com/devs1.html)) |
+| [`hubitat/repository.json`](../hubitat/repository.json) | HPM repository listing; also installable as the same package (includes `packageName`) |
