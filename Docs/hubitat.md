@@ -14,8 +14,8 @@ A TESmart unit is **not** a bank of independent relays. Exactly one input is act
 
 | Layer | What you get |
 | --- | --- |
-| **TESmart Manager** (app) | Guided setup, connection test, optional Hubitat-side port names |
-| Parent device (`TESmart Controller`) | `MediaInputSource`, refresh polling, next / previous / peek |
+| **TESmart Manager** (app) | Guided setup, `/compat` version check, port names on the server, push-callback registration |
+| Parent device (`TESmart Controller`) | `MediaInputSource`, refresh polling, next / previous / peek, callback-driven updates |
 | Child switches (`TESmart Input`) | One dashboard tile per port; turning one **on** selects that input (radio group) |
 
 App and drivers use the Hubitat namespace **`wbevan_tesmart`**. If you previously installed under `tesmart`, uninstall the old app/devices and install fresh (or update via HPM and recreate the Manager device).
@@ -88,12 +88,13 @@ Packaging follows the [HPM developer documentation](https://hubitatpackagemanage
 
 1. **Apps** → **Add User App** → **TESmart Manager** (skipped if HPM already opened it)
 2. Read the intro (banner loads from GitHub).
-3. **Configure server host & port** — enter the machine running `tesmartctl`, run the connection test.
-4. **Edit port names** — **Refresh Names**, edit the fields, then **Done**. Hubitat writes them with `POST /names` to the tesmartctl server (needs a recent tesmartctl that includes that route). You can still use `tesmartctl name set N Label` on the host.
+3. **Configure server host & port** — enter the machine running `tesmartctl`, run the connection test. Manager calls `POST /compat` first (needs **tesmartctl 0.0.7.9+**); an old server fails with an upgrade message.
+4. **Edit port names** — **Refresh Names**, edit the fields, then **Done**. Hubitat writes them with `POST /names` to the tesmartctl server. You can still use `tesmartctl name set N Label` on the host; name changes also notify Hubitat when callbacks are enabled.
 5. Set the device label, leave **Create child switch per input** on if you want dashboard tiles.
-6. **Done** — creates/updates the **TESmart Controller** device, saves names to the server, and pushes connection settings.
+6. Leave **Push notifications** on so Manager registers a named callback with the server (OAuth access token).
+7. **Done** — creates/updates the **TESmart Controller** device, saves names to the server, registers callbacks, and pushes connection settings.
 
-After the next device **Refresh**, children labeled `Input N` are recreated with server names (e.g. `Old Mac`, `New Mac`). Unnamed ports stay `Input N`.
+After the next device **Refresh** (or a callback), children labeled `Input N` are recreated with server names (e.g. `Old Mac`, `New Mac`). Unnamed ports stay `Input N`.
 
 ## Commands and attributes
 
@@ -113,9 +114,12 @@ After the next device **Refresh**, children labeled `Input N` are recreated with
 | `mediaInputSource` | Active label (name if set, else port number) |
 | `supportedInputs` | JSON list of labels |
 | `activeInput` | Active port number |
+| `previousInput` | Prior port when known (from callbacks / switches) |
 | `activeName` | Local / override name when known |
 | `inputCount` | 8 or 16 |
 | `healthStatus` | `online` / `offline` |
+| `lastChangeSource` | `command` / `unsolicited` (from callbacks when present) |
+| `lastRefresh` | Timestamp of last successful status apply |
 
 ### Children (`TESmart Input`)
 
@@ -142,10 +146,14 @@ Add child devices as Switch tiles. The lit tile is the active input.
 
 | Hubitat action | HTTP |
 | --- | --- |
-| Refresh / poll | `GET /status?network=0` |
+| Compatibility / install check | `POST /compat` (fallback `GET /version`) |
+| Refresh / poll | `GET /status?network=0` (includes `version`, `names`) |
 | Select input | `GET /input/N` |
 | Next / previous | `GET /next`, `GET /previous` |
 | Peek | `GET /peek/N` |
+| Load / save port names | `GET /names`, `POST /names` |
+| Register / remove push URL | `POST /callbacks`, `POST /callbacks/remove` |
+| Server → Hubitat push | `POST` to Manager `/tesmart-event` (`input_changed`, `names_changed`, `health_check`) |
 
 Full route list: [`listener.md`](listener.md).
 
