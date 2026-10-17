@@ -1,0 +1,143 @@
+# Hubitat integration
+
+Drive a TESmart 8-port or 16-port HDMI/KVM switch from [Hubitat Elevation](https://hubitat.com/) through the `tesmartctl` REST listener.
+
+Use **TESmart Manager** (the app) for setup. It walks through the listener address, optional port names, and creates the controller device plus child input switches.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/WBEVAN/TESmartController/main/Docs/images/readme-banner.png" alt="tesmartctl" width="640"/>
+</p>
+
+## How the switch is modelled
+
+A TESmart unit is **not** a bank of independent relays. Exactly one input is active at a time. Hubitat’s closest built-in idea is **MediaInputSource**: one `mediaInputSource` value and `setInputSource`.
+
+| Layer | What you get |
+| --- | --- |
+| **TESmart Manager** (app) | Guided setup, connection test, optional Hubitat-side port names |
+| Parent device (`TESmart Controller`) | `MediaInputSource`, refresh polling, next / previous / peek |
+| Child switches (`TESmart Input`) | One dashboard tile per port; turning one **on** selects that input (radio group) |
+
+## Prerequisites
+
+On a host Hubitat can reach:
+
+```bash
+tesmartctl listen --http 0.0.0.0:8080
+```
+
+Optional local names (shown in Hubitat as `2 — Office`):
+
+```bash
+tesmartctl name 2 Office
+tesmartctl name 3 Den
+```
+
+Confirm:
+
+```bash
+curl http://192.168.1.20:8080/status?network=0
+```
+
+There is no authentication on the listener — only do this on a trusted network. Details: [`listener.md`](listener.md).
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/WBEVAN/TESmartController/main/Docs/images/buttons.png" alt="Input buttons" width="400"/>
+</p>
+
+## Install
+
+### Option A — Hubitat Package Manager (recommended)
+
+1. Install [Hubitat Package Manager](https://hubitatpackagemanager.hubitatcommunity.com/) if needed.
+2. **Add a custom repository** with:
+
+   `https://raw.githubusercontent.com/WBEVAN/TESmartController/main/hubitat/repository.json`
+
+3. Install the **TESmart Controller** package (app + both drivers).
+
+### Option B — Manual import
+
+1. **Drivers Code** → import (child first):
+   - [`TESmart-Input.groovy`](https://raw.githubusercontent.com/WBEVAN/TESmartController/main/hubitat/TESmart-Input.groovy)
+   - [`TESmart-Controller.groovy`](https://raw.githubusercontent.com/WBEVAN/TESmartController/main/hubitat/TESmart-Controller.groovy)
+2. **Apps Code** → import:
+   - [`TESmart-Manager.groovy`](https://raw.githubusercontent.com/WBEVAN/TESmartController/main/hubitat/TESmart-Manager.groovy)
+
+## Setup walkthrough (TESmart Manager)
+
+1. **Apps** → **Add User App** → **TESmart Manager**
+2. Read the intro (banner / button images load from GitHub).
+3. **Configure listener host & port** — enter the machine running `tesmartctl`, run the connection test.
+4. **Name each port** (optional) — Hubitat labels for child devices and the `setInputSource` dropdown. Merged with listener names from `tesmartctl name`.
+5. Set the device label, leave **Create child switch per input** on if you want dashboard tiles.
+6. **Done** — the app creates/updates the **TESmart Controller** device and pushes settings.
+
+After the first refresh, child devices show labels like `Office` or `Input 3`, with `inputNumber` / `inputName` attributes set when a name exists.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/WBEVAN/TESmartController/main/Docs/images/demo.gif" alt="Control panel demo" width="480"/>
+</p>
+
+## Commands and attributes
+
+### Parent (`TESmart Controller`)
+
+| Command | Effect |
+| --- | --- |
+| `refresh` | `GET /status?network=0` (rebuilds dropdown + child names) |
+| `setInputSource` | Dropdown `2 — Office` (or `5`) → sends port number via `GET /input/n` |
+| `nextInput` / `previousInput` | `GET /next` / `GET /previous` |
+| `peek` | Same dropdown → `GET /peek/n`, then refresh |
+| `createChildInputs` / `deleteChildInputs` | manage child devices |
+
+| Attribute | Meaning |
+| --- | --- |
+| `mediaInputSource` | Active label (name if set, else port number) |
+| `supportedInputs` | JSON list of labels |
+| `activeInput` | Active port number |
+| `activeName` | Local / override name when known |
+| `inputCount` | 8 or 16 |
+| `healthStatus` | `online` / `offline` |
+
+### Children (`TESmart Input`)
+
+| Link | Meaning |
+| --- | --- |
+| Device label | Name when set (`Office`), otherwise `Input 3` |
+| `inputNumber` | Port number |
+| `inputName` | Local / Hubitat name when set (omitted if unnamed) |
+| `parentDevice` | Parent controller display name |
+| DNI | `{parentDni}-input-{n}` |
+
+**On** selects that port. **Off** on the active port is ignored so exactly one input stays selected.
+
+## Dashboard
+
+Add child devices as Switch tiles. The lit tile is the active input.
+
+## Rule Machine
+
+- Select a port: `setInputSource` with `3` or `3 — Office` (driver sends the port number)
+- Condition: attribute `activeInput`
+
+## Listener routes used
+
+| Hubitat action | HTTP |
+| --- | --- |
+| Refresh / poll | `GET /status?network=0` |
+| Select input | `GET /input/N` |
+| Next / previous | `GET /next`, `GET /previous` |
+| Peek | `GET /peek/N` |
+
+Full route list: [`listener.md`](listener.md).
+
+## Package files
+
+| Path | Role |
+| --- | --- |
+| [`hubitat/TESmart-Manager.groovy`](../hubitat/TESmart-Manager.groovy) | Setup app |
+| [`hubitat/TESmart-Controller.groovy`](../hubitat/TESmart-Controller.groovy) | Parent driver |
+| [`hubitat/TESmart-Input.groovy`](../hubitat/TESmart-Input.groovy) | Child driver |
+| [`hubitat/packageManifest.json`](../hubitat/packageManifest.json) | HPM package |
+| [`hubitat/repository.json`](../hubitat/repository.json) | HPM custom repository |

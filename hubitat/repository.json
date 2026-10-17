@@ -1,0 +1,14 @@
+{
+  "author": "WBEVAN",
+  "gitHubUrl": "https://github.com/WBEVAN/TESmartController",
+  "packages": [
+    {
+      "id": "391e1f4d-e726-43ae-a0a6-d507c85e9984",
+      "name": "TESmart Controller",
+      "category": "Integrations",
+      "location": "https://raw.githubusercontent.com/WBEVAN/TESmartController/main/hubitat/packageManifest.json",
+      "description": "TESmart 8/16-port HDMI/KVM switch via tesmartctl REST — Manager app, controller driver, and child input switches.",
+      "tags": ["LAN", "Multimedia"]
+    }
+  ]
+}

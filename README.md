@@ -82,6 +82,7 @@ The switch cannot say which HDMI inputs have a signal. A cycle is the list you c
 | [`Docs/listener.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/listener.md) | Long-running line protocol and HTTP URLs |
 | [`Docs/panel.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/panel.md) | Browser control panel at `/panel` |
 | [`Docs/embed.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/embed.md) | Input buttons on a page you already have |
+| [`Docs/hubitat.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/hubitat.md) | Hubitat drivers (`hubitat/`) over the REST listener |
 
 ## Install
 
@@ -164,6 +165,7 @@ Each input change is one URL or one command, so anything that can open a URL or 
 | Elgato Stream Deck | **Website** action with `http://127.0.0.1:8080/input/3` and "GET request in background" ticked, or a **System > Open** action running `tesmartctl input 3`. |
 | Bitfocus Companion | **Generic HTTP**, GET `http://<host>:8080/input/3`. |
 | Home Assistant | A `rest_command` (`url: http://<host>:8080/input/{{ input }}`) called from a button, script, or automation. A `rest` sensor on `/input?format=text` shows the active input. |
+| Hubitat | [`hubitat/`](https://github.com/WBEVAN/TESmartController/tree/main/hubitat): **TESmart Manager** setup app (HPM or manual), parent `MediaInputSource` device, child switches per port. See [`Docs/hubitat.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/hubitat.md). |
 | Homebridge / HomeKit | An HTTP switch or button plugin pointed at `/input/N`, one accessory per input. |
 | Node-RED | An **http request** node, GET `/input/3`. |
 | Apple Shortcuts | **Get Contents of URL** with `http://<host>:8080/input/3`. |
@@ -186,6 +188,8 @@ sensor:
 ```
 
 Here `192.168.1.20` stands for the computer running the listener. Every response says which input the switch actually reports (`active_input`), so a controller can show the real state rather than assuming the switch obeyed. See [Listener](#listener) for every route.
+
+Hubitat uses the same listener. Install via Hubitat Package Manager ([`hubitat/repository.json`](https://raw.githubusercontent.com/WBEVAN/TESmartController/main/hubitat/repository.json)) or import the app and drivers from [`hubitat/`](https://github.com/WBEVAN/TESmartController/tree/main/hubitat). **TESmart Manager** walks through host/port, optional port names, and creates the controller; it polls `/status?network=0`. The parent is a `MediaInputSource` (one active input of 8 or 16). Child switches give you one dashboard tile per port. Details: [`Docs/hubitat.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/hubitat.md).
 
 ## Connection
 
