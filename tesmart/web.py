@@ -430,6 +430,7 @@ def serve_http(
     )
     print(f"  http://{bound_host}:{bound_port}/input        read", file=sys.stderr)
     print(f"  http://{bound_host}:{bound_port}/status       read input and LAN settings", file=sys.stderr)
+    print(f"  http://{bound_host}:{bound_port}/names        local input names (GET / POST)", file=sys.stderr)
     print(f"  http://{bound_host}:{bound_port}/rotate       next input", file=sys.stderr)
     print(f"  http://{bound_host}:{bound_port}/input?set=3  switch", file=sys.stderr)
     if panel_enabled:
