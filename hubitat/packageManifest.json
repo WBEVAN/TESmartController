@@ -2,10 +2,10 @@
   "packageName": "TESmart Controller",
   "minimumHEVersion": "2.2.0",
   "author": "WBEVAN",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "dateReleased": "2026-10-17",
   "licenseFile": "https://raw.githubusercontent.com/WBEVAN/TESmartController/main/LICENSE",
-  "releaseNotes": "Fix input name lookup so menus show 1 - Old Mac (Hubitat GString key mismatch).",
+  "releaseNotes": "Child devices rename to server names (recreate Input N → Old Mac on Refresh).",
   "documentationLink": "https://github.com/WBEVAN/TESmartController/blob/main/Docs/hubitat.md",
   "communityLink": "https://github.com/WBEVAN/TESmartController",
   "apps": [

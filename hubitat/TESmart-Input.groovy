@@ -56,8 +56,27 @@ void parse(List<Map> events) {
             return
         }
         def value = event.value
-        // Hubitat often displays "" string attributes as null; skip empty names.
-        if (event.name == "inputName" && (value == null || value.toString().trim().isEmpty())) {
+        if (event.name == "inputName") {
+            String label = value?.toString()?.trim()
+            if (!label) {
+                // Keep attribute unset when the server has no name for this port.
+                return
+            }
+            sendEvent(name: "inputName", value: label, descriptionText: event.descriptionText)
+            // Component children often keep the create-time device name; set both
+            // here so the Devices list / breadcrumb show "Old Mac" not "Input 1".
+            try {
+                if (device.getLabel() != label) {
+                    device.setLabel(label)
+                }
+            } catch (ignored) {
+            }
+            try {
+                if (device.getName() != label) {
+                    device.setName(label)
+                }
+            } catch (ignored) {
+            }
             return
         }
         sendEvent(event)

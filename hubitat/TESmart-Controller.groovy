@@ -15,7 +15,7 @@ import groovy.transform.Field
 import groovy.json.JsonSlurper
 import groovy.json.JsonBuilder
 
-@Field static final String DRIVER_VERSION = "1.4.1"
+@Field static final String DRIVER_VERSION = "1.4.2"
 @Field static final String CHILD_NAMESPACE = "wbevan_tesmart"
 @Field static final String CHILD_TYPE = "TESmart Input"
 @Field static final String BUILTIN_CHILD_NAMESPACE = "hubitat"
@@ -524,7 +524,39 @@ private void syncChildIdentity(child, Integer number, Integer active) {
     String autoLabel = displayLabelForInput(number, names)
     String parentLabel = device.displayName ?: device.getName()
     String previousAuto = child.getDataValue("autoLabel")
-    String currentLabel = child.getLabel() ?: child.getName()
+    String currentLabel = (child.getLabel() ?: "").toString().trim()
+    String currentName = (child.getName() ?: "").toString().trim()
+    String displayed = currentLabel ?: currentName
+
+    // Auto-rename when the label is still ours (or an older numeric form).
+    // Leave custom Hubitat labels alone.
+    boolean stillManaged = !displayed ||
+        displayed == previousAuto ||
+        displayed == autoLabel ||
+        displayed == number.toString() ||
+        displayed == "Input ${number}" ||
+        displayed ==~ /^Input \d+$/ ||
+        (inputName && displayed == inputName)
+    if (stillManaged && displayed != autoLabel) {
+        // Component children often ignore setLabel/setName; delete + recreate
+        // is the reliable way to get "Old Mac" instead of "Input 1" in the UI.
+        logInfo "recreating child ${child.deviceNetworkId}: '${displayed}' → '${autoLabel}'"
+        String dni = child.deviceNetworkId
+        try {
+            deleteChildDevice(dni)
+        } catch (Exception e) {
+            logWarn "could not remove child ${dni} for rename: ${e.message}"
+            try {
+                child.setLabel(autoLabel)
+                child.setName(autoLabel)
+            } catch (ignored) {
+            }
+        }
+        child = ensureChild(number)
+        if (!child) {
+            return
+        }
+    }
 
     child.updateDataValue("inputNumber", number.toString())
     child.updateDataValue("autoLabel", autoLabel)
@@ -532,55 +564,24 @@ private void syncChildIdentity(child, Integer number, Integer active) {
     if (inputName) {
         child.updateDataValue("inputName", inputName)
     } else {
-        // Remove so getDataValue does not keep a stale empty string.
         try {
             child.removeDataValue("inputName")
         } catch (ignored) {
             child.updateDataValue("inputName", "")
         }
     }
-
-    // Auto-rename when the label is still ours (or an older numeric form).
-    // Leave custom Hubitat labels alone.
-    boolean stillManaged = !currentLabel ||
-        currentLabel == previousAuto ||
-        currentLabel == autoLabel ||
-        currentLabel == number.toString() ||
-        currentLabel == "Input ${number}" ||
-        (inputName && currentLabel == inputName)
-    if (stillManaged && currentLabel != autoLabel) {
-        // Component children often keep the create-time name in the Devices list;
-        // recreating with the correct label is reliable when upgrading from "Input N".
-        boolean wasGeneric = currentLabel == "Input ${number}" ||
-            currentLabel == number.toString() ||
-            previousAuto == "Input ${number}" ||
-            previousAuto == number.toString()
-        if (wasGeneric && inputName) {
-            logInfo "recreating child ${child.deviceNetworkId}: ${currentLabel} → ${autoLabel}"
-            try {
-                deleteChildDevice(child.deviceNetworkId)
-            } catch (Exception e) {
-                logWarn "could not remove child ${child.deviceNetworkId} for rename: ${e.message}"
-            }
-            child = ensureChild(number)
-            if (!child) {
-                return
-            }
-            child.updateDataValue("inputNumber", number.toString())
-            child.updateDataValue("autoLabel", autoLabel)
-            child.updateDataValue("parentDevice", parentLabel)
-            child.updateDataValue("inputName", inputName)
-        } else {
-            try {
-                child.setLabel(autoLabel)
-            } catch (ignored) {
-            }
-            try {
-                child.setName(autoLabel)
-            } catch (ignored) {
-            }
-            child.updateDataValue("autoLabel", autoLabel)
+    // Always push name/label even when recreate was skipped.
+    try {
+        if ((child.getLabel() ?: "") != autoLabel) {
+            child.setLabel(autoLabel)
         }
+    } catch (ignored) {
+    }
+    try {
+        if ((child.getName() ?: "") != autoLabel) {
+            child.setName(autoLabel)
+        }
+    } catch (ignored) {
     }
 
     String desiredSwitch = (active != null && number == active) ? "on" : "off"
@@ -588,9 +589,8 @@ private void syncChildIdentity(child, Integer number, Integer active) {
         [name: "inputNumber", value: number, descriptionText: "${autoLabel} is input ${number}"],
         [name: "parentDevice", value: parentLabel]
     ]
-    if (inputName) {
-        events << [name: "inputName", value: inputName, descriptionText: "${autoLabel} name is ${inputName}"]
-    }
+    // Always publish inputName (empty string clears); child driver applies label from this.
+    events << [name: "inputName", value: (inputName ?: ""), descriptionText: "${autoLabel} name is ${inputName ?: 'unset'}"]
     if (child.currentValue("switch") != desiredSwitch) {
         events << [name: "switch", value: desiredSwitch, descriptionText: "${autoLabel} is ${desiredSwitch}"]
     }
