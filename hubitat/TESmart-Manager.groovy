@@ -93,14 +93,18 @@ Bind to <code>0.0.0.0</code> (or your LAN IP). There is no authentication — us
 }
 
 def connectionPage() {
+    // Button handlers run before Hubitat commits edited inputs; run the test
+    // here so listenerHost/port from this same submit are already saved.
+    runPendingListenerAction()
+
     dynamicPage(name: "connectionPage", title: "Listener connection", nextPage: "mainPage") {
         section {
             paragraph "Point Hubitat at the host running <code>tesmartctl listen --http</code>."
             input name: "listenerHost", type: "text", title: "Listener host / IP",
-                required: true, defaultValue: "192.168.1.20"
+                required: true, defaultValue: "192.168.1.20", submitOnChange: true
             input name: "listenerPort", type: "number", title: "Listener port",
-                required: true, defaultValue: 8080, range: "1..65535"
-            input name: "useHttps", type: "bool", title: "Use HTTPS", defaultValue: false
+                required: true, defaultValue: 8080, range: "1..65535", submitOnChange: true
+            input name: "useHttps", type: "bool", title: "Use HTTPS", defaultValue: false, submitOnChange: true
             input name: "prefInputCount", type: "enum", title: "Port count",
                 options: ["8": "8 ports", "16": "16 ports"], defaultValue: "8"
             input name: "refreshInterval", type: "enum", title: "Status refresh interval",
@@ -120,25 +124,24 @@ def connectionPage() {
             if (atomicState.lastTestMessage) {
                 paragraph atomicState.lastTestMessage
             } else {
-                paragraph "Click <b>Run connection test now</b>, then wait a moment and reopen this page (or tap the button again) to see the result."
+                paragraph "Change the host/port if needed, then click <b>Run connection test now</b>."
             }
         }
     }
 }
 
 def appButtonHandler(String btn) {
-    if (btn == "btnTestConnection" || btn == "btnRefreshNames") {
-        runConnectionTest()
-        if (btn == "btnRefreshNames") {
-            applyListenerNamesToSettings()
-        }
-        if (logEnable) {
-            log.debug "TESmart Manager listener fetch: ${atomicState.lastTestMessage}"
-        }
+    // Defer work until the page re-renders — by then Hubitat has saved the form fields.
+    if (btn == "btnTestConnection") {
+        atomicState.pendingListenerAction = "test"
+    } else if (btn == "btnRefreshNames") {
+        atomicState.pendingListenerAction = "refreshNames"
     }
 }
 
 def namesPage() {
+    runPendingListenerAction()
+
     Integer count = (atomicState.lastInputCount ?: prefInputCount ?: "8") as Integer
     Map listenerNames = currentListenerNames()
 
@@ -196,10 +199,25 @@ def initialize() {
     app.updateLabel(deviceLabel ?: "TESmart Manager")
 }
 
+private void runPendingListenerAction() {
+    String action = atomicState.pendingListenerAction
+    if (!action) {
+        return
+    }
+    atomicState.pendingListenerAction = null
+    runConnectionTest()
+    if (action == "refreshNames") {
+        applyListenerNamesToSettings()
+    }
+    if (logEnable) {
+        log.debug "TESmart Manager listener fetch: ${atomicState.lastTestMessage}"
+    }
+}
+
 private void runConnectionTest() {
     String base = listenerBaseUrl()
     if (!base) {
-        atomicState.lastTestMessage = "<span style='color:red'>Host is required.</span>"
+        atomicState.lastTestMessage = "<span style='color:red'>Host is required.</span> Enter the listener IP, wait a moment for it to save, then test again."
         state.connectionOk = false
         return
     }
