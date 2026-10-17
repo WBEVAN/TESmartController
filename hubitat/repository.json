@@ -7,7 +7,7 @@
   "licenseFile": "https://raw.githubusercontent.com/WBEVAN/TESmartController/main/LICENSE",
   "releaseNotes": "Compatibility check via /compat; requires tesmartctl 0.0.7.9+.",
   "documentationLink": "https://github.com/WBEVAN/TESmartController/blob/main/Docs/hubitat.md",
-  "communityLink": "https://github.com/WBEVAN/TESmartController",
+  "communityLink": "https://community.hubitat.com/t/release-tesmart-hdmi-switch-rest-api-service-with-hubitat-package-manager-app/166591",
   "gitHubUrl": "https://github.com/WBEVAN/TESmartController",
   "apps": [
     {
