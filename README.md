@@ -1,5 +1,6 @@
 # TESmart HDMI Switch & KVM Controller — REST API, Web UI and CLI
 
+![tesmartctl — your TESmart switch, your controls](Docs/images/readme-banner.png)
 
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -355,6 +356,8 @@ tesmartctl listen --http 0.0.0.0:8080 --panel
 `--bind` and `--http` cannot be combined. Run two processes if you want both. A port number alone binds `127.0.0.1`, so only this computer can connect. `0.0.0.0` accepts every network interface. Other devices then use the address of the computer running `tesmartctl`, for example `http://192.168.1.20:8080/input/3`. There is no authentication, so only do this on a network you trust.
 
 `--panel` is off unless you add it. It serves a browser page for selecting inputs, stepping the cycle, peeking, and the switch settings the vendor Windows controller exposes (buzzer, front-panel display timeout, auto input detection, LAN address). Detail is in [`Docs/panel.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/panel.md).
+
+![Demo: input switching, Peek, and API explorer](Docs/images/demo.gif)
 
 ![Control panel](https://raw.githubusercontent.com/WBEVAN/TESmartController/main/Docs/images/panel.png)
 
