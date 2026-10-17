@@ -204,6 +204,15 @@ def _status_text(payload: dict) -> str:
         follow = peek.get("follow") or "off"
         if follow != "off":
             lines.append(f"peek follow: {follow}")
+    last_sent = payload.get("last_sent") or {}
+    if any(value is not None for value in last_sent.values()):
+        lines.append("last_sent (local; switch cannot report these):")
+        if last_sent.get("buzzer") is not None:
+            lines.append(f"  buzzer: {'on' if last_sent['buzzer'] else 'off'}")
+        if last_sent.get("led_timeout") is not None:
+            lines.append(f"  led_timeout: {last_sent['led_timeout']}")
+        if last_sent.get("auto_detect") is not None:
+            lines.append(f"  auto_detect: {'on' if last_sent['auto_detect'] else 'off'}")
     return "\n".join(lines)
 
 
@@ -300,6 +309,8 @@ class _Handler(BaseHTTPRequestHandler):
             payload["rotate"] = config.rotate_info(self.server.env_file, input_count=self.server.switch.input_count)
             payload["peek"] = config.peek_info(self.server.env_file)
             payload["peek"]["follow"] = self.server.peek_follow.status()["mode"]
+            # Remembered write-only settings (buzzer / LED / auto-detect) from this host.
+            payload["last_sent"] = dict(self.server.last_sent)
         if request.verb in {"set", "rotate", "previous", "peek"}:
             self._note_callback_change(payload, request.verb)
         text = _status_text(payload) if request.verb == "status" else None
@@ -497,8 +508,8 @@ class WebServer(ThreadingHTTPServer):
         self.switch = switch
         self.env_file = env_file
         self.panel = panel_enabled
-        # Last write-only values sent through this server. The switch cannot report them.
-        self.last_sent: dict[str, object] = {"buzzer": None, "led_timeout": None, "auto_detect": None}
+        # Last write-only values sent through this host (persisted in the env file).
+        self.last_sent: dict[str, object] = config.read_last_sent(env_file)
         self.lock = threading.Lock()
         # Shared so a peek started from /peek or the panel is visible to /api/state.
         self.peeker = Peeker(switch, self.lock)

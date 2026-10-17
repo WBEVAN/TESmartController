@@ -149,7 +149,8 @@ def build_state(handler: "_Handler", include_network: bool) -> dict[str, Any]:
     status["peek"] = config.peek_info(server.env_file)
     status["peek"]["active"] = server.peeker.status()
     status["peek"]["follow"] = server.peek_follow.status()["mode"]
-    status["last_sent"] = dict(server.last_sent)
+    # Prefer the live in-memory copy (updated on each write); fall back to env file.
+    status["last_sent"] = dict(server.last_sent) if server.last_sent else config.read_last_sent(server.env_file)
     status["inputs"] = [
         {"number": number, "name": names.get(number)} for number in range(1, switch.input_count + 1)
     ]
@@ -278,12 +279,19 @@ def _action_peek_default(handler: "_Handler", body: dict[str, Any]) -> dict[str,
     return {"peek": config.peek_info(handler.server.env_file)}
 
 
+def _remember_last_sent(handler: "_Handler", updates: dict[str, Any]) -> dict[str, Any]:
+    """Persist write-only settings and keep the in-memory copy in sync."""
+    table = config.update_last_sent(updates, handler.server.env_file)
+    handler.server.last_sent = dict(table)
+    return table
+
+
 def _action_buzzer(handler: "_Handler", body: dict[str, Any]) -> dict[str, Any]:
     on = _as_bool(body.get("on"), "on")
     with handler.server.lock:
         handler.server.switch.set_buzzer(on)
-    handler.server.last_sent["buzzer"] = on
-    return {"buzzer": on, "note": "sent; the switch cannot confirm this value"}
+    _remember_last_sent(handler, {"buzzer": on})
+    return {"buzzer": on, "note": "sent; remembered locally (switch cannot confirm)"}
 
 
 def _action_led(handler: "_Handler", body: dict[str, Any]) -> dict[str, Any]:
@@ -293,16 +301,17 @@ def _action_led(handler: "_Handler", body: dict[str, Any]) -> dict[str, Any]:
         raise PanelError(str(exc)) from exc
     with handler.server.lock:
         handler.server.switch.set_led_timeout(timeout)
-    handler.server.last_sent["led_timeout"] = timeout.describe()
-    return {"led_timeout": timeout.describe(), "note": "sent; the switch cannot confirm this value"}
+    described = timeout.describe()
+    _remember_last_sent(handler, {"led_timeout": described})
+    return {"led_timeout": described, "note": "sent; remembered locally (switch cannot confirm)"}
 
 
 def _action_autodetect(handler: "_Handler", body: dict[str, Any]) -> dict[str, Any]:
     on = _as_bool(body.get("on"), "on")
     with handler.server.lock:
         handler.server.switch.set_auto_detect(on)
-    handler.server.last_sent["auto_detect"] = on
-    return {"auto_detect": on, "note": "sent; the switch cannot confirm this value"}
+    _remember_last_sent(handler, {"auto_detect": on})
+    return {"auto_detect": on, "note": "sent; remembered locally (switch cannot confirm)"}
 
 
 def _action_network_get(handler: "_Handler") -> dict[str, Any]:

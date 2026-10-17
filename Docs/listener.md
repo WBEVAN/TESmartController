@@ -161,11 +161,14 @@ curl -X POST http://127.0.0.1:8080/callbacks \
   "unsolicited_reports": [],
   "names": {"1": "Living room", "2": "Office"},
   "rotate": {"supported": true, "configured": true, "mode": "manual", "seconds": null, "cycle": [1, 2, 4]},
-  "peek": {"supported": true, "seconds": 5}
+  "peek": {"supported": true, "seconds": 5},
+  "last_sent": {"buzzer": false, "led_timeout": "30s", "auto_detect": true}
 }
 ```
 
 `endpoint` is the address this process used to reach the switch. `unsolicited_reports` lists input numbers the switch announced on its own (front panel, remote, auto-detect, another client) while this request was in flight. It is usually empty.
+
+`last_sent` is what *this host* last wrote for buzzer, front-panel display timeout, and auto input detection. The switch cannot report those values back; tesmartctl stores them in the env file (`TESMART_LAST_SENT`) whenever you change them via the panel, `POST /api/buzzer` / `/api/led` / `/api/autodetect`, or `tesmartctl buzzer` / `led` / `autodetect`. After a restart, `/status` and `/api/state` still return the remembered values so other applications can stay in sync.
 
 `GET /status?format=text`:
 

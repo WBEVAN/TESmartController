@@ -322,7 +322,17 @@ def _render_status(status: dict[str, Any]) -> str:
     peek = status.get("peek") or {}
     if peek:
         lines.append(f"Peek:          {peek.get('seconds')}s on another input, then back (`peek N`)")
-    lines.append("Write-only (not readable from the device): buzzer, LED timeout, auto-detect")
+    last_sent = status.get("last_sent") or {}
+    if any(value is not None for value in last_sent.values()):
+        lines.append("Last sent (local; switch cannot report these):")
+        if last_sent.get("buzzer") is not None:
+            lines.append(f"  Buzzer:      {'on' if last_sent['buzzer'] else 'off'}")
+        if last_sent.get("led_timeout") is not None:
+            lines.append(f"  LED timeout: {last_sent['led_timeout']}")
+        if last_sent.get("auto_detect") is not None:
+            lines.append(f"  Auto-detect: {'on' if last_sent['auto_detect'] else 'off'}")
+    else:
+        lines.append("Last sent:     (none yet — buzzer / LED / auto-detect are write-only on the switch)")
     return "\n".join(lines)
 
 
@@ -336,6 +346,7 @@ def _names(args: argparse.Namespace) -> dict[int, str]:
 def cmd_status(switch: TesmartSwitch, args: argparse.Namespace) -> int:
     status = switch.read_status(include_network=not args.no_network).to_dict()
     config.apply_names(status, _names(args), include_map=True)
+    status["last_sent"] = config.read_last_sent(args.env_file)
     status["rotate"] = config.rotate_info(args.env_file, input_count=switch.input_count)
     status["peek"] = config.peek_info(args.env_file)
     emit(args, status, _render_status(status))
@@ -502,19 +513,35 @@ def cmd_input(switch: TesmartSwitch, args: argparse.Namespace) -> int:
 
 def cmd_buzzer(switch: TesmartSwitch, args: argparse.Namespace) -> int:
     switch.set_buzzer(args.state)
-    emit(args, {"buzzer": args.state}, f"Buzzer {'unmuted' if args.state else 'muted'}")
+    last_sent = config.update_last_sent({"buzzer": args.state}, args.env_file)
+    emit(
+        args,
+        {"buzzer": args.state, "last_sent": last_sent},
+        f"Buzzer {'unmuted' if args.state else 'muted'} (remembered locally)",
+    )
     return 0
 
 
 def cmd_led(switch: TesmartSwitch, args: argparse.Namespace) -> int:
     switch.set_led_timeout(args.timeout)
-    emit(args, {"led_timeout": args.timeout.describe()}, f"LED timeout set to {args.timeout.describe()}")
+    described = args.timeout.describe()
+    last_sent = config.update_last_sent({"led_timeout": described}, args.env_file)
+    emit(
+        args,
+        {"led_timeout": described, "last_sent": last_sent},
+        f"LED timeout set to {described} (remembered locally)",
+    )
     return 0
 
 
 def cmd_autodetect(switch: TesmartSwitch, args: argparse.Namespace) -> int:
     switch.set_auto_detect(args.state)
-    emit(args, {"auto_detect": args.state}, f"Auto input detection {'enabled' if args.state else 'disabled'}")
+    last_sent = config.update_last_sent({"auto_detect": args.state}, args.env_file)
+    emit(
+        args,
+        {"auto_detect": args.state, "last_sent": last_sent},
+        f"Auto input detection {'enabled' if args.state else 'disabled'} (remembered locally)",
+    )
     return 0
 
 

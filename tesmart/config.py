@@ -13,9 +13,11 @@ The env file location can be overridden with ``--env-file`` or the
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from .transport import DEFAULT_TCP_PORT
 
@@ -34,6 +36,10 @@ DEFAULT_CYCLE_SECONDS = 10
 # Peek: show another input briefly, then return. Local; the switch has no such command.
 PEEK_SECONDS_KEY = "TESMART_PEEK_SECONDS"
 DEFAULT_PEEK_SECONDS = 5
+# Last write-only switch settings this host sent (buzzer / LED / auto-detect).
+# The KVM cannot report these back; we remember them so other clients can read them.
+LAST_SENT_KEY = "TESMART_LAST_SENT"
+LAST_SENT_KEYS = ("buzzer", "led_timeout", "auto_detect")
 
 # setting name -> (env var, built-in default)
 SETTINGS: dict[str, tuple[str, str | None]] = {
@@ -300,6 +306,50 @@ def set_peek_seconds(seconds: int, env_file: str | None = None) -> Path:
 def peek_info(env_file: str | None = None) -> dict:
     """What status reports about peek: the saved duration."""
     return {"supported": True, "seconds": read_peek_seconds(env_file)}
+
+
+def read_last_sent(env_file: str | None = None) -> dict[str, Any]:
+    """Last buzzer / LED timeout / auto-detect values written through tesmartctl."""
+    out: dict[str, Any] = {key: None for key in LAST_SENT_KEYS}
+    raw = read_env_file(env_file_path(env_file)).get(LAST_SENT_KEY, "").strip()
+    if not raw:
+        return out
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return out
+    if not isinstance(parsed, dict):
+        return out
+    if "buzzer" in parsed and parsed["buzzer"] is not None:
+        out["buzzer"] = bool(parsed["buzzer"])
+    if "led_timeout" in parsed and parsed["led_timeout"] is not None:
+        out["led_timeout"] = str(parsed["led_timeout"])
+    if "auto_detect" in parsed and parsed["auto_detect"] is not None:
+        out["auto_detect"] = bool(parsed["auto_detect"])
+    return out
+
+
+def update_last_sent(updates: dict[str, Any], env_file: str | None = None) -> dict[str, Any]:
+    """Merge ``updates`` into the persisted last-sent table and return the full table."""
+    current = read_last_sent(env_file)
+    for key in LAST_SENT_KEYS:
+        if key not in updates:
+            continue
+        value = updates[key]
+        if key == "led_timeout":
+            current[key] = None if value is None else str(value)
+        elif key in {"buzzer", "auto_detect"}:
+            current[key] = None if value is None else bool(value)
+    path = env_file_path(env_file)
+    values = read_env_file(path)
+    # Only persist keys that have been set at least once.
+    stored = {key: current[key] for key in LAST_SENT_KEYS if current[key] is not None}
+    if stored:
+        values[LAST_SENT_KEY] = json.dumps(stored)
+    else:
+        values.pop(LAST_SENT_KEY, None)
+    write_env_file(path, values)
+    return current
 
 
 def rotate_info(env_file: str | None = None, *, input_count: int = DEFAULT_INPUTS) -> dict:

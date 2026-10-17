@@ -25,7 +25,7 @@ The page is a replacement for the vendor Windows controller. It uses Bootstrap f
 | Previous / Next | Step through the saved cycle | The switch, using the local cycle list |
 | Peek | With Peek on, an input button shows that input for the number of seconds beside it and then returns. The header shows a countdown and **Back now**. Changing the seconds saves the default. | This listener times it; the duration is in the env file |
 | Auto cycle | Steps to the next cycle input on the saved interval while Auto cycle is switched on. Stops when the tab is hidden or Auto cycle is switched off. | This browser tab only |
-| Buzzer, display timeout, auto input detection | The same three write-only settings as the vendor General page | Sent to the switch. The page highlights the last value *this listener* sent, because the switch cannot report them. |
+| Buzzer, display timeout, auto input detection | The same three write-only settings as the vendor General page | Sent to the switch and remembered in the listener env file (`last_sent`). Other clients can read them from `/status` or `/api/state`. |
 | Input names | Local labels, saved when you leave the field. Empty clears a name. | The env file on this computer |
 | Cycle | Which inputs Previous, Next, and Auto cycle walk, plus manual or automatic and the interval. Saved on every change. | The env file |
 | Network | Shows the address stored in the switch. Query reads it again. Apply writes IP, port, gateway, or mask after two separate acknowledgements, then reads the values back. | The switch. Used only after a power cycle. |
