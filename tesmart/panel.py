@@ -23,7 +23,7 @@ from importlib import resources
 from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, urlsplit
 
-from . import config, notices
+from . import callbacks, config, notices
 from .peek import apply_follow
 from .protocol import LedTimeout
 from .switch import SwitchError, next_input, previous_input
@@ -69,6 +69,9 @@ API_CATALOG: list[dict[str, Any]] = [
     },
     {"method": "POST", "path": "/api/names", "summary": "set local names; an empty string removes one", "sample": {"names": {"1": "Office", "2": ""}}},
     {"method": "POST", "path": "/api/cycle", "summary": "save the cycle list, mode, and interval", "sample": {"inputs": [1, 2, 4], "mode": "manual", "seconds": 15}},
+    {"method": "GET", "path": "/api/callbacks", "summary": "list HTTP callback URLs notified on input change"},
+    {"method": "POST", "path": "/api/callbacks", "summary": "register a callback URL (duplicates ignored)", "sample": {"url": "http://192.168.1.5/hook"}},
+    {"method": "POST", "path": "/api/callbacks/remove", "summary": "remove a registered callback URL", "sample": {"url": "http://192.168.1.5/hook"}},
 ]
 
 
@@ -149,12 +152,29 @@ def build_state(handler: "_Handler", include_network: bool) -> dict[str, Any]:
     status["inputs"] = [
         {"number": number, "name": names.get(number)} for number in range(1, switch.input_count + 1)
     ]
+    status["callbacks"] = callbacks.read_callback_urls(server.env_file)
     return status
 
 
 def _input_payload(handler: "_Handler", payload: dict[str, Any]) -> dict[str, Any]:
     names = config.read_names(handler.server.env_file)
     return config.apply_names(payload, names)
+
+
+def _note_input_change(handler: "_Handler", payload: dict[str, Any]) -> None:
+    hub = getattr(handler.server, "callbacks", None)
+    if hub is None:
+        return
+    active = payload.get("active_input")
+    previous = payload.get("previous")
+    try:
+        hub.note_active(
+            int(active) if active is not None else None,
+            previous=int(previous) if previous is not None else None,
+            source="command",
+        )
+    except (TypeError, ValueError):
+        return
 
 
 # --- actions -----------------------------------------------------------------
@@ -186,10 +206,18 @@ def _action_input(handler: "_Handler", body: dict[str, Any]) -> dict[str, Any]:
     number = config.resolve_named_input(str(raw), input_count=server.switch.input_count, names=names)
     followed = _follow_or_stick(handler, number)
     if followed is not None:
+        _note_input_change(handler, followed)
         return followed
     with server.lock:
+        previous = None
+        try:
+            previous = server.switch.get_active_input()
+        except SwitchError:
+            previous = None
         reported = server.switch.set_input(number, verify=True)
-    return _input_payload(handler, {"requested": number, "active_input": reported})
+    payload = _input_payload(handler, {"previous": previous, "requested": number, "active_input": reported})
+    _note_input_change(handler, payload)
+    return payload
 
 
 def _action_step(handler: "_Handler", direction: int) -> dict[str, Any]:
@@ -201,11 +229,14 @@ def _action_step(handler: "_Handler", direction: int) -> dict[str, Any]:
         target = step(current, server.switch.input_count, only)
     followed = _follow_or_stick(handler, target, previous=current)
     if followed is not None:
+        _note_input_change(handler, followed)
         return followed
     with server.lock:
         reported = server.switch.set_input(target, verify=True)
     reported = reported if reported is not None else target
-    return _input_payload(handler, {"previous": current, "requested": reported, "active_input": reported})
+    payload = _input_payload(handler, {"previous": current, "requested": reported, "active_input": reported})
+    _note_input_change(handler, payload)
+    return payload
 
 
 def _action_peek(handler: "_Handler", body: dict[str, Any]) -> dict[str, Any]:
@@ -403,6 +434,8 @@ def _api(handler: "_Handler", method: str, segments: list[str], query_text: str)
         if len(segments) == 2 and segments[1].lower() == "notice":
             return _network_notice()
         return _action_network_get(handler)
+    if name == "callbacks":
+        return _action_callbacks(handler, method, segments[1:])
 
     writable = {
         "input", "next", "previous", "peek", "peek-default", "peek-follow",
@@ -428,6 +461,25 @@ def _api(handler: "_Handler", method: str, segments: list[str], query_text: str)
         "cycle": lambda: _action_cycle(handler, body),
     }
     return actions[name]()
+
+
+def _action_callbacks(handler: "_Handler", method: str, rest: list[str]) -> dict[str, Any]:
+    env = handler.server.env_file
+    if not rest and method == "GET":
+        return callbacks.list_callbacks(env)
+    if not rest and method == "POST":
+        body = _read_json(handler)
+        url = body.get("url") or body.get("callback")
+        if not url:
+            raise PanelError('provide {"url": "http://..."}')
+        return callbacks.add_callback(str(url), env)
+    if rest and rest[0].lower() == "remove" and method == "POST":
+        body = _read_json(handler)
+        url = body.get("url") or body.get("callback")
+        if not url:
+            raise PanelError('provide {"url": "http://..."}')
+        return callbacks.remove_callback(str(url), env)
+    raise PanelError("unknown callbacks route", HTTPStatus.NOT_FOUND)
 
 
 # --- responses ---------------------------------------------------------------

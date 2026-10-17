@@ -24,6 +24,7 @@ Routes (GET or POST)
 ``/peek/always``             every plain input change peeks until ``/peek/off``
 ``/peek/off``                plain input changes stick again
 ``/names``                   local input names (GET list; POST JSON to set)
+``/callbacks``               GET list; POST {\"url\": \"...\"} register (deduped); DELETE {\"url\": \"...\"} remove
 ``/panel``, ``/api/...``      browser control panel; only with ``--panel`` (see :mod:`tesmart.panel`)
 """
 
@@ -37,7 +38,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import NamedTuple
 from urllib.parse import parse_qs, urlsplit
 
-from . import config, panel
+from . import callbacks, config, panel
 from .peek import PeekFollow, Peeker, apply_follow
 from .switch import SwitchError, TesmartSwitch, next_input, parse_input_list, previous_input
 from .transport import TransportError
@@ -63,6 +64,7 @@ ROUTES = {
     "/peek/always": "every plain input change peeks until /peek/off",
     "/peek/off": "plain input changes stick again",
     "/names": "GET local input names; POST {\"names\": {\"2\": \"Office\", \"3\": \"\"}} to set or clear",
+    "/callbacks": "GET list; POST {\"url\": \"http://...\"} register (no duplicates); DELETE {\"url\": \"...\"} remove",
     "/panel": "browser control panel (only when started with --panel)",
     "?format=text": "add to any route for plain text instead of JSON",
 }
@@ -120,6 +122,12 @@ def _parse_request(path: str) -> WebRequest:
         if len(segments) != 1:
             raise LookupError(parts.path)
         return WebRequest("names", None, as_text, include_network)
+    if head == "callbacks":
+        if len(segments) == 1:
+            return WebRequest("callbacks", None, as_text, include_network)
+        if len(segments) == 2 and segments[1].lower() in {"remove", "clear"}:
+            return WebRequest(f"callbacks-{segments[1].lower()}", None, as_text, include_network)
+        raise LookupError(parts.path)
     if head in {"rotate", "next", "previous"}:
         if len(segments) != 1:
             raise LookupError(parts.path)
@@ -208,6 +216,9 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802
         self._handle()
 
+    def do_DELETE(self) -> None:  # noqa: N802
+        self._handle()
+
     def log_message(self, fmt: str, *args: object) -> None:
         print(f"{self.client_address[0]} {fmt % args}", file=sys.stderr)
 
@@ -232,6 +243,21 @@ class _Handler(BaseHTTPRequestHandler):
             if state["seconds"] is not None:
                 payload["seconds"] = state["seconds"]
             self._send(HTTPStatus.OK, payload, request.as_text, state["mode"])
+            return
+        if request.verb in {"callbacks", "callbacks-remove", "callbacks-clear"}:
+            try:
+                payload = self._callbacks(request.verb, self.command)
+            except config.ConfigError as exc:
+                self._send(HTTPStatus.BAD_REQUEST, {"error": str(exc)}, request.as_text)
+                return
+            except ValueError as exc:
+                self._send(HTTPStatus.BAD_REQUEST, {"error": str(exc)}, request.as_text)
+                return
+            text = None
+            if request.as_text:
+                urls = payload.get("callbacks") or []
+                text = "\n".join(urls) if urls else "(none)"
+            self._send(HTTPStatus.OK, payload, request.as_text, text)
             return
         if request.verb == "names":
             try:
@@ -274,8 +300,28 @@ class _Handler(BaseHTTPRequestHandler):
             payload["rotate"] = config.rotate_info(self.server.env_file, input_count=self.server.switch.input_count)
             payload["peek"] = config.peek_info(self.server.env_file)
             payload["peek"]["follow"] = self.server.peek_follow.status()["mode"]
+        if request.verb in {"set", "rotate", "previous", "peek"}:
+            self._note_callback_change(payload, request.verb)
         text = _status_text(payload) if request.verb == "status" else None
         self._send(HTTPStatus.OK, payload, request.as_text, text)
+
+    def _note_callback_change(self, payload: dict, verb: str) -> None:
+        hub = getattr(self.server, "callbacks", None)
+        if hub is None:
+            return
+        active = payload.get("active_input")
+        if active is None and verb == "peek":
+            # Blocking peek reply is the restored input after returning.
+            active = payload.get("restored") or payload.get("active_input")
+        previous = payload.get("previous")
+        try:
+            hub.note_active(
+                int(active) if active is not None else None,
+                previous=int(previous) if previous is not None else None,
+                source="command",
+            )
+        except (TypeError, ValueError):
+            return
 
     def _read_json_body(self) -> dict:
         length = int(self.headers.get("Content-Length", "0") or "0")
@@ -316,6 +362,47 @@ class _Handler(BaseHTTPRequestHandler):
                 config.set_input_name(number, str(label), self.server.env_file, input_count=count)
         names = config.read_names(self.server.env_file)
         return {"names": {str(number): label for number, label in names.items()}}
+
+    def _callbacks(self, verb: str, method: str) -> dict:
+        """List, register, or remove HTTP callback URLs."""
+        env = self.server.env_file
+        method = method.upper()
+        if verb == "callbacks-clear":
+            if method not in {"POST", "DELETE"}:
+                raise ValueError("use POST or DELETE on /callbacks/clear")
+            return callbacks.clear_callbacks(env)
+
+        if verb == "callbacks-remove" or (verb == "callbacks" and method == "DELETE"):
+            if method not in {"POST", "DELETE"}:
+                raise ValueError("use POST /callbacks/remove or DELETE /callbacks")
+            body = self._read_json_body() if method != "GET" else {}
+            url = body.get("url") or body.get("callback")
+            if not url:
+                # Allow ?url= for DELETE without a body.
+                query = parse_qs(urlsplit(self.path).query)
+                url = (query.get("url") or [None])[0]
+            if not url:
+                raise ValueError('provide {"url": "http://..."} to remove')
+            return callbacks.remove_callback(str(url), env)
+
+        if verb == "callbacks" and method == "GET":
+            return callbacks.list_callbacks(env)
+
+        if verb == "callbacks" and method in {"POST", "PUT"}:
+            body = self._read_json_body()
+            action = str(body.get("action") or "add").lower()
+            url = body.get("url") or body.get("callback")
+            if action in {"remove", "delete", "unregister"}:
+                if not url:
+                    raise ValueError('provide {"url": "http://...", "action": "remove"}')
+                return callbacks.remove_callback(str(url), env)
+            if action in {"clear", "reset"}:
+                return callbacks.clear_callbacks(env)
+            if not url:
+                raise ValueError('provide {"url": "http://..."} to register')
+            return callbacks.add_callback(str(url), env)
+
+        raise ValueError("use GET/POST/DELETE on /callbacks")
 
     def _resolve(self, request: WebRequest) -> int:
         if request.label:
@@ -362,6 +449,14 @@ class _Handler(BaseHTTPRequestHandler):
             followed = self._followed(number)
             if followed is not None:
                 return followed
+            with self.server.lock:
+                previous = None
+                try:
+                    previous = switch.get_active_input()
+                except SwitchError:
+                    previous = None
+                reported = switch.set_input(number, verify=True)
+            return {"previous": previous, "active_input": reported, "requested": number}
         with self.server.lock:
             if request.verb == "status":
                 return switch.read_status(include_network=request.include_network).to_dict()
@@ -409,6 +504,7 @@ class WebServer(ThreadingHTTPServer):
         self.peeker = Peeker(switch, self.lock)
         # Armed by /peek/once or /peek/always. The next plain input change peeks.
         self.peek_follow = PeekFollow()
+        self.callbacks = callbacks.CallbackHub(switch, self.lock, env_file)
 
 
 def serve_http(
@@ -433,14 +529,20 @@ def serve_http(
     print(f"  http://{bound_host}:{bound_port}/input        read", file=sys.stderr)
     print(f"  http://{bound_host}:{bound_port}/status       read input and LAN settings", file=sys.stderr)
     print(f"  http://{bound_host}:{bound_port}/names        local input names (GET / POST)", file=sys.stderr)
+    print(f"  http://{bound_host}:{bound_port}/callbacks    change notifications (GET / POST / DELETE)", file=sys.stderr)
     print(f"  http://{bound_host}:{bound_port}/rotate       next input", file=sys.stderr)
     print(f"  http://{bound_host}:{bound_port}/input?set=3  switch", file=sys.stderr)
     if panel_enabled:
         print(f"  http://{bound_host}:{bound_port}/panel        control panel", file=sys.stderr)
+    registered = callbacks.read_callback_urls(env_file)
+    if registered:
+        print(f"  {len(registered)} callback URL(s) loaded from env file", file=sys.stderr)
+    server.callbacks.start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         print(file=sys.stderr)
     finally:
+        server.callbacks.stop()
         server.server_close()
     return 0

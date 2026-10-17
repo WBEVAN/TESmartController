@@ -109,6 +109,36 @@ JSON is the default. Add `format=text` to get plain text: a bare input number, o
 | `/status?network=0` | active input only | `"network": null` |
 | `/names` | GET local input names | `{"names": {"2": "Office"}}` |
 | `POST /names` | set or clear local names (JSON body) | `{"names": {"2": "Office", "3": ""}}` — empty string clears |
+| `/callbacks` | GET registered change-notification URLs | `{"callbacks": ["http://…"], "count": 1}` |
+| `POST /callbacks` | register a URL (duplicates ignored) | `{"url": "http://192.168.1.5/hook"}` → `{"callbacks":[…], "added": true}` |
+| `DELETE /callbacks` or `POST /callbacks/remove` | remove a URL | body or `?url=` with the same address |
+| `POST /callbacks/clear` | remove every URL | `{"callbacks": [], "count": 0}` |
+
+### Change callbacks
+
+While `tesmartctl listen --http` is running it watches the switch for input reports (front panel, remote, auto-detect, or another client) and also notices changes made through this HTTP API. Each registered URL receives:
+
+```bash
+curl -X POST http://127.0.0.1:8080/callbacks \
+  -H 'Content-Type: application/json' \
+  -d '{"url":"http://192.168.1.20/apps/api/123/tesmart-event?access_token=…"}'
+```
+
+```json
+{
+  "event": "input_changed",
+  "previous": 2,
+  "active_input": 3,
+  "previous_name": "New Mac",
+  "active_name": "Work",
+  "input_count": 8,
+  "source": "unsolicited",
+  "endpoint": "tcp://172.16.0.222:5000",
+  "names": {"1": "Old Mac", "2": "New Mac", "3": "Work"}
+}
+```
+
+`source` is `unsolicited` for switch-originated reports and `command` when this listener changed the input. The same URL registered twice stays a single entry. URLs are stored in the env file (`TESMART_CALLBACKS`) and reloaded on the next start. The control panel (**Change callbacks** card, with `--panel`) can add and remove them as well.
 
 `network=0` also accepts `off`, `false`, and `no`. Skipping the LAN queries avoids four extra paced round trips.
 

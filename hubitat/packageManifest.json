@@ -2,10 +2,10 @@
   "packageName": "TESmart Controller",
   "minimumHEVersion": "2.2.0",
   "author": "WBEVAN",
-  "version": "1.4.3",
+  "version": "1.5.0",
   "dateReleased": "2026-10-17",
   "licenseFile": "https://raw.githubusercontent.com/WBEVAN/TESmartController/main/LICENSE",
-  "releaseNotes": "Preferences Switch/Peek are the live named controls; Commands use strings (Hubitat freezes command ENUMs).",
+  "releaseNotes": "Input-change callbacks: Hubitat registers for push updates (previous/current). Requires updated tesmartctl.",
   "documentationLink": "https://github.com/WBEVAN/TESmartController/blob/main/Docs/hubitat.md",
   "communityLink": "https://github.com/WBEVAN/TESmartController",
   "apps": [
@@ -15,7 +15,7 @@
       "namespace": "wbevan_tesmart",
       "location": "https://raw.githubusercontent.com/WBEVAN/TESmartController/main/hubitat/TESmart-Manager.groovy",
       "required": true,
-      "oauth": false,
+      "oauth": true,
       "primary": true
     }
   ],

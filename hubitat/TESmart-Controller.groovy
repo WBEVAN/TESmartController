@@ -15,7 +15,7 @@ import groovy.transform.Field
 import groovy.json.JsonSlurper
 import groovy.json.JsonBuilder
 
-@Field static final String DRIVER_VERSION = "1.4.3"
+@Field static final String DRIVER_VERSION = "1.5.0"
 @Field static final String CHILD_NAMESPACE = "wbevan_tesmart"
 @Field static final String CHILD_TYPE = "TESmart Input"
 @Field static final String BUILTIN_CHILD_NAMESPACE = "hubitat"
@@ -39,12 +39,14 @@ metadata {
         capability "MediaInputSource"
 
         attribute "activeInput", "number"
+        attribute "previousInput", "number"
         attribute "activeName", "string"
         attribute "inputCount", "number"
         attribute "supportedInputs", "string"
         attribute "mediaInputSource", "string"
         attribute "healthStatus", "enum", ["online", "offline"]
         attribute "lastRefresh", "string"
+        attribute "lastChangeSource", "string"
 
         // STRING (not ENUM): Hubitat freezes command ENUM lists at install time, so they
         // never pick up server names. Use Preferences → Switch/Peek for named dropdowns.
@@ -338,6 +340,37 @@ void handlePeekResponse(response, Map data = [:]) {
     handleStatusResponse(response, data)
     // Listener may still be settling; one more light refresh helps.
     runIn(2, "refresh")
+}
+
+/**
+ * Called by TESmart Manager when tesmartctl POSTs an input-change callback.
+ * ``jsonText`` is the callback body (previous, active_input, names, source, …).
+ */
+void handleInputChanged(String jsonText) {
+    if (!jsonText?.trim()) {
+        return
+    }
+    def parsed
+    try {
+        parsed = new JsonSlurper().parseText(jsonText)
+    } catch (Exception e) {
+        logWarn "handleInputChanged: bad JSON (${e.message})"
+        return
+    }
+    if (!(parsed instanceof Map)) {
+        logWarn "handleInputChanged: expected a JSON object"
+        return
+    }
+    Map json = parsed as Map
+    Integer previous = (json.previous ?: json.previous_input ?: json.previousInput) as Integer
+    if (previous != null) {
+        sendEvent(name: "previousInput", value: previous)
+    }
+    if (json.source) {
+        sendEvent(name: "lastChangeSource", value: json.source.toString())
+    }
+    applyStatus(json, [action: "callback"])
+    logInfo "input changed via callback: ${previous} → ${json.active_input ?: json.activeInput} (${json.source ?: 'unknown'})"
 }
 
 private void applyStatus(Map json, Map data = [:]) {

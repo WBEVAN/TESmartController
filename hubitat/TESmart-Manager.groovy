@@ -29,8 +29,17 @@ definition(
     iconX3Url: "https://raw.githubusercontent.com/WBEVAN/TESmartController/main/Docs/images/readme-banner.png",
     importUrl: "https://raw.githubusercontent.com/WBEVAN/TESmartController/main/hubitat/TESmart-Manager.groovy",
     singleInstance: false,
-    installOnOpen: true
+    installOnOpen: true,
+    oauth: true
 )
+
+mappings {
+    path("/tesmart-event") {
+        action: [
+            POST: "handleTesmartEvent"
+        ]
+    }
+}
 
 preferences {
     page name: "mainPage", title: "TESmart Manager", install: true, uninstall: true
@@ -76,6 +85,18 @@ Bind to <code>0.0.0.0</code> (or your LAN IP). There is no authentication — us
                 defaultValue: true
             if (getControllerDevice()) {
                 paragraph "Current device: <b>${getControllerDevice().displayName}</b> (${getControllerDevice().deviceNetworkId})"
+            }
+        }
+        section("5. Push notifications") {
+            input name: "enableCallbacks", type: "bool",
+                title: "Register this hub for input-change callbacks from the server",
+                description: "tesmartctl POSTs previous/current input when the switch changes (front panel, remote, or API)",
+                defaultValue: true
+            if (atomicState.callbackUrl) {
+                paragraph "Callback URL registered with the server:<br/><code style='word-break:break-all'>${atomicState.callbackUrl}</code>"
+            }
+            if (atomicState.callbackMessage) {
+                paragraph atomicState.callbackMessage
             }
         }
         section("Logging & docs") {
@@ -176,10 +197,12 @@ def updated() {
 }
 
 def uninstalled() {
+    unregisterCallbackWithListener()
     getChildDevices()?.each { deleteChildDevice(it.deviceNetworkId) }
 }
 
 def initialize() {
+    ensureAccessToken()
     if (runTest) {
         runConnectionTest()
         applyListenerNamesToSettings()
@@ -190,7 +213,130 @@ def initialize() {
     } else if (getControllerDevice()) {
         pushSettingsToDevice(getControllerDevice())
     }
+    syncCallbackRegistration()
     app.updateLabel(deviceLabel ?: "TESmart Manager")
+}
+
+/** tesmartctl POST /callbacks target — updates the controller device immediately. */
+def handleTesmartEvent() {
+    def body = request?.JSON
+    if (!(body instanceof Map)) {
+        try {
+            body = new JsonSlurper().parseText(request?.body?.toString() ?: "{}")
+        } catch (ignored) {
+            body = [:]
+        }
+    }
+    if (logEnable) {
+        log.debug "TESmart callback: ${body}"
+    }
+    def device = getControllerDevice()
+    if (!device) {
+        log.warn "TESmart callback received but no controller device exists"
+        return
+    }
+    try {
+        device.handleInputChanged(new JsonBuilder(body).toString())
+    } catch (Exception e) {
+        log.warn "handleInputChanged failed: ${e.message}"
+    }
+}
+
+private void ensureAccessToken() {
+    if (!state.accessToken) {
+        try {
+            createAccessToken()
+        } catch (Exception e) {
+            log.warn "Could not create OAuth access token (${e.message}). Enable OAuth for TESmart Manager under Apps Code if push callbacks are needed."
+        }
+    }
+}
+
+private String hubCallbackUrl() {
+    if (!state.accessToken) {
+        return null
+    }
+    String base = null
+    try {
+        base = getFullLocalApiServerUrl()
+    } catch (ignored) {
+    }
+    if (!base) {
+        try {
+            base = getFullApiServerUrl()
+        } catch (ignored) {
+        }
+    }
+    if (!base) {
+        return null
+    }
+    return "${base}/tesmart-event?access_token=${state.accessToken}"
+}
+
+private void syncCallbackRegistration() {
+    String url = hubCallbackUrl()
+    atomicState.callbackUrl = url
+    if (!url) {
+        atomicState.callbackMessage = "<span style='color:red'>No callback URL (OAuth token missing).</span>"
+        return
+    }
+    if (enableCallbacks != false) {
+        registerCallbackWithListener(url)
+    } else {
+        unregisterCallbackWithListener(url)
+    }
+}
+
+private void registerCallbackWithListener(String url = null) {
+    String target = url ?: hubCallbackUrl()
+    String base = listenerBaseUrl()
+    if (!base || !target) {
+        return
+    }
+    String body = new JsonBuilder([url: target]).toString()
+    try {
+        httpPost([
+            uri                : "${base}/callbacks",
+            contentType        : "application/json",
+            requestContentType : "application/json",
+            body               : body,
+            timeout            : 20
+        ]) { resp ->
+            if (resp.status in [200, 201]) {
+                atomicState.callbackMessage = "<span style='color:green'>Callback registered with the server.</span>"
+            } else {
+                atomicState.callbackMessage = "<span style='color:red'>Callback register HTTP ${resp.status}. Update tesmartctl for /callbacks.</span>"
+            }
+        }
+    } catch (Exception e) {
+        atomicState.callbackMessage = "<span style='color:red'>Callback register failed: ${e.message}</span>"
+        if (logEnable) {
+            log.warn "POST /callbacks failed: ${e.message}"
+        }
+    }
+}
+
+private void unregisterCallbackWithListener(String url = null) {
+    String target = url ?: atomicState.callbackUrl ?: hubCallbackUrl()
+    String base = listenerBaseUrl()
+    if (!base || !target) {
+        return
+    }
+    String body = new JsonBuilder([url: target]).toString()
+    try {
+        httpPost([
+            uri                : "${base}/callbacks/remove",
+            contentType        : "application/json",
+            requestContentType : "application/json",
+            body               : body,
+            timeout            : 20
+        ]) { resp ->
+            if (resp.status == 200) {
+                atomicState.callbackMessage = "Callback removed from the server."
+            }
+        }
+    } catch (ignored) {
+    }
 }
 
 private void runPendingListenerAction() {

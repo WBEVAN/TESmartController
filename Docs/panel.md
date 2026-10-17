@@ -27,6 +27,7 @@ The page is a replacement for the vendor Windows controller. It uses Bootstrap f
 | Auto cycle | Steps to the next cycle input on the saved interval while Auto cycle is switched on. Stops when the tab is hidden or Auto cycle is switched off. | This browser tab only |
 | Buzzer, display timeout, auto input detection | The same three write-only settings as the vendor General page | Sent to the switch. The page highlights the last value *this listener* sent, because the switch cannot report them. |
 | Input names | Local labels, saved when you leave the field. Empty clears a name. | The env file on this computer |
+| Change callbacks | HTTP URLs that receive a POST when the input changes. Add or remove; duplicates are ignored. | The env file on this computer |
 | Cycle | Which inputs Previous, Next, and Auto cycle walk, plus manual or automatic and the interval. Saved on every change. | The env file |
 | Network | Shows the address stored in the switch. Query reads it again. Apply writes IP, port, gateway, or mask after two separate acknowledgements, then reads the values back. | The switch. Used only after a power cycle. |
 
@@ -70,6 +71,9 @@ The page talks to JSON routes under `/api`. `GET /api` lists them. Errors are `{
 | `GET /api/network/notice` | | Risk and liability wording as `risks`, `liability`, `after_write` |
 | `POST /api/network` | `{"ip": "192.168.1.50", "confirm": true, "accept_risk": true}` | Writes, reads back, returns `requested`, `acknowledged`, `stored`, `verified`, `all_verified` |
 | `POST /api/names` | `{"names": {"1": "Office", "2": ""}}` | Empty string removes that name |
+| `GET /api/callbacks` | | Registered change-notification URLs |
+| `POST /api/callbacks` | `{"url": "http://192.168.1.5/hook"}` | Register (same URL twice stays once) |
+| `POST /api/callbacks/remove` | `{"url": "http://192.168.1.5/hook"}` | Unregister |
 | `POST /api/cycle` | `{"inputs": [1, 3, 5], "mode": "manual", "seconds": 15}` | An empty `inputs` list means every input |
 
 `POST /api/network` may include any of `ip`, `port`, `gateway`, and `mask`. At least one is required, and both `confirm` and `accept_risk` must be true. `stored` is the full set of four values the switch reports after the write; `verified` compares each requested key against it. `all_verified` is the only result that should be treated as "stored, safe to power-cycle".
