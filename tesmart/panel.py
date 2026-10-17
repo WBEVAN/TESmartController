@@ -23,7 +23,7 @@ from importlib import resources
 from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, urlsplit
 
-from . import callbacks, config, notices
+from . import callbacks, config, notices, version as pkg_version
 from .peek import apply_follow
 from .protocol import LedTimeout
 from .switch import SwitchError, next_input, previous_input
@@ -43,7 +43,10 @@ STATIC_TYPES = {
 # Changing the address stays on the two-warning flow.
 API_CATALOG: list[dict[str, Any]] = [
     {"method": "GET", "path": "/api", "summary": "this list"},
-    {"method": "GET", "path": "/api/state", "summary": "active input, names, cycle, LAN settings, last-sent values"},
+    {"method": "GET", "path": "/api/state", "summary": "active input, names, cycle, LAN settings, last-sent values, version"},
+    {"method": "GET", "path": "/api/version", "summary": "tesmartctl package version and feature tags"},
+    {"method": "GET", "path": "/api/compat", "summary": "compatibility check via query (?min_server=&features=)"},
+    {"method": "POST", "path": "/api/compat", "summary": "compatibility check", "sample": {"min_server": "0.0.7.9", "client": "hubitat", "features": ["callbacks"]}},
     {"method": "GET", "path": "/api/state?network=0", "summary": "same, without the four LAN queries"},
     {"method": "POST", "path": "/api/input", "summary": "select an input by number or local name", "sample": {"input": 3}},
     {"method": "POST", "path": "/api/next", "summary": "next input in the saved cycle", "sample": {}},
@@ -413,11 +416,12 @@ def handle(handler: "_Handler", method: str, path: str) -> bool:
         return False
 
     if not handler.server.panel:
-        _send_json(
-            handler,
-            HTTPStatus.NOT_FOUND,
-            {"error": "the control panel is off; start the listener with --panel"},
+        payload = pkg_version.not_supported(
+            parts.path or "/panel",
+            method=method,
+            detail="the control panel is off; start the listener with --panel",
         )
+        _send_json(handler, HTTPStatus.NOT_FOUND, payload)
         return True
 
     try:
@@ -426,13 +430,17 @@ def handle(handler: "_Handler", method: str, path: str) -> bool:
             return True
         if segments[0] == "static":
             if len(segments) != 2:
-                raise PanelError("not found", HTTPStatus.NOT_FOUND)
+                raise PanelError("not supported", HTTPStatus.NOT_FOUND)
             name = segments[1]
             _send_bytes(handler, HTTPStatus.OK, _static_body(name), _content_type(name))
             return True
         _send_json(handler, HTTPStatus.OK, _api(handler, method, segments[1:], parts.query))
     except PanelError as exc:
-        _send_json(handler, exc.status, {"error": str(exc)})
+        if exc.status == HTTPStatus.NOT_FOUND or str(exc).lower().startswith("not supported"):
+            payload = pkg_version.not_supported(parts.path or "/api", method=method, detail=str(exc))
+            _send_json(handler, HTTPStatus.NOT_FOUND, payload)
+        else:
+            _send_json(handler, exc.status, {"error": str(exc)})
     except (config.ConfigError, SwitchError, ValueError) as exc:
         _send_json(handler, HTTPStatus.BAD_REQUEST, {"error": str(exc)})
     except TransportError as exc:
@@ -442,13 +450,19 @@ def handle(handler: "_Handler", method: str, path: str) -> bool:
 
 def _api(handler: "_Handler", method: str, segments: list[str], query_text: str) -> dict[str, Any]:
     if not segments:
-        return {"routes": _routes(), "catalog": API_CATALOG}
+        return {"routes": _routes(), "catalog": API_CATALOG, "version": pkg_version.package_version()}
     name = segments[0].lower()
     query = parse_qs(query_text, keep_blank_values=True)
 
     if name == "state" and method == "GET":
         include_network = query.get("network", ["1"])[0].lower() not in {"0", "off", "false", "no"}
-        return build_state(handler, include_network)
+        state = build_state(handler, include_network)
+        state["version"] = pkg_version.package_version()
+        return state
+    if name == "version" and method == "GET":
+        return pkg_version.version_info()
+    if name == "compat" and method in {"GET", "POST", "PUT"}:
+        return _action_compat(handler, method, query)
     if name == "network" and method == "GET":
         if len(segments) == 2 and segments[1].lower() == "notice":
             return _network_notice()
@@ -461,7 +475,7 @@ def _api(handler: "_Handler", method: str, segments: list[str], query_text: str)
         "buzzer", "led", "autodetect", "network", "names", "cycle",
     }
     if name not in writable:
-        raise PanelError("unknown api route", HTTPStatus.NOT_FOUND)
+        raise PanelError("not supported", HTTPStatus.NOT_FOUND)
     if method != "POST":
         raise PanelError("use POST for this route", HTTPStatus.METHOD_NOT_ALLOWED)
     body = _read_json(handler)
@@ -480,6 +494,36 @@ def _api(handler: "_Handler", method: str, segments: list[str], query_text: str)
         "cycle": lambda: _action_cycle(handler, body),
     }
     return actions[name]()
+
+
+def _action_compat(handler: "_Handler", method: str, query: dict[str, list[str]]) -> dict[str, Any]:
+    body: dict[str, Any] = {}
+    if method.upper() in {"POST", "PUT"}:
+        body = _read_json(handler)
+
+    def _pick(*keys: str) -> object | None:
+        for key in keys:
+            if key in body and body[key] not in (None, ""):
+                return body[key]
+            if key in query and query[key]:
+                return query[key][0]
+        return None
+
+    min_server = _pick("min_server", "min", "requires", "require")
+    client = _pick("client")
+    client_version = _pick("client_version", "clientVersion")
+    features_raw = _pick("features", "feature")
+    features: list[str] | None = None
+    if isinstance(features_raw, list):
+        features = [str(item) for item in features_raw]
+    elif isinstance(features_raw, str) and features_raw.strip():
+        features = [part.strip() for part in features_raw.split(",") if part.strip()]
+    return pkg_version.check_compat(
+        min_server=str(min_server) if min_server is not None else None,
+        features=features,
+        client=str(client) if client is not None else None,
+        client_version=str(client_version) if client_version is not None else None,
+    )
 
 
 def _action_callbacks(handler: "_Handler", method: str, rest: list[str]) -> dict[str, Any]:

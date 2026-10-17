@@ -105,8 +105,10 @@ JSON is the default. Add `format=text` to get plain text: a bare input number, o
 | `/input/Office`, `/set?input=Office` | select by a local name | `{"active_input": 2, "requested": 2, "active_name": "Office", ...}` |
 | `/set?input=3` | same as `/input?set=3` | `{"active_input": 3, "requested": 3}` |
 | `/set/3` | same as `/input?set=3` | `{"active_input": 3, "requested": 3}` |
-| `/status` | active input and saved LAN settings | see below |
-| `/status?network=0` | active input only | `"network": null` |
+| `/status` | active input and saved LAN settings | see below (includes `"version"`) |
+| `/status?network=0` | active input only | `"network": null` plus `"version"` |
+| `/version` | package name, version, feature tags | `{"name":"tesmartctl","version":"0.0.7.9","features":[…]}` |
+| `/compat` | GET or POST compatibility check | `{"min_server":"0.0.7.9","features":["callbacks"]}` → `{"compatible":true,…}` |
 | `/names` | GET local input names | `{"names": {"2": "Office"}}` |
 | `POST /names` | set or clear local names (JSON body) | `{"names": {"2": "Office", "3": ""}}` — empty string clears |
 | `/callbacks` | GET registered callbacks and POST timeout | `{"callbacks":[{"url":"…","name":"Hubitat"}], "urls":[…], "count": 1, "timeout": 10}` |
@@ -115,6 +117,33 @@ JSON is the default. Add `format=text` to get plain text: a bare input number, o
 | `GET` or `POST /callbacks/health` | probe every registered URL with a `health_check` event | `{"healthy": 1, "unhealthy": 0, "results":[…]}` |
 | `DELETE /callbacks` or `POST /callbacks/remove` | remove by URL and/or name | body or `?url=` / `?name=` |
 | `POST /callbacks/clear` | remove every URL | `{"callbacks": [], "count": 0, "timeout": 10}` |
+
+### Version and compatibility
+
+Clients (Hubitat, scripts, other apps) can ask what this process is running and whether it meets their needs:
+
+```bash
+curl http://127.0.0.1:8080/version
+
+curl -X POST http://127.0.0.1:8080/compat \
+  -H 'Content-Type: application/json' \
+  -d '{"min_server":"0.0.7.9","client":"hubitat","client_version":"1.5.3","features":["callbacks","names_changed"]}'
+```
+
+```json
+{
+  "compatible": true,
+  "version": "0.0.7.9",
+  "version_ok": true,
+  "features_ok": true,
+  "missing_features": [],
+  "features": ["status", "names", "callbacks", "compat", "…"],
+  "min_server": "0.0.7.9",
+  "message": "compatible with tesmartctl 0.0.7.9"
+}
+```
+
+`compatible` is false when the server is older than `min_server` or a requested feature tag is missing. Unknown HTTP routes return **404** with `"error": "not supported"` (and the path/method) instead of a bare “unknown route”.
 
 ### Change callbacks
 
@@ -178,6 +207,7 @@ With `--panel`, manage callbacks from the **API** dialog (`GET` / `POST` / `DELE
 ```json
 {
   "endpoint": "tcp://192.168.1.50:5000",
+  "version": "0.0.7.9",
   "active_input": 2,
   "active_name": "Office",
   "input_count": 8,

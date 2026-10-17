@@ -26,10 +26,19 @@ With a recent `tesmartctl listen --http`, **TESmart Manager** can register this 
 
 ## Prerequisites
 
-On a host Hubitat can reach:
+On a host Hubitat can reach, run a recent enough `tesmartctl` (this Hubitat package checks `/compat` and requires **0.0.7.9+**):
 
 ```bash
 tesmartctl listen --http 0.0.0.0:8080
+```
+
+Confirm the server version:
+
+```bash
+curl http://192.168.1.20:8080/version
+curl -X POST http://192.168.1.20:8080/compat \
+  -H 'Content-Type: application/json' \
+  -d '{"min_server":"0.0.7.9","client":"hubitat"}'
 ```
 
 Optional local names (shown in Hubitat as `2 — Office`):

@@ -24,6 +24,8 @@ Routes (GET or POST)
 ``/peek/always``             every plain input change peeks until ``/peek/off``
 ``/peek/off``                plain input changes stick again
 ``/names``                   local input names (GET list; POST JSON to set)
+``/version``                 package name, version, and feature tags
+``/compat``                  GET/POST compatibility check (min server version + features)
 ``/callbacks``               GET list; POST {\"url\": \"...\", \"name\": \"...\"} register; DELETE remove;
                              POST {\"timeout\": 10} set wait; GET|POST /callbacks/health probe clients
 ``/panel``, ``/api/...``      browser control panel; only with ``--panel`` (see :mod:`tesmart.panel`)
@@ -39,7 +41,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import NamedTuple
 from urllib.parse import parse_qs, urlsplit
 
-from . import callbacks, config, panel
+from . import callbacks, config, panel, version as pkg_version
 from .peek import PeekFollow, Peeker, apply_follow
 from .switch import SwitchError, TesmartSwitch, next_input, parse_input_list, previous_input
 from .transport import TransportError
@@ -54,6 +56,8 @@ ROUTES = {
     "/set/N": "same as /input?set=N",
     "/status": "active input plus saved IP, port, gateway, and mask",
     "/status?network=0": "active input only (skips the LAN queries)",
+    "/version": "tesmartctl package version and feature tags",
+    "/compat": "GET/POST {\"min_server\":\"0.0.7.9\",\"features\":[\"callbacks\"]} → compatible?",
     "/next": "next input in the saved local cycle",
     "/previous": "previous input in the saved local cycle",
     "/rotate": "same as /next",
@@ -119,6 +123,10 @@ def _parse_request(path: str) -> WebRequest:
         if len(segments) != 1:
             raise LookupError(parts.path)
         return WebRequest("status", None, as_text, include_network)
+    if head in {"version", "compat"}:
+        if len(segments) != 1:
+            raise LookupError(parts.path)
+        return WebRequest(head, None, as_text, include_network)
     if head == "names":
         if len(segments) != 1:
             raise LookupError(parts.path)
@@ -226,26 +234,61 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802
         self._handle()
 
+    def do_PUT(self) -> None:  # noqa: N802
+        self._handle()
+
     def do_DELETE(self) -> None:  # noqa: N802
         self._handle()
 
+    def do_PATCH(self) -> None:  # noqa: N802
+        self._not_supported_method()
+
+    def do_HEAD(self) -> None:  # noqa: N802
+        self._not_supported_method()
+
+    def do_OPTIONS(self) -> None:  # noqa: N802
+        self._not_supported_method()
+
     def log_message(self, fmt: str, *args: object) -> None:
         print(f"{self.client_address[0]} {fmt % args}", file=sys.stderr)
+
+    def _not_supported_method(self) -> None:
+        path = urlsplit(self.path).path or "/"
+        payload = pkg_version.not_supported(path, method=self.command)
+        payload["routes"] = ROUTES
+        self._send(HTTPStatus.NOT_FOUND, payload, False)
 
     def _handle(self) -> None:
         if panel.handle(self, self.command, self.path):
             return
         try:
             request = _parse_request(self.path)
-        except LookupError:
-            self._send(HTTPStatus.NOT_FOUND, {"error": "unknown route", "routes": ROUTES}, False)
+        except LookupError as exc:
+            path = str(exc) if str(exc) else (urlsplit(self.path).path or "/")
+            payload = pkg_version.not_supported(path, method=self.command)
+            payload["routes"] = ROUTES
+            self._send(HTTPStatus.NOT_FOUND, payload, False)
             return
         except ValueError as exc:
             self._send(HTTPStatus.BAD_REQUEST, {"error": str(exc)}, False)
             return
 
         if request.verb == "help":
-            self._send(HTTPStatus.OK, {"routes": ROUTES}, False)
+            self._send(HTTPStatus.OK, {"routes": ROUTES, "version": pkg_version.package_version()}, False)
+            return
+        if request.verb == "version":
+            payload = pkg_version.version_info()
+            text = f"{payload['name']} {payload['version']}" if request.as_text else None
+            self._send(HTTPStatus.OK, payload, request.as_text, text)
+            return
+        if request.verb == "compat":
+            try:
+                payload = self._compat(self.command)
+            except ValueError as exc:
+                self._send(HTTPStatus.BAD_REQUEST, {"error": str(exc)}, request.as_text)
+                return
+            text = payload.get("message") if request.as_text else None
+            self._send(HTTPStatus.OK, payload, request.as_text, text)
             return
         if request.verb == "peek-mode":
             state = self.server.peek_follow.set_mode(request.label or "off", request.seconds)
@@ -310,6 +353,7 @@ class _Handler(BaseHTTPRequestHandler):
         # child labels in sync after /input, /next, and /previous — not only /status.
         config.apply_names(payload, names, include_map=True)
         if request.verb == "status":
+            payload["version"] = pkg_version.package_version()
             payload["rotate"] = config.rotate_info(self.server.env_file, input_count=self.server.switch.input_count)
             payload["peek"] = config.peek_info(self.server.env_file)
             payload["peek"]["follow"] = self.server.peek_follow.status()["mode"]
@@ -352,6 +396,40 @@ class _Handler(BaseHTTPRequestHandler):
         if not isinstance(parsed, dict):
             raise ValueError("JSON body must be an object")
         return parsed
+
+    def _compat(self, method: str) -> dict:
+        """Answer whether this server meets a client's minimum version / features."""
+        method = method.upper()
+        if method not in {"GET", "POST", "PUT"}:
+            raise ValueError("use GET or POST on /compat")
+        body: dict = {}
+        if method in {"POST", "PUT"}:
+            body = self._read_json_body()
+        query = parse_qs(urlsplit(self.path).query, keep_blank_values=True)
+
+        def _pick(*keys: str) -> object | None:
+            for key in keys:
+                if key in body and body[key] not in (None, ""):
+                    return body[key]
+                if key in query and query[key]:
+                    return query[key][0]
+            return None
+
+        min_server = _pick("min_server", "min", "requires", "require")
+        client = _pick("client")
+        client_version = _pick("client_version", "clientVersion")
+        features_raw = _pick("features", "feature")
+        features: list[str] | None = None
+        if isinstance(features_raw, list):
+            features = [str(item) for item in features_raw]
+        elif isinstance(features_raw, str) and features_raw.strip():
+            features = [part.strip() for part in features_raw.split(",") if part.strip()]
+        return pkg_version.check_compat(
+            min_server=str(min_server) if min_server is not None else None,
+            features=features,
+            client=str(client) if client is not None else None,
+            client_version=str(client_version) if client_version is not None else None,
+        )
 
     def _names(self, method: str) -> dict:
         """List or update local input names stored in the listener env file."""
@@ -584,6 +662,8 @@ def serve_http(
     )
     print(f"  http://{bound_host}:{bound_port}/input        read", file=sys.stderr)
     print(f"  http://{bound_host}:{bound_port}/status       read input and LAN settings", file=sys.stderr)
+    print(f"  http://{bound_host}:{bound_port}/version      {pkg_version.package_version()}", file=sys.stderr)
+    print(f"  http://{bound_host}:{bound_port}/compat       client/server compatibility check", file=sys.stderr)
     print(f"  http://{bound_host}:{bound_port}/names        local input names (GET / POST)", file=sys.stderr)
     print(f"  http://{bound_host}:{bound_port}/callbacks    change notifications (GET / POST / DELETE)", file=sys.stderr)
     print(f"  http://{bound_host}:{bound_port}/rotate       next input", file=sys.stderr)

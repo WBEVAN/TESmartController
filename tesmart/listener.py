@@ -123,7 +123,10 @@ def parse_command(line: str) -> tuple[str, int | None, tuple[int, ...] | None, s
         return "set", None, None, parts[1]
     if len(parts) == 1 and word.isdigit():
         return "set", int(word), None, None
-    raise ValueError(f"unknown command {parts[0]!r}; try get, set <n>, next, peek <n>, or quit")
+    raise ValueError(
+        f"not supported: {parts[0]!r} is not a supported command; "
+        "try get, set <n>, next, peek <n>, or quit"
+    )
 
 
 def format_reply(

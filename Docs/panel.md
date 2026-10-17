@@ -55,7 +55,9 @@ The page talks to JSON routes under `/api`. `GET /api` lists them. Errors are `{
 
 | Method and path | Body | Result |
 | --- | --- | --- |
-| `GET /api/state` | | Active input, names, cycle, LAN settings, and `last_sent` |
+| `GET /api/state` | | Active input, names, cycle, LAN settings, `last_sent`, and `version` |
+| `GET /api/version` | | Package version and feature tags |
+| `GET` / `POST /api/compat` | `{"min_server":"0.0.7.9","features":["callbacks"]}` | Whether this server meets the client’s requirements |
 | `GET /api/state?network=0` | | Same, without the four LAN queries. The page polls this. |
 | `POST /api/input` | `{"input": 3}` or `{"input": "Office"}` | `active_input` after the switch reports it |
 | `POST /api/next`, `POST /api/previous` | | Next or previous input in the saved cycle |

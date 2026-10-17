@@ -17,6 +17,13 @@ import groovy.transform.Field
 @Field static final String IMG_BANNER = "https://raw.githubusercontent.com/WBEVAN/TESmartController/main/Docs/images/readme-banner.png"
 @Field static final String DOCS_URL = "https://github.com/WBEVAN/TESmartController/blob/main/Docs/hubitat.md"
 @Field static final String LISTENER_DOCS = "https://github.com/WBEVAN/TESmartController/blob/main/Docs/listener.md"
+/** Hubitat package version (keep in sync with packageManifest.json). */
+@Field static final String PACKAGE_VERSION = "1.5.3"
+/** Oldest tesmartctl this package is tested against (must expose /compat). */
+@Field static final String MIN_SERVER_VERSION = "0.0.7.9"
+@Field static final List REQUIRED_SERVER_FEATURES = [
+    "compat", "callbacks", "callbacks.name", "callbacks.health", "names_changed", "last_sent"
+]
 
 definition(
     name: "TESmart Manager",
@@ -61,10 +68,17 @@ Bind to <code>0.0.0.0</code> (or your LAN IP). There is no authentication — us
 <a href="${LISTENER_DOCS}" target="_blank">HTTP server docs on GitHub</a>"""
         }
         section("2. Connection") {
+            String connTitle = "Configure server host & port"
+            if (state.connectionOk) {
+                String ver = atomicState.lastServerVersion ? "tesmartctl ${atomicState.lastServerVersion}" : "tested"
+                connTitle = "Connection — OK (${ver}${atomicState.lastActive != null ? ", input ${atomicState.lastActive}" : ""})"
+            } else if (atomicState.compatOk == false) {
+                connTitle = "Connection — server version too old"
+            }
             href(
                 name: "toConnection",
-                title: state.connectionOk ? "Connection — OK (${atomicState.lastActive != null ? "active input ${atomicState.lastActive}" : "tested"})" : "Configure server host & port",
-                description: "Host, port, port count, refresh interval",
+                title: connTitle,
+                description: "Host, port, port count, refresh interval · requires tesmartctl ${MIN_SERVER_VERSION}+",
                 page: "connectionPage"
             )
         }
@@ -133,6 +147,7 @@ def connectionPage() {
                 defaultValue: "60"
         }
         section("Test") {
+            paragraph "This Hubitat package is <b>${PACKAGE_VERSION}</b> and requires <b>tesmartctl ${MIN_SERVER_VERSION}+</b> (checked via <code>/compat</code>)."
             input name: "runTest", type: "bool", title: "Test connection when saving the app (Done)",
                 defaultValue: true
             input name: "btnTestConnection", type: "button", title: "Run connection test now"
@@ -367,6 +382,10 @@ private void runConnectionTest() {
     if (!base) {
         atomicState.lastTestMessage = "<span style='color:red'>Host is required.</span> Enter the server IP, wait a moment for it to save, then test again."
         state.connectionOk = false
+        atomicState.compatOk = false
+        return
+    }
+    if (!checkServerCompatibility(base)) {
         return
     }
     String uri = "${base}/status?network=0"
@@ -378,11 +397,15 @@ private void runConnectionTest() {
                 Integer active = json.active_input as Integer
                 Integer count = (json.input_count ?: prefInputCount ?: 8) as Integer
                 Map names = (json.names instanceof Map) ? json.names : [:]
+                if (json.version) {
+                    atomicState.lastServerVersion = json.version.toString()
+                }
                 atomicState.lastActive = active
                 atomicState.lastInputCount = count
                 atomicState.lastListenerNames = new JsonBuilder(names).toString()
                 state.connectionOk = true
-                atomicState.lastTestMessage = "<span style='color:green'><b>Connected.</b></span> Active input <b>${active}</b>, ${count} ports, ${names.size()} server name(s)."
+                String ver = atomicState.lastServerVersion ? " Server <b>${atomicState.lastServerVersion}</b>." : ""
+                atomicState.lastTestMessage = "<span style='color:green'><b>Connected.</b></span>${ver} Active input <b>${active}</b>, ${count} ports, ${names.size()} server name(s)."
             } else {
                 state.connectionOk = false
                 atomicState.lastTestMessage = "<span style='color:red'>HTTP ${resp.status}</span>"
@@ -393,6 +416,143 @@ private void runConnectionTest() {
         atomicState.lastTestMessage = "<span style='color:red'>Failed: ${e.message}</span><br/>Check that tesmartctl is listening on ${base} and Hubitat can reach it."
         if (logEnable) log.warn "TESmart Manager test failed: ${e.message}"
     }
+}
+
+/**
+ * POST /compat with this package's minimum server version and required features.
+ * Returns true when the server is reachable and compatible.
+ */
+private boolean checkServerCompatibility(String base) {
+    Map body = [
+        min_server    : MIN_SERVER_VERSION,
+        client        : "hubitat",
+        client_version: PACKAGE_VERSION,
+        features      : REQUIRED_SERVER_FEATURES
+    ]
+    String payload = new JsonBuilder(body).toString()
+    if (logEnable) {
+        log.debug "TESmart Manager compat POST ${base}/compat ${payload}"
+    }
+    try {
+        boolean ok = false
+        httpPost([
+            uri                : "${base}/compat",
+            contentType        : "application/json",
+            requestContentType : "application/json",
+            body               : payload,
+            timeout            : 20
+        ]) { resp ->
+            if (resp.status == 404) {
+                atomicState.compatOk = false
+                state.connectionOk = false
+                atomicState.lastServerVersion = null
+                atomicState.lastTestMessage = "<span style='color:red'><b>Server too old.</b></span> No <code>/compat</code> route. Upgrade tesmartctl to <b>${MIN_SERVER_VERSION}+</b> on the host, then retest."
+                return
+            }
+            if (resp.status != 200) {
+                atomicState.compatOk = false
+                state.connectionOk = false
+                atomicState.lastTestMessage = "<span style='color:red'>Compatibility check HTTP ${resp.status}</span>"
+                return
+            }
+            def json = resp.data instanceof Map ? resp.data : new JsonSlurper().parseText(resp.data?.toString() ?: "{}")
+            if (json.error == "not supported") {
+                atomicState.compatOk = false
+                state.connectionOk = false
+                atomicState.lastTestMessage = "<span style='color:red'><b>Server too old.</b></span> ${json.message ?: 'Upgrade tesmartctl.'} Need <b>${MIN_SERVER_VERSION}+</b>."
+                return
+            }
+            String serverVer = (json.version ?: "").toString()
+            if (serverVer) {
+                atomicState.lastServerVersion = serverVer
+            }
+            boolean compatible = json.compatible == true
+            atomicState.compatOk = compatible
+            if (!compatible) {
+                state.connectionOk = false
+                String detail = json.message ?: "incompatible"
+                List missing = (json.missing_features instanceof List) ? json.missing_features : []
+                if (missing) {
+                    detail += " (missing: ${missing.join(', ')})"
+                }
+                atomicState.lastTestMessage = "<span style='color:red'><b>Incompatible.</b></span> ${detail}<br/>This Hubitat package ${PACKAGE_VERSION} needs tesmartctl <b>${MIN_SERVER_VERSION}+</b> (found <b>${serverVer ?: 'unknown'}</b>)."
+                return
+            }
+            ok = true
+        }
+        return ok
+    } catch (Exception e) {
+        // Older servers may reject POST /compat as connection failure — try GET /version.
+        if (logEnable) {
+            log.warn "POST /compat failed (${e.message}); trying GET /version"
+        }
+        return checkServerVersionFallback(base)
+    }
+}
+
+/** Fallback when /compat is missing: require GET /version and compare locally. */
+private boolean checkServerVersionFallback(String base) {
+    try {
+        boolean ok = false
+        httpGet([uri: "${base}/version", contentType: "application/json", timeout: 20]) { resp ->
+            if (resp.status == 404) {
+                atomicState.compatOk = false
+                state.connectionOk = false
+                atomicState.lastTestMessage = "<span style='color:red'><b>Server too old.</b></span> No <code>/version</code> or <code>/compat</code>. Upgrade tesmartctl to <b>${MIN_SERVER_VERSION}+</b>."
+                return
+            }
+            if (resp.status != 200) {
+                atomicState.compatOk = false
+                state.connectionOk = false
+                atomicState.lastTestMessage = "<span style='color:red'>Version check HTTP ${resp.status}</span>"
+                return
+            }
+            def json = resp.data instanceof Map ? resp.data : new JsonSlurper().parseText(resp.data?.toString() ?: "{}")
+            String serverVer = (json.version ?: "").toString()
+            atomicState.lastServerVersion = serverVer ?: null
+            boolean enough = versionAtLeast(serverVer, MIN_SERVER_VERSION)
+            atomicState.compatOk = enough
+            if (!enough) {
+                state.connectionOk = false
+                atomicState.lastTestMessage = "<span style='color:red'><b>Incompatible.</b></span> Server <b>${serverVer ?: 'unknown'}</b> is older than required <b>${MIN_SERVER_VERSION}</b>."
+                return
+            }
+            ok = true
+        }
+        return ok
+    } catch (Exception e) {
+        atomicState.compatOk = false
+        state.connectionOk = false
+        atomicState.lastTestMessage = "<span style='color:red'><b>Cannot check server version.</b></span> ${e.message}<br/>Upgrade tesmartctl to <b>${MIN_SERVER_VERSION}+</b> and ensure Hubitat can reach ${base}/compat."
+        if (logEnable) {
+            log.warn "version fallback failed: ${e.message}"
+        }
+        return false
+    }
+}
+
+/** Compare dotted numeric versions (e.g. 0.0.7.9). */
+private boolean versionAtLeast(String have, String need) {
+    if (!need) {
+        return true
+    }
+    if (!have) {
+        return false
+    }
+    List a = have.tokenize('.')?.findAll { it ==~ /^\d+$/ }?.collect { it as Integer } ?: []
+    List b = need.tokenize('.')?.findAll { it ==~ /^\d+$/ }?.collect { it as Integer } ?: []
+    int n = Math.max(a.size(), b.size())
+    for (int i = 0; i < n; i++) {
+        int left = (i < a.size()) ? (a[i] as Integer) : 0
+        int right = (i < b.size()) ? (b[i] as Integer) : 0
+        if (left > right) {
+            return true
+        }
+        if (left < right) {
+            return false
+        }
+    }
+    return true
 }
 
 private void upsertControllerDevice() {
