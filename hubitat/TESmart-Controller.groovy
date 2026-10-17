@@ -15,7 +15,7 @@ import groovy.transform.Field
 import groovy.json.JsonSlurper
 import groovy.json.JsonBuilder
 
-@Field static final String DRIVER_VERSION = "1.4.2"
+@Field static final String DRIVER_VERSION = "1.4.3"
 @Field static final String CHILD_NAMESPACE = "wbevan_tesmart"
 @Field static final String CHILD_TYPE = "TESmart Input"
 @Field static final String BUILTIN_CHILD_NAMESPACE = "hubitat"
@@ -46,22 +46,21 @@ metadata {
         attribute "healthStatus", "enum", ["online", "offline"]
         attribute "lastRefresh", "string"
 
-        // Format is always "1 - Name" or "1 - Input 1". Prefer Preferences lists —
-        // those rebuild on each page open; command ENUMs may stay stale until the driver is re-saved.
+        // STRING (not ENUM): Hubitat freezes command ENUM lists at install time, so they
+        // never pick up server names. Use Preferences → Switch/Peek for named dropdowns.
+        // These commands remain for Rule Machine / automations (pass "2" or "2 - New Mac").
         command "setInputSource", [[
             name: "Input*",
-            type: "ENUM",
-            description: "1 - Name (or 1 - Input 1). Prefer Preferences → Switch to input if this list is stale",
-            constraints: inputSourceConstraints()
+            type: "STRING",
+            description: "Port number or Preferences value, e.g. 2 or 2 - New Mac"
         ]]
         command "nextInput"
         command "previousInput"
         command "peek", [
             [
                 name: "Input*",
-                type: "ENUM",
-                description: "Same format as setInputSource. Prefer Preferences → Peek at input if stale",
-                constraints: inputSourceConstraints()
+                type: "STRING",
+                description: "Port number or Preferences value, e.g. 2 or 2 - New Mac"
             ],
             [name: "Seconds", type: "NUMBER", description: "Optional peek duration in seconds"]
         ]
@@ -71,16 +70,16 @@ metadata {
     }
 
     preferences {
-        // Preference enums are rebuilt every time this page opens (unlike command ENUMs,
-        // which Hubitat often freezes as bare port numbers after first install).
+        // These three are the device-page controls with live names. Hubitat rebuilds
+        // preference enums every time you open Preferences; command ENUMs cannot do that.
         input name: "uiSwitchInput", type: "enum", title: "Switch to input",
-            description: "Always 1 - Name (or 1 - Input 1). Rebuilt from the server on each page open",
+            description: "Select a port (updates immediately). List is rebuilt from the server each time you open Preferences",
             options: liveInputOptions(), submitOnChange: true
         input name: "uiPeekInput", type: "enum", title: "Peek at input",
-            description: "Same list as Switch to input",
+            description: "Temporarily show this port, then return. Same named list as Switch to input",
             options: liveInputOptions(), submitOnChange: true
         input name: "uiPeekSeconds", type: "number", title: "Peek seconds (optional)",
-            description: "Blank = server default", range: "1..600"
+            description: "How long Peek lasts; blank uses the server default", range: "1..600"
         input name: "listenerHost", type: "text", title: "Server host / IP",
             description: "Host running ``tesmartctl listen --http`` (reachable from Hubitat)",
             required: true, defaultValue: "192.168.1.20"
