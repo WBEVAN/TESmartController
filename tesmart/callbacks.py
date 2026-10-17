@@ -1,9 +1,11 @@
-"""HTTP callbacks for input-change notifications.
+"""HTTP callbacks for input- and name-change notifications.
 
 Clients register one or more absolute ``http://`` / ``https://`` URLs. When the
 active input changes (front panel, remote, auto-detect, or a command through
-this listener), each URL receives ``POST`` with a JSON body. Registering the
-same URL twice is a no-op. URLs are stored in the env file and survive restarts.
+this listener), or when local input names are updated through the HTTP API,
+each URL receives ``POST`` with a JSON body. Registering the same URL twice is
+a no-op. URLs and the POST timeout are stored in the env file and survive
+restarts.
 """
 
 from __future__ import annotations
@@ -22,7 +24,10 @@ if TYPE_CHECKING:
     from .switch import TesmartSwitch
 
 CALLBACKS_KEY = "TESMART_CALLBACKS"
-NOTIFY_TIMEOUT = 5.0
+TIMEOUT_KEY = "TESMART_CALLBACK_TIMEOUT"
+DEFAULT_TIMEOUT = 10.0
+MIN_TIMEOUT = 0.5
+MAX_TIMEOUT = 120.0
 
 
 def _normalize_url(url: str) -> str:
@@ -78,9 +83,49 @@ def _write_urls(urls: list[str], env_file: str | None = None) -> list[str]:
     return urls
 
 
+def read_timeout(env_file: str | None = None) -> float:
+    """Seconds to wait for each callback POST. Default 10; clamped to a sane range."""
+    raw = config.read_env_file(config.env_file_path(env_file)).get(TIMEOUT_KEY, "").strip()
+    if not raw:
+        return DEFAULT_TIMEOUT
+    try:
+        value = float(raw)
+    except ValueError:
+        return DEFAULT_TIMEOUT
+    return _clamp_timeout(value)
+
+
+def _clamp_timeout(seconds: float) -> float:
+    if seconds < MIN_TIMEOUT:
+        return MIN_TIMEOUT
+    if seconds > MAX_TIMEOUT:
+        return MAX_TIMEOUT
+    return float(seconds)
+
+
+def set_timeout(seconds: float | int | str, env_file: str | None = None) -> dict[str, Any]:
+    """Persist the callback POST timeout (seconds) in the env file."""
+    try:
+        value = float(seconds)
+    except (TypeError, ValueError) as exc:
+        raise config.ConfigError("timeout must be a number of seconds") from exc
+    if value <= 0:
+        raise config.ConfigError("timeout must be greater than zero")
+    clamped = _clamp_timeout(value)
+    path = config.env_file_path(env_file)
+    values = config.read_env_file(path)
+    values[TIMEOUT_KEY] = str(clamped)
+    config.write_env_file(path, values)
+    return list_callbacks(env_file)
+
+
 def list_callbacks(env_file: str | None = None) -> dict[str, Any]:
     urls = read_callback_urls(env_file)
-    return {"callbacks": urls, "count": len(urls)}
+    return {
+        "callbacks": urls,
+        "count": len(urls),
+        "timeout": read_timeout(env_file),
+    }
 
 
 def add_callback(url: str, env_file: str | None = None) -> dict[str, Any]:
@@ -91,7 +136,10 @@ def add_callback(url: str, env_file: str | None = None) -> dict[str, Any]:
     if added:
         urls.append(normalized)
         _write_urls(urls, env_file)
-    return {"callbacks": urls, "count": len(urls), "url": normalized, "added": added}
+    result = list_callbacks(env_file)
+    result["url"] = normalized
+    result["added"] = added
+    return result
 
 
 def remove_callback(url: str, env_file: str | None = None) -> dict[str, Any]:
@@ -102,12 +150,15 @@ def remove_callback(url: str, env_file: str | None = None) -> dict[str, Any]:
     if removed:
         urls = [item for item in urls if item != normalized]
         _write_urls(urls, env_file)
-    return {"callbacks": urls, "count": len(urls), "url": normalized, "removed": removed}
+    result = list_callbacks(env_file)
+    result["url"] = normalized
+    result["removed"] = removed
+    return result
 
 
 def clear_callbacks(env_file: str | None = None) -> dict[str, Any]:
     _write_urls([], env_file)
-    return {"callbacks": [], "count": 0}
+    return list_callbacks(env_file)
 
 
 def build_event(
@@ -134,9 +185,43 @@ def build_event(
     return payload
 
 
-def post_event(urls: list[str], payload: dict[str, Any]) -> None:
+def build_names_event(
+    *,
+    previous_names: dict[int, str],
+    names: dict[int, str],
+    source: str,
+    switch: TesmartSwitch,
+    env_file: str | None = None,
+    active: int | None = None,
+) -> dict[str, Any]:
+    """Payload for a local name rename/clear (not a switch protocol event)."""
+    changed: dict[str, dict[str, str | None]] = {}
+    all_numbers = set(previous_names) | set(names)
+    for number in sorted(all_numbers):
+        before = previous_names.get(number)
+        after = names.get(number)
+        if before == after:
+            continue
+        changed[str(number)] = {"from": before, "to": after}
+
+    payload: dict[str, Any] = {
+        "event": "names_changed",
+        "changed": changed,
+        "names": {str(number): label for number, label in names.items()},
+        "input_count": switch.input_count,
+        "source": source,
+        "endpoint": switch.endpoint,
+    }
+    if active is not None:
+        payload["active_input"] = active
+        payload["active_name"] = names.get(active)
+    return payload
+
+
+def post_event(urls: list[str], payload: dict[str, Any], *, timeout: float | None = None) -> None:
     if not urls:
         return
+    wait = DEFAULT_TIMEOUT if timeout is None else float(timeout)
     body = (json.dumps(payload) + "\n").encode("utf-8")
     for url in urls:
         try:
@@ -149,7 +234,7 @@ def post_event(urls: list[str], payload: dict[str, Any]) -> None:
                     "User-Agent": "tesmartctl-callbacks/1",
                 },
             )
-            with urllib.request.urlopen(request, timeout=NOTIFY_TIMEOUT) as response:
+            with urllib.request.urlopen(request, timeout=wait) as response:
                 response.read(256)
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
             print(f"callback failed {url}: {exc}", file=sys.stderr)
@@ -188,6 +273,40 @@ class CallbackHub:
             return
         self._emit(active, previous=previous, source=source)
 
+    def note_names(
+        self,
+        previous_names: dict[int, str],
+        names: dict[int, str],
+        *,
+        source: str = "command",
+    ) -> None:
+        """Notify registered URLs that local input names changed."""
+        if previous_names == names:
+            return
+        urls = read_callback_urls(self.env_file)
+        if not urls:
+            return
+        with self._state_lock:
+            active = self._last_active
+        payload = build_names_event(
+            previous_names=previous_names,
+            names=names,
+            source=source,
+            switch=self.switch,
+            env_file=self.env_file,
+            active=active,
+        )
+        if not payload.get("changed"):
+            return
+        timeout = read_timeout(self.env_file)
+        threading.Thread(
+            target=post_event,
+            args=(urls, payload),
+            kwargs={"timeout": timeout},
+            name="tesmartctl-callback-post",
+            daemon=True,
+        ).start()
+
     def _run(self) -> None:
         while not self._stop.wait(0.05):
             try:
@@ -218,10 +337,12 @@ class CallbackHub:
             switch=self.switch,
             env_file=self.env_file,
         )
+        timeout = read_timeout(self.env_file)
         # Do not hold the switch lock while waiting on remote HTTP clients.
         threading.Thread(
             target=post_event,
             args=(urls, payload),
+            kwargs={"timeout": timeout},
             name="tesmartctl-callback-post",
             daemon=True,
         ).start()

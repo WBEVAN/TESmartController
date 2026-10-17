@@ -70,8 +70,10 @@ The page talks to JSON routes under `/api`. `GET /api` lists them. Errors are `{
 | `GET /api/network/notice` | | Risk and liability wording as `risks`, `liability`, `after_write` |
 | `POST /api/network` | `{"ip": "192.168.1.50", "confirm": true, "accept_risk": true}` | Writes, reads back, returns `requested`, `acknowledged`, `stored`, `verified`, `all_verified` |
 | `POST /api/names` | `{"names": {"1": "Office", "2": ""}}` | Empty string removes that name |
-| `GET /api/callbacks` | | Registered change-notification URLs (also in the **API** dialog) |
-| `POST /api/callbacks` | `{"url": "http://192.168.1.5/hook"}` | Register (same URL twice stays once) |
+| `GET /api/callbacks` | | Registered URLs and POST `timeout` (seconds; also in the **API** dialog) |
+| `POST /api/callbacks` | `{"url": "http://192.168.1.5/hook"}` | Register (same URL twice stays once); also fires `names_changed` callbacks when names are saved |
+| `POST /api/callbacks` | `{"timeout": 10}` | Set how long each callback POST may wait (default 10; API only, not a panel control) |
+| `POST /api/callbacks/timeout` | `{"timeout": 10}` | Same as timeout-only POST above |
 | `DELETE /api/callbacks` | `{"url": "http://192.168.1.5/hook"}` | Unregister |
 | `POST /api/callbacks/remove` | `{"url": "http://192.168.1.5/hook"}` | Same as DELETE (for clients that cannot send DELETE) |
 | `POST /api/cycle` | `{"inputs": [1, 3, 5], "mode": "manual", "seconds": 15}` | An empty `inputs` list means every input |

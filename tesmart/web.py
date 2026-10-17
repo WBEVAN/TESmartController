@@ -24,7 +24,8 @@ Routes (GET or POST)
 ``/peek/always``             every plain input change peeks until ``/peek/off``
 ``/peek/off``                plain input changes stick again
 ``/names``                   local input names (GET list; POST JSON to set)
-``/callbacks``               GET list; POST {\"url\": \"...\"} register (deduped); DELETE {\"url\": \"...\"} remove
+``/callbacks``               GET list; POST {\"url\": \"...\"} register (deduped); DELETE {\"url\": \"...\"} remove;
+                             POST {\"timeout\": 10} set POST wait (seconds, default 10)
 ``/panel``, ``/api/...``      browser control panel; only with ``--panel`` (see :mod:`tesmart.panel`)
 """
 
@@ -64,7 +65,7 @@ ROUTES = {
     "/peek/always": "every plain input change peeks until /peek/off",
     "/peek/off": "plain input changes stick again",
     "/names": "GET local input names; POST {\"names\": {\"2\": \"Office\", \"3\": \"\"}} to set or clear",
-    "/callbacks": "GET list; POST {\"url\": \"http://...\"} register (no duplicates); DELETE {\"url\": \"...\"} remove",
+    "/callbacks": "GET list (+ timeout); POST {\"url\": \"...\"} register; POST {\"timeout\": 10} set wait; DELETE remove",
     "/panel": "browser control panel (only when started with --panel)",
     "?format=text": "add to any route for plain text instead of JSON",
 }
@@ -125,7 +126,7 @@ def _parse_request(path: str) -> WebRequest:
     if head == "callbacks":
         if len(segments) == 1:
             return WebRequest("callbacks", None, as_text, include_network)
-        if len(segments) == 2 and segments[1].lower() in {"remove", "clear"}:
+        if len(segments) == 2 and segments[1].lower() in {"remove", "clear", "timeout"}:
             return WebRequest(f"callbacks-{segments[1].lower()}", None, as_text, include_network)
         raise LookupError(parts.path)
     if head in {"rotate", "next", "previous"}:
@@ -253,7 +254,7 @@ class _Handler(BaseHTTPRequestHandler):
                 payload["seconds"] = state["seconds"]
             self._send(HTTPStatus.OK, payload, request.as_text, state["mode"])
             return
-        if request.verb in {"callbacks", "callbacks-remove", "callbacks-clear"}:
+        if request.verb in {"callbacks", "callbacks-remove", "callbacks-clear", "callbacks-timeout"}:
             try:
                 payload = self._callbacks(request.verb, self.command)
             except config.ConfigError as exc:
@@ -265,7 +266,9 @@ class _Handler(BaseHTTPRequestHandler):
             text = None
             if request.as_text:
                 urls = payload.get("callbacks") or []
-                text = "\n".join(urls) if urls else "(none)"
+                lines = list(urls) if urls else ["(none)"]
+                lines.append(f"timeout: {payload.get('timeout', callbacks.DEFAULT_TIMEOUT)}")
+                text = "\n".join(lines)
             self._send(HTTPStatus.OK, payload, request.as_text, text)
             return
         if request.verb == "names":
@@ -362,26 +365,41 @@ class _Handler(BaseHTTPRequestHandler):
         table = body.get("names", body)
         if not isinstance(table, dict):
             raise ValueError('"names" must be an object of input number -> label')
+        env = self.server.env_file
+        before = config.read_names(env)
         count = self.server.switch.input_count
         for key, label in table.items():
             if not str(key).isdigit():
                 raise ValueError(f"input number expected, got {key!r}")
             number = int(key)
             if label is None or str(label).strip() == "":
-                config.unset_input_name(number, self.server.env_file)
+                config.unset_input_name(number, env)
             else:
-                config.set_input_name(number, str(label), self.server.env_file, input_count=count)
-        names = config.read_names(self.server.env_file)
+                config.set_input_name(number, str(label), env, input_count=count)
+        names = config.read_names(env)
+        hub = getattr(self.server, "callbacks", None)
+        if hub is not None:
+            hub.note_names(before, names, source="command")
         return {"names": {str(number): label for number, label in names.items()}}
 
     def _callbacks(self, verb: str, method: str) -> dict:
-        """List, register, or remove HTTP callback URLs."""
+        """List, register, or remove HTTP callback URLs; set POST timeout."""
         env = self.server.env_file
         method = method.upper()
         if verb == "callbacks-clear":
             if method not in {"POST", "DELETE"}:
                 raise ValueError("use POST or DELETE on /callbacks/clear")
             return callbacks.clear_callbacks(env)
+
+        if verb == "callbacks-timeout":
+            if method == "GET":
+                return callbacks.list_callbacks(env)
+            if method not in {"POST", "PUT"}:
+                raise ValueError('use GET or POST /callbacks/timeout with {"timeout": 10}')
+            body = self._read_json_body()
+            if "timeout" not in body:
+                raise ValueError('provide {"timeout": 10} (seconds)')
+            return callbacks.set_timeout(body["timeout"], env)
 
         if verb == "callbacks-remove" or (verb == "callbacks" and method == "DELETE"):
             if method not in {"POST", "DELETE"}:
@@ -409,9 +427,17 @@ class _Handler(BaseHTTPRequestHandler):
                 return callbacks.remove_callback(str(url), env)
             if action in {"clear", "reset"}:
                 return callbacks.clear_callbacks(env)
+            if action in {"timeout", "set-timeout"} or ("timeout" in body and not url):
+                if "timeout" not in body:
+                    raise ValueError('provide {"timeout": 10} (seconds)')
+                return callbacks.set_timeout(body["timeout"], env)
             if not url:
-                raise ValueError('provide {"url": "http://..."} to register')
-            return callbacks.add_callback(str(url), env)
+                raise ValueError('provide {"url": "http://..."} to register, or {"timeout": 10}')
+            result = callbacks.add_callback(str(url), env)
+            if "timeout" in body:
+                timed = callbacks.set_timeout(body["timeout"], env)
+                result["timeout"] = timed["timeout"]
+            return result
 
         raise ValueError("use GET/POST/DELETE on /callbacks")
 
@@ -546,8 +572,14 @@ def serve_http(
     if panel_enabled:
         print(f"  http://{bound_host}:{bound_port}/panel        control panel", file=sys.stderr)
     registered = callbacks.read_callback_urls(env_file)
+    timeout = callbacks.read_timeout(env_file)
     if registered:
-        print(f"  {len(registered)} callback URL(s) loaded from env file", file=sys.stderr)
+        print(
+            f"  {len(registered)} callback URL(s) loaded from env file (timeout {timeout:g}s)",
+            file=sys.stderr,
+        )
+    else:
+        print(f"  callback POST timeout {timeout:g}s", file=sys.stderr)
     server.callbacks.start()
     try:
         server.serve_forever()

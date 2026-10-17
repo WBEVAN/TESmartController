@@ -89,7 +89,7 @@ Bind to <code>0.0.0.0</code> (or your LAN IP). There is no authentication — us
         }
         section("5. Push notifications") {
             input name: "enableCallbacks", type: "bool",
-                title: "Register this hub for input-change callbacks from the server",
+                title: "Register this hub for input- and name-change callbacks from the server",
                 description: "tesmartctl POSTs previous/current input when the switch changes (front panel, remote, or API)",
                 defaultValue: true
             if (atomicState.callbackUrl) {

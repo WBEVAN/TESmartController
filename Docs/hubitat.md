@@ -22,7 +22,7 @@ App and drivers use the Hubitat namespace **`wbevan_tesmart`**. If you previousl
 
 ### Push notifications (callbacks)
 
-With a recent `tesmartctl listen --http`, **TESmart Manager** can register this hub as a callback URL. When the switch input changes, the listener POSTs `previous` / `active_input` (and names) to Hubitat so the controller updates without waiting for the next poll. Turn this on under **Push notifications** in the Manager app (requires OAuth enabled for the app — HPM sets this when `oauth` is true in the package).
+With a recent `tesmartctl listen --http`, **TESmart Manager** can register this hub as a callback URL. When the switch input changes, or when local input names are updated on the server, the listener POSTs JSON (`event`: `input_changed` or `names_changed`) to Hubitat so the controller and child labels update without waiting for the next poll. Turn this on under **Push notifications** in the Manager app (requires OAuth enabled for the app — HPM sets this when `oauth` is true in the package).
 
 ## Prerequisites
 

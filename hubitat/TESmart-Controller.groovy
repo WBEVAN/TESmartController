@@ -343,7 +343,8 @@ void handlePeekResponse(response, Map data = [:]) {
 }
 
 /**
- * Called by TESmart Manager when tesmartctl POSTs an input-change callback.
+ * Called by TESmart Manager when tesmartctl POSTs a callback
+ * (``input_changed`` or ``names_changed``).
  * ``jsonText`` is the callback body (previous, active_input, names, source, …).
  */
 void handleInputChanged(String jsonText) {
@@ -362,6 +363,7 @@ void handleInputChanged(String jsonText) {
         return
     }
     Map json = parsed as Map
+    String eventKind = (json.event ?: "input_changed").toString()
     Integer previous = (json.previous ?: json.previous_input ?: json.previousInput) as Integer
     if (previous != null) {
         sendEvent(name: "previousInput", value: previous)
@@ -369,8 +371,13 @@ void handleInputChanged(String jsonText) {
     if (json.source) {
         sendEvent(name: "lastChangeSource", value: json.source.toString())
     }
-    applyStatus(json, [action: "callback"])
-    logInfo "input changed via callback: ${previous} → ${json.active_input ?: json.activeInput} (${json.source ?: 'unknown'})"
+    applyStatus(json, [action: "callback", event: eventKind])
+    if (eventKind == "names_changed") {
+        def changed = json.changed instanceof Map ? json.changed : [:]
+        logInfo "names changed via callback (${changed.size()} port(s), source=${json.source ?: 'unknown'})"
+    } else {
+        logInfo "input changed via callback: ${previous} → ${json.active_input ?: json.activeInput} (${json.source ?: 'unknown'})"
+    }
 }
 
 private void applyStatus(Map json, Map data = [:]) {

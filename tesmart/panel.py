@@ -69,8 +69,10 @@ API_CATALOG: list[dict[str, Any]] = [
     },
     {"method": "POST", "path": "/api/names", "summary": "set local names; an empty string removes one", "sample": {"names": {"1": "Office", "2": ""}}},
     {"method": "POST", "path": "/api/cycle", "summary": "save the cycle list, mode, and interval", "sample": {"inputs": [1, 2, 4], "mode": "manual", "seconds": 15}},
-    {"method": "GET", "path": "/api/callbacks", "summary": "list HTTP callback URLs notified on input change"},
+    {"method": "GET", "path": "/api/callbacks", "summary": "list HTTP callback URLs and POST timeout (seconds)"},
     {"method": "POST", "path": "/api/callbacks", "summary": "register a callback URL (duplicates ignored)", "sample": {"url": "http://192.168.1.5/hook"}},
+    {"method": "POST", "path": "/api/callbacks", "summary": "set callback POST timeout (default 10s; not on the panel UI)", "sample": {"timeout": 10}},
+    {"method": "POST", "path": "/api/callbacks/timeout", "summary": "same as POST /api/callbacks with timeout only", "sample": {"timeout": 10}},
     {"method": "DELETE", "path": "/api/callbacks", "summary": "remove a registered callback URL", "sample": {"url": "http://192.168.1.5/hook"}},
     {"method": "POST", "path": "/api/callbacks/remove", "summary": "same as DELETE /api/callbacks (for clients that cannot send DELETE)", "sample": {"url": "http://192.168.1.5/hook"}},
 ]
@@ -361,16 +363,21 @@ def _action_names(handler: "_Handler", body: dict[str, Any]) -> dict[str, Any]:
     table = body.get("names")
     if not isinstance(table, dict):
         raise PanelError('"names" must be an object of input number -> label')
+    env = handler.server.env_file
+    before = config.read_names(env)
     count = handler.server.switch.input_count
     for key, label in table.items():
         if not str(key).isdigit():
             raise PanelError(f"input number expected, got {key!r}")
         number = int(key)
         if label is None or str(label).strip() == "":
-            config.unset_input_name(number, handler.server.env_file)
+            config.unset_input_name(number, env)
         else:
-            config.set_input_name(number, str(label), handler.server.env_file, input_count=count)
-    names = config.read_names(handler.server.env_file)
+            config.set_input_name(number, str(label), env, input_count=count)
+    names = config.read_names(env)
+    hub = getattr(handler.server, "callbacks", None)
+    if hub is not None:
+        hub.note_names(before, names, source="command")
     return {"names": {str(number): label for number, label in names.items()}}
 
 
@@ -475,14 +482,29 @@ def _api(handler: "_Handler", method: str, segments: list[str], query_text: str)
 
 def _action_callbacks(handler: "_Handler", method: str, rest: list[str]) -> dict[str, Any]:
     env = handler.server.env_file
+    if rest and rest[0].lower() == "timeout":
+        if method == "GET":
+            return callbacks.list_callbacks(env)
+        if method not in {"POST", "PUT"}:
+            raise PanelError('use GET or POST /api/callbacks/timeout with {"timeout": 10}')
+        body = _read_json(handler)
+        if "timeout" not in body:
+            raise PanelError('provide {"timeout": 10} (seconds)')
+        return callbacks.set_timeout(body["timeout"], env)
     if not rest and method == "GET":
         return callbacks.list_callbacks(env)
     if not rest and method == "POST":
         body = _read_json(handler)
         url = body.get("url") or body.get("callback")
+        if "timeout" in body and not url:
+            return callbacks.set_timeout(body["timeout"], env)
         if not url:
-            raise PanelError('provide {"url": "http://..."}')
-        return callbacks.add_callback(str(url), env)
+            raise PanelError('provide {"url": "http://..."} or {"timeout": 10}')
+        result = callbacks.add_callback(str(url), env)
+        if "timeout" in body:
+            timed = callbacks.set_timeout(body["timeout"], env)
+            result["timeout"] = timed["timeout"]
+        return result
     if (not rest and method == "DELETE") or (rest and rest[0].lower() == "remove" and method in {"POST", "DELETE"}):
         body = _read_json(handler)
         url = body.get("url") or body.get("callback")
