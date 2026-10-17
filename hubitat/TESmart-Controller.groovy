@@ -15,7 +15,7 @@ import groovy.transform.Field
 import groovy.json.JsonSlurper
 import groovy.json.JsonBuilder
 
-@Field static final String DRIVER_VERSION = "1.3.0"
+@Field static final String DRIVER_VERSION = "1.3.1"
 @Field static final String CHILD_NAMESPACE = "tesmart"
 @Field static final String CHILD_TYPE = "TESmart Input"
 @Field static final String BUILTIN_CHILD_NAMESPACE = "hubitat"
@@ -305,7 +305,11 @@ private void applyStatus(Map json, Map data = [:]) {
     Integer count = (json.input_count ?: json.inputCount ?: resolveInputCount()) as Integer
 
     // Listener names (tesmartctl name); merge with Hubitat/app overrides.
-    state.listenerNames = coerceNamesMap(json.names)
+    // Only /status includes a "names" map. /input, /next, /previous omit it —
+    // do not wipe previously loaded names on those replies.
+    if (json.containsKey("names")) {
+        state.listenerNames = coerceNamesMap(json.names)
+    }
     Map names = effectiveNames()
     state.names = names
     state.inputCount = count

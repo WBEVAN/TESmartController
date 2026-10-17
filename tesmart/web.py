@@ -267,7 +267,9 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(HTTPStatus.BAD_GATEWAY, {"error": str(exc)}, request.as_text)
             return
         names = config.read_names(self.server.env_file)
-        config.apply_names(payload, names, include_map=request.verb == "status")
+        # Always attach the names map so Hubitat (and other clients) can keep
+        # child labels in sync after /input, /next, and /previous — not only /status.
+        config.apply_names(payload, names, include_map=True)
         if request.verb == "status":
             payload["rotate"] = config.rotate_info(self.server.env_file, input_count=self.server.switch.input_count)
             payload["peek"] = config.peek_info(self.server.env_file)

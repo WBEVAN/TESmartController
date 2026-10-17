@@ -2,10 +2,10 @@
   "packageName": "TESmart Controller",
   "minimumHEVersion": "2.2.0",
   "author": "WBEVAN",
-  "version": "1.3.5",
+  "version": "1.3.6",
   "dateReleased": "2026-10-17",
   "licenseFile": "https://raw.githubusercontent.com/WBEVAN/TESmartController/main/LICENSE",
-  "releaseNotes": "Connection test uses the host/IP you just typed (no second click). Host/port fields save on change.",
+  "releaseNotes": "Child input devices keep listener names after switching ports (no longer reset to Input N).",
   "documentationLink": "https://github.com/WBEVAN/TESmartController/blob/main/Docs/hubitat.md",
   "communityLink": "https://github.com/WBEVAN/TESmartController",
   "apps": [
