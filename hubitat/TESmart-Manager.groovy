@@ -149,7 +149,7 @@ def namesPage() {
         section {
             paragraph "<b>Names are stored on the tesmartctl listener</b> (env file on the machine running <code>tesmartctl listen</code>), not in the TESmart hardware."
             paragraph "Load current values, edit the fields, then tap <b>Done</b> on the main page — Hubitat writes them with <code>POST /names</code>."
-            input name: "btnRefreshNames", type: "button", title: "Load names from listener"
+            input name: "btnRefreshNames", type: "button", title: "Refresh Names"
             if (atomicState.lastNamesPushMessage) {
                 paragraph atomicState.lastNamesPushMessage
             }
