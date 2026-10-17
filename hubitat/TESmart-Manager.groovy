@@ -114,24 +114,23 @@ def connectionPage() {
                 defaultValue: "60"
         }
         section("Test") {
-            input name: "runTest", type: "bool", title: "Test connection when leaving this page / on save",
+            input name: "runTest", type: "bool", title: "Test connection when saving the app (Done)",
                 defaultValue: true
+            input name: "btnTestConnection", type: "button", title: "Run connection test now"
             if (atomicState.lastTestMessage) {
                 paragraph atomicState.lastTestMessage
+            } else {
+                paragraph "Click <b>Run connection test now</b>, then wait a moment and reopen this page (or tap the button again) to see the result."
             }
-            href(
-                name: "testNow",
-                title: "Run connection test now",
-                description: "GET /status?network=0",
-                page: "connectionPage",
-                params: [test: true]
-            )
         }
-        if (params?.test || runTest) {
-            runConnectionTest()
-            section("Result") {
-                paragraph atomicState.lastTestMessage ?: "No result"
-            }
+    }
+}
+
+def appButtonHandler(String btn) {
+    if (btn == "btnTestConnection") {
+        runConnectionTest()
+        if (logEnable) {
+            log.debug "TESmart Manager connection test: ${atomicState.lastTestMessage}"
         }
     }
 }
