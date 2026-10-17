@@ -94,10 +94,10 @@ After the next device refresh, child devices show labels like `Office` or `Input
 
 | Command | Effect |
 | --- | --- |
-| `refresh` | `GET /status?network=0` (rebuilds dropdown + child names) |
-| `setInputSource` | Dropdown `2 — Office` (or `5`) → sends port number via `GET /input/n` |
+| `refresh` | `GET /status?network=0` (rebuilds named lists + child labels) |
+| Preferences → **Switch to input** / **Peek at input** | Named list (`2 — Office`) rebuilt each time you open the device page — use these on the device UI |
+| `setInputSource` / `peek` (Commands) | Same values for Rule Machine; Hubitat often freezes these command ENUMs as bare numbers — prefer Preferences on the device page |
 | `nextInput` / `previousInput` | `GET /next` / `GET /previous` |
-| `peek` | Same `2 — Office` dropdown as setInputSource → `GET /peek/n` (port number), then refresh |
 | `createChildInputs` / `deleteChildInputs` | manage child devices |
 
 | Attribute | Meaning |

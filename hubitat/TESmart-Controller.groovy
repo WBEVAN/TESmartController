@@ -15,7 +15,7 @@ import groovy.transform.Field
 import groovy.json.JsonSlurper
 import groovy.json.JsonBuilder
 
-@Field static final String DRIVER_VERSION = "1.3.1"
+@Field static final String DRIVER_VERSION = "1.3.2"
 @Field static final String CHILD_NAMESPACE = "tesmart"
 @Field static final String CHILD_TYPE = "TESmart Input"
 @Field static final String BUILTIN_CHILD_NAMESPACE = "hubitat"
@@ -46,11 +46,12 @@ metadata {
         attribute "healthStatus", "enum", ["online", "offline"]
         attribute "lastRefresh", "string"
 
-        // Single selector: "2 — Office" (or "5" if unnamed). Sends the port number.
+        // Prefer Preferences → "Switch to input" / "Peek at input" (those lists
+        // rebuild with names). Command ENUMs are often frozen by Hubitat as bare numbers.
         command "setInputSource", [[
             name: "Input*",
             type: "ENUM",
-            description: "Port number and local name from the last Refresh",
+            description: "Prefer Preferences → Switch to input for named ports; or pick here / type N — Name",
             constraints: inputSourceConstraints()
         ]]
         command "nextInput"
@@ -59,7 +60,7 @@ metadata {
             [
                 name: "Input*",
                 type: "ENUM",
-                description: "Port number and local name from the last Refresh (same list as setInputSource)",
+                description: "Prefer Preferences → Peek at input for named ports",
                 constraints: inputSourceConstraints()
             ],
             [name: "Seconds", type: "NUMBER", description: "Optional peek duration in seconds"]
@@ -70,6 +71,16 @@ metadata {
     }
 
     preferences {
+        // Preference enums are rebuilt every time this page opens (unlike command ENUMs,
+        // which Hubitat often freezes as bare port numbers after first install).
+        input name: "uiSwitchInput", type: "enum", title: "Switch to input",
+            description: "Names from the last Refresh — reopen this page after Refresh if the list looks stale",
+            options: liveInputOptions(), submitOnChange: true
+        input name: "uiPeekInput", type: "enum", title: "Peek at input",
+            description: "Same named list as Switch to input",
+            options: liveInputOptions(), submitOnChange: true
+        input name: "uiPeekSeconds", type: "number", title: "Peek seconds (optional)",
+            description: "Blank = listener default", range: "1..600"
         input name: "listenerHost", type: "text", title: "Listener host / IP",
             description: "Host running ``tesmartctl listen --http`` (reachable from Hubitat)",
             required: true, defaultValue: "192.168.1.20"
@@ -106,10 +117,15 @@ metadata {
     }
 }
 
-// Command ENUM helper — Hubitat may only evaluate this when the driver is saved;
-// the cache is still updated on every Refresh for firmwares that re-read it.
+// Command ENUM helper — Hubitat often freezes these after first save; prefer the
+// preference "Switch to input" / "Peek at input" lists, which refresh on each page open.
 List inputSourceConstraints() {
     return cachedChoiceList("inputSourceChoices", INPUT_SOURCE_OPTIONS) ?: defaultSourceChoices()
+}
+
+/** Preference enum options — evaluated when the device page is rendered. */
+List liveInputOptions() {
+    return inputSourceConstraints()
 }
 
 // ── lifecycle ──────────────────────────────────────────────────────────────
@@ -125,13 +141,33 @@ void updated() {
     if (logEnable) {
         runIn(1800, "logsOff")
     }
+    // Preference dropdowns (live named lists) — handle before re-init so the
+    // selection is not lost, then clear so the control can be used again.
+    String switchSel = settings.uiSwitchInput?.toString()?.trim()
+    String peekSel = settings.uiPeekInput?.toString()?.trim()
+    BigDecimal peekSecs = settings.uiPeekSeconds as BigDecimal
+    if (switchSel) {
+        clearUiEnum("uiSwitchInput")
+        setInputSource(switchSel)
+    }
+    if (peekSel) {
+        clearUiEnum("uiPeekInput")
+        peek(peekSel, peekSecs)
+    }
     initialize()
+}
+
+private void clearUiEnum(String name) {
+    try {
+        device.updateSetting(name, [type: "enum", value: ""])
+    } catch (ignored) {
+    }
 }
 
 void initialize() {
     unschedule()
     state.driverVersion = DRIVER_VERSION
-    updateInputChoiceCaches(resolveInputCountForMenu(), (state.names as Map) ?: [:])
+    updateInputChoiceCaches(resolveInputCountForMenu(), effectiveNames())
     scheduleRefresh()
     if (createChildren) {
         createChildInputs()
@@ -667,13 +703,12 @@ private List<String> buildSupportedInputs(Integer count, Map names) {
     return list
 }
 
-/** MediaInputSource value: local name when set, otherwise the port number. */
+/**
+ * MediaInputSource / supportedInputs value: ``2 — Office`` when named, else ``2``.
+ * Matches the setInputSource / peek / preference dropdowns.
+ */
 private String labelForInput(Integer number, Map names) {
-    if (number == null) {
-        return null
-    }
-    String named = lookupInputName(number, names)
-    return named ?: number.toString()
+    return choiceLabel(number, names)
 }
 
 /** Device/dashboard label: local name when set, otherwise "Input N". */
