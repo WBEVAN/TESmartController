@@ -259,6 +259,34 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_listen.description = "Without --bind or --http, commands are read from stdin."
 
+    p_kit = _add(
+        sub,
+        "kit",
+        "open the floating HDMI kit without browser chrome (needs listen --panel running)",
+    )
+    p_kit.add_argument(
+        "url",
+        nargs="?",
+        default=None,
+        help="full kit URL in quotes, e.g. 'http://host:8080/kit?app=1'; "
+        "default http://127.0.0.1:<listen>/kit?app=1",
+    )
+    p_kit.add_argument(
+        "--listen",
+        type=int,
+        default=8080,
+        metavar="PORT",
+        help="listener HTTP port when URL is omitted (default 8080)",
+    )
+    p_kit.add_argument(
+        "--prefer",
+        choices=("auto", "chromium", "webview"),
+        default="auto",
+        help="window backend: Chromium --app, pywebview, or auto (default)",
+    )
+    p_kit.add_argument("--width", type=int, default=None, help="window width (default fits the kit deck)")
+    p_kit.add_argument("--height", type=int, default=None, help="window height (default fits the kit deck)")
+
     return parser
 
 
@@ -643,6 +671,35 @@ def cmd_listen(switch: TesmartSwitch, args: argparse.Namespace) -> int:
     return serve_tcp(switch, host, port, as_json=args.json, env_file=args.env_file)
 
 
+def cmd_kit(args: argparse.Namespace) -> int:
+    """Open /kit without browser chrome. Does not need a switch connection."""
+    from . import kit_window
+
+    url = (args.url or "").strip() or f"http://127.0.0.1:{args.listen}/kit?app=1"
+    if not url.startswith(("http://", "https://")):
+        raise SystemExit("kit URL must be an absolute http(s) address")
+    width = args.width if args.width is not None else kit_window.DEFAULT_WIDTH
+    height = args.height if args.height is not None else kit_window.DEFAULT_HEIGHT
+    try:
+        # Webview owns this process (Cocoa needs the main thread). Chromium returns.
+        result = kit_window.open_kit_window(
+            url,
+            width=width,
+            height=height,
+            prefer=args.prefer,
+            block=True,
+        )
+    except kit_window.KitWindowError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    emit(
+        args,
+        result,
+        f"Opened {result['url']} via {result['backend']} ({result['browser']})",
+    )
+    return 0
+
+
 def cmd_name(args: argparse.Namespace) -> int:
     """Runs without a device connection. Names never leave this machine."""
     settings = resolve_settings(args)
@@ -715,6 +772,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_config(args)
         if args.command == "name":
             return cmd_name(args)
+        if args.command == "kit":
+            return cmd_kit(args)
         if args.command == "cycle" and args.cycle_command != "run":
             return cmd_cycle_config(args)
         if args.command == "examples":

@@ -28,7 +28,7 @@ Routes (GET or POST)
 ``/compat``                  GET/POST compatibility check (min server version + features)
 ``/callbacks``               GET list; POST {\"url\": \"...\", \"name\": \"...\"} register; DELETE remove;
                              POST {\"timeout\": 10} set wait; GET|POST /callbacks/health probe clients
-``/panel``, ``/api/...``      browser control panel; only with ``--panel`` (see :mod:`tesmart.panel`)
+``/panel``, ``/kit``, ``/api/...``  browser UIs; only with ``--panel`` (see :mod:`tesmart.panel`)
 """
 
 from __future__ import annotations
@@ -71,6 +71,7 @@ ROUTES = {
     "/names": "GET local input names; POST {\"names\": {\"2\": \"Office\", \"3\": \"\"}} to set or clear",
     "/callbacks": "GET list; POST {\"url\",\"name\"} register; POST {\"timeout\":10}; GET|POST /health probe; DELETE remove",
     "/panel": "browser control panel (only when started with --panel)",
+    "/kit": "alternate floating HDMI UI kit (Pop out = chrome-less window on listener host)",
     "?format=text": "add to any route for plain text instead of JSON",
 }
 
@@ -670,6 +671,8 @@ def serve_http(
     print(f"  http://{bound_host}:{bound_port}/input?set=3  switch", file=sys.stderr)
     if panel_enabled:
         print(f"  http://{bound_host}:{bound_port}/panel        control panel", file=sys.stderr)
+        print(f"  http://{bound_host}:{bound_port}/kit          floating UI kit (Pop out = chrome-less)", file=sys.stderr)
+        print(f"  tesmartctl kit --listen {bound_port}          open /kit without browser chrome", file=sys.stderr)
     registered = callbacks.read_callback_urls(env_file)
     timeout = callbacks.read_timeout(env_file)
     if registered:

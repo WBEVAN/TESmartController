@@ -949,7 +949,28 @@ class Explorer {
 
 document.addEventListener("DOMContentLoaded", () => {
   const api = new Api();
-  const panel = new Panel(api, new Toaster(document.getElementById("toasts")));
+  const toaster = new Toaster(document.getElementById("toasts"));
+  const panel = new Panel(api, toaster);
   panel.start();
   new Explorer(api, () => panel.refresh(false)).start();
+
+  const floatingKit = document.getElementById("btn-floating-kit");
+  if (floatingKit) {
+    floatingKit.addEventListener("click", async (event) => {
+      event.preventDefault();
+      try {
+        const result = await api.post("/api/kit-window", {});
+        toaster.success(`Opened chrome-less kit via ${result.backend || "app window"}`);
+      } catch (error) {
+        window.open(
+          "/kit?popup=1",
+          "tesmart-kit",
+          "popup=yes,width=780,height=920,resizable=yes",
+        );
+        toaster.info(
+          error.message || "Fell back to a browser popup (install Chrome/Edge for chrome-less)",
+        );
+      }
+    });
+  }
 });

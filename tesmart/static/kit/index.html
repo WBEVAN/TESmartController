@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TESmart · floating kit</title>
+  <link rel="stylesheet" href="/static/kit/styles.css">
+  <link rel="stylesheet" href="/static/kit/float.css">
+</head>
+<body class="kit-float">
+  <div class="float-chrome" id="chrome">
+    <button type="button" id="btn-popout" class="chrome-btn" title="Open a frameless window on the machine running tesmartctl">Pop out</button>
+    <button type="button" id="btn-pin" class="chrome-btn" aria-pressed="false" title="Keep window on top when supported">Pin</button>
+    <a class="chrome-link" href="/panel" title="Full Bootstrap control panel">Full panel</a>
+  </div>
+
+  <main class="panel" id="deck">
+    <header class="title" id="drag">
+      <span class="drag-handle drag-region pywebview-drag-region" id="drag-handle" title="Drag to move">
+        <img class="icon" src="/static/kit/svg/icon-grip.svg" alt="">
+        <strong>HDMI SWITCHER</strong>
+        <span class="led" id="led" data-state="offline" title="Controller link">
+          <img id="led-img" src="/static/kit/svg/led-offline.svg" alt="">
+          <span id="led-label">offline</span>
+        </span>
+      </span>
+      <button id="compact" class="view-toggle" aria-pressed="false" aria-label="Toggle compact view">
+        <img class="action-icon" src="/static/kit/svg/icon-monitor.svg" alt="">
+        <span>Compact</span>
+      </button>
+      <button type="button" id="btn-close" class="view-toggle app-only" aria-label="Close window" title="Close">
+        <img class="action-icon" src="/static/kit/svg/icon-close.svg" alt="">
+      </button>
+    </header>
+
+    <section class="lcd">
+      <div class="lcd-copy" aria-live="polite">
+        <h1 id="name"></h1>
+        <p id="status"></p>
+        <p id="detail"></p>
+      </div>
+      <div class="countdown" role="timer" aria-label="Estimated Peek seconds remaining">
+        <span>PEEK</span>
+        <strong id="digits">--</strong>
+        <span>SEC · EST.</span>
+      </div>
+    </section>
+
+    <div id="grid" class="grid" aria-label="HDMI inputs"></div>
+
+    <section class="service-bay" id="service-bay" data-open="false">
+      <button type="button" class="service-door" id="service-door" aria-expanded="false" aria-controls="service-bay-inner" title="Open setup door">
+        <span class="door-hinge" aria-hidden="true"></span>
+        <span class="door-face">
+          <span class="door-vents" aria-hidden="true"></span>
+          <span class="door-label">
+            <img class="action-icon" src="/static/kit/svg/icon-settings.svg" alt="">
+            <span id="door-label-text">Setup</span>
+          </span>
+          <span class="door-latch" aria-hidden="true"></span>
+        </span>
+      </button>
+      <div class="service-bay-inner" id="service-bay-inner" hidden>
+        <div class="controls">
+          <button id="prev" aria-label="Previous input">
+            <img class="action-icon" src="/static/kit/svg/icon-previous.svg" alt="">
+          </button>
+          <button id="next" aria-label="Next input">
+            <img class="action-icon" src="/static/kit/svg/icon-next.svg" alt="">
+          </button>
+          <span><img class="action-icon" src="/static/kit/svg/icon-peek.svg" alt=""> Peek</span>
+          <button data-mode="off" aria-pressed="true">
+            <img class="action-icon" src="/static/kit/svg/icon-close.svg" alt=""> Off
+          </button>
+          <button data-mode="once" aria-pressed="false">
+            <img class="action-icon" src="/static/kit/svg/icon-peek.svg" alt=""> Once
+          </button>
+          <button data-mode="always" aria-pressed="false">
+            <img class="action-icon" src="/static/kit/svg/icon-cycle.svg" alt=""> Always
+          </button>
+          <label>
+            <input id="seconds" type="number" min="1" max="60" value="5" aria-label="Peek duration in seconds">
+            sec
+          </label>
+        </div>
+
+        <div class="cycle-controls">
+          <button id="cycle" aria-pressed="false">
+            <img class="action-icon" src="/static/kit/svg/icon-cycle.svg" alt="">
+            <span id="cycle-label">Start cycle</span>
+          </button>
+          <label>
+            Every
+            <input id="cycle-seconds" type="number" min="2" max="3600" value="15" aria-label="Cycle interval in seconds">
+            sec
+          </label>
+          <label class="cycle-inputs-field">
+            <img class="action-icon" src="/static/kit/svg/icon-settings.svg" alt="">
+            Inputs
+            <input id="cycle-inputs" type="text" placeholder="All inputs" aria-label="Comma separated cycle inputs">
+          </label>
+          <span id="cycle-error" role="status"></span>
+        </div>
+
+        <p class="small">Right-click an input to rename it. Drag the title bar to move this window.</p>
+      </div>
+    </section>
+
+    <div id="rename-dialog" class="kit-dialog" hidden>
+      <div class="kit-dialog-card" role="dialog" aria-modal="true" aria-labelledby="rename-title">
+        <header class="kit-dialog-head">
+          <img class="action-icon" src="/static/kit/svg/icon-monitor.svg" alt="">
+          <strong id="rename-title">Name input</strong>
+        </header>
+        <p id="rename-hint" class="kit-dialog-hint">Local label stored on this listener.</p>
+        <label class="kit-dialog-field">
+          <span>Name</span>
+          <input id="rename-input" type="text" maxlength="64" autocomplete="off" spellcheck="false">
+        </label>
+        <div class="kit-dialog-actions">
+          <button type="button" id="rename-clear" class="kit-dialog-btn ghost">Clear</button>
+          <span class="kit-dialog-spacer"></span>
+          <button type="button" id="rename-cancel" class="kit-dialog-btn">Cancel</button>
+          <button type="button" id="rename-save" class="kit-dialog-btn primary">Save</button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <p class="note float-note">
+    Alternative to <a href="/panel">/panel</a> — same listener APIs.
+    <span id="endpoint" class="mono"></span>
+  </p>
+
+  <script src="/static/kit/kit.js"></script>
+</body>
+</html>

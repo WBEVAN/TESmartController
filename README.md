@@ -71,7 +71,7 @@ application capable of making an HTTP request.
 | Settings | Buzzer, front-panel display timeout, auto input detection. The switch cannot report these back |
 | Address | Change the switch's IP, port, gateway, and mask, with two warnings and a read-back. Applied only after a power cycle |
 | Listen | Keep one connection open: a line protocol on stdin or TCP, or HTTP URLs for Stream Deck, Companion, Home Assistant, and similar |
-| Panel | Optional browser page at `/panel` (`listen --http PORT --panel`), including an API explorer |
+| Panel / kit | Optional browser UIs with `--panel`: floating `/kit` (frameless via `tesmartctl kit`) and full `/panel` with API explorer |
 
 The switch cannot say which HDMI inputs have a signal. A cycle is the list you configure, stored on this computer, not in the switch. Local input names are stored the same way.
 
@@ -80,7 +80,7 @@ The switch cannot say which HDMI inputs have a signal. A cycle is the list you c
 | This file | Install, configuration, every command |
 | [`Docs/protocol.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/protocol.md) | Byte protocol the switch speaks |
 | [`Docs/listener.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/listener.md) | Long-running line protocol and HTTP URLs |
-| [`Docs/panel.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/panel.md) | Browser control panel at `/panel` |
+| [`Docs/panel.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/panel.md) | Floating kit (`/kit`) and full panel (`/panel`), including remote launch |
 | [`Docs/embed.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/embed.md) | Input buttons on a page you already have |
 | [`Docs/hubitat.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/hubitat.md) | Hubitat drivers (`hubitat/`) over the REST listener |
 
@@ -359,13 +359,22 @@ tesmartctl listen --http 0.0.0.0:8080 --panel
 
 `--bind` and `--http` cannot be combined. Run two processes if you want both. A port number alone binds `127.0.0.1`, so only this computer can connect. `0.0.0.0` accepts every network interface. Other devices then use the address of the computer running `tesmartctl`, for example `http://192.168.1.20:8080/input/3`. There is no authentication, so only do this on a network you trust.
 
-`--panel` is off unless you add it. It serves a browser page for selecting inputs, stepping the cycle, peeking, and the switch settings the vendor Windows controller exposes (buzzer, front-panel display timeout, auto input detection, LAN address). Detail is in [`Docs/panel.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/panel.md).
+`--panel` is off unless you add it. It serves the floating HDMI kit at `/kit` and the full Bootstrap panel at `/panel` (buzzer, display timeout, auto-detect, LAN address, API explorer). Detail — including how to open the kit from another machine — is in [`Docs/panel.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/panel.md).
+
+```bash
+pip install 'tesmartctl[kit]'
+tesmartctl listen --http 0.0.0.0:8080 --panel
+tesmartctl kit --listen 8080                                    # frameless on this host
+tesmartctl kit 'http://192.168.1.20:8080/kit?app=1'              # frameless here, remote listener (quote the URL)
+```
+
+![Floating kit](https://raw.githubusercontent.com/WBEVAN/TESmartController/main/Docs/images/kit.png)
 
 ![Demo: input switching, Peek, and API explorer](Docs/images/demo.gif)
 
-![Control panel](https://raw.githubusercontent.com/WBEVAN/TESmartController/main/Docs/images/panel.png)
+![Full control panel](https://raw.githubusercontent.com/WBEVAN/TESmartController/main/Docs/images/panel.png)
 
-The **API** button in the top bar opens an explorer that lists every `/api` route, sends it, and shows the raw status and body the listener returned.
+The **API** button on `/panel` opens an explorer that lists every `/api` route, sends it, and shows the raw status and body the listener returned.
 
 ![API explorer](https://raw.githubusercontent.com/WBEVAN/TESmartController/main/Docs/images/api-explorer.png)
 
@@ -448,7 +457,7 @@ with TesmartSwitch(TcpTransport("192.168.1.50")) as sw:
 | `tesmart/examples.py` | Worked examples shown by `--help` and `tesmartctl examples` |
 | `Docs/protocol.md` | Wire protocol |
 | `Docs/listener.md` | Line protocol and HTTP routes |
-| `Docs/panel.md` | Browser control panel |
+| `Docs/panel.md` | Floating kit and full control panel |
 | `Docs/embed.md` | Input buttons on another page |
 | `examples/buttons/` | Sample page of input links, no script or framework |
 | `Docs/images/` | Screenshots used in the documentation |

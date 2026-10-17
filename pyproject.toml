@@ -21,6 +21,7 @@ Changelog = "https://github.com/WBEVAN/TESmartController/releases"
 
 [project.optional-dependencies]
 serial = ["pyserial>=3.5"]
+kit = ["pywebview>=5.0"]
 
 [project.scripts]
 tesmartctl = "tesmart.cli:main"
@@ -29,4 +30,4 @@ tesmartctl = "tesmart.cli:main"
 include = ["tesmart*"]
 
 [tool.setuptools.package-data]
-tesmart = ["static/*"]
+tesmart = ["static/*", "static/kit/**/*"]

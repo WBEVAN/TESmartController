@@ -1,15 +1,58 @@
-# Control panel
+# Control panel and floating kit
 
-`tesmartctl listen --http PORT --panel` serves a browser page at `/panel`. It is off unless `--panel` is given. Without the flag, `/panel`, `/static/...`, and `/api/...` answer `404` with a short explanation.
+`tesmartctl listen --http PORT --panel` serves the browser UIs. It is off unless `--panel` is given. Without the flag, `/panel`, `/kit`, `/static/...`, and `/api/...` answer `404` with a short explanation.
 
 ```bash
 tesmartctl listen --http 8080 --panel
-# open http://127.0.0.1:8080/panel
+# floating kit:  http://127.0.0.1:8080/kit
+# full panel:    http://127.0.0.1:8080/panel
 ```
 
-`--panel` on its own is an error: the page is part of the HTTP listener. `--bind` and `--http` are still mutually exclusive. A bare port binds `127.0.0.1`. There is no authentication, same as the rest of the listener.
+`--panel` on its own is an error: the pages are part of the HTTP listener. `--bind` and `--http` are still mutually exclusive. A bare port binds `127.0.0.1`. There is no authentication, same as the rest of the listener.
 
-The page is a replacement for the vendor Windows controller. It uses Bootstrap from a CDN and styles from `/static/panel.css`. Outcomes appear as toasts. Changing the switch's address opens a three-step dialog in the page; the browser's own alert and confirm dialogs are not used.
+### Floating UI kit (`/kit`)
+
+The floating kit is the primary day-to-day surface: HDMI-style deck, Setup door for peek/cycle, Compact mode, and a frameless desktop window via `tesmartctl kit`. It talks to the same `/api` routes as `/panel`.
+
+![Floating kit](images/kit.png)
+
+```bash
+pip install 'tesmartctl[kit]'          # frameless pywebview (recommended)
+tesmartctl listen --http 0.0.0.0:8080 --panel
+tesmartctl kit --listen 8080          # frameless on this machine → http://127.0.0.1:8080/kit?app=1
+```
+
+**Pop out** on the kit page (or **Floating kit** on `/panel`) calls `POST /api/kit-window` and opens the frameless window on the **listener host**. Preferred backend is `pywebview` — no OS title bar. Fallback is Chromium/Chrome/Edge `--app` (no address bar; macOS still keeps a title bar). Drag the kit header (grip) to move. **Pin** sets always-on-top in the webview.
+
+#### Launch from another machine
+
+The kit UI talks to the **listener**, not the HDMI switch. Any computer that can reach the listener can run the kit.
+
+1. On the server (where the switch is controlled), bind every interface and enable the panel:
+
+```bash
+tesmartctl listen --http 0.0.0.0:8080 --panel
+```
+
+2. On another machine on the same network:
+
+```bash
+# browser tab
+open 'http://192.168.1.20:8080/kit'
+
+# or frameless window on *this* machine, pointed at the remote listener
+# (quote the URL so the shell keeps ?app=1)
+pip install 'tesmartctl[kit]'
+tesmartctl kit 'http://192.168.1.20:8080/kit?app=1'
+```
+
+Replace `192.168.1.20:8080` with the listener’s address. There is no authentication — only do this on a network you trust.
+
+**Note:** clicking **Pop out** in a remote browser still opens the window on the listener host. To get a frameless window on your own desk while the listener runs elsewhere, use `tesmartctl kit 'http://…/kit?app=1'` on the local machine.
+
+### Full Bootstrap panel (`/panel`)
+
+`/panel` remains available as the fuller Bootstrap UI (network wizard, API explorer, write-only settings). Outcomes appear as toasts. Changing the switch's address opens a three-step dialog; the browser's own alert and confirm dialogs are not used.
 
 ![Control panel](images/panel.png)
 
@@ -80,6 +123,7 @@ The page talks to JSON routes under `/api`. `GET /api` lists them. Errors are `{
 | `DELETE /api/callbacks` | `{"url": "…"}` or `{"name": "…"}` | Unregister |
 | `POST /api/callbacks/remove` | `{"url": "…"}` or `{"name": "…"}` | Same as DELETE (for clients that cannot send DELETE) |
 | `POST /api/cycle` | `{"inputs": [1, 3, 5], "mode": "manual", "seconds": 15}` | An empty `inputs` list means every input |
+| `POST /api/kit-window` | `{"prefer": "auto"}` optional `width`/`height`/`url` | Opens `/kit` without browser chrome on the listener host (`chromium-app` or `webview`) |
 
 `POST /api/network` may include any of `ip`, `port`, `gateway`, and `mask`. At least one is required, and both `confirm` and `accept_risk` must be true. `stored` is the full set of four values the switch reports after the write; `verified` compares each requested key against it. `all_verified` is the only result that should be treated as "stored, safe to power-cycle".
 
@@ -93,8 +137,10 @@ To put input buttons on a page you already have, or to place this panel in an if
 
 | Path | Responsibility |
 | --- | --- |
-| `tesmart/panel.py` | `/panel`, `/static`, and `/api` |
+| `tesmart/panel.py` | `/panel`, `/kit`, `/static`, and `/api` |
+| `tesmart/kit_window.py` | Chrome-less kit launcher (Chromium `--app` / pywebview) |
 | `tesmart/static/panel.html` | Page structure |
 | `tesmart/static/panel.css` | Layout the Bootstrap stylesheet does not cover |
 | `tesmart/static/panel.js` | `Api`, `Toaster`, `NetworkWizard`, and `Panel` |
+| `tesmart/static/kit/` | Floating HDMI UI kit (`index.html`, `kit.js`, `float.css`, assets) |
 | `tesmart/notices.py` | The risk and liability wording, shared by the CLI and the API |

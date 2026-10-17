@@ -6,10 +6,13 @@ Off unless ``--panel`` is given. It adds three things to the HTTP listener:
   Windows controller: input buttons, next/previous, buzzer, front-panel
   display timeout, auto input detection, LAN settings, local input names,
   and the local cycle.
-* ``/static/...`` – the panel's HTML, CSS and JS, read from this package.
-* ``/api/...`` – JSON endpoints the panel calls. They expose every protocol
-  feature, including the write-only settings and the LAN address, which the
-  plain listener routes deliberately leave out.
+* ``/kit`` – an alternate floating HDMI UI kit (does not replace ``/panel``).
+  **Pop out** opens a chrome-less desktop window on the listener host
+  (Chromium ``--app`` or optional ``pywebview``); ``tesmartctl kit`` does the same.
+* ``/static/...`` – panel and kit assets (including ``/static/kit/...``).
+* ``/api/...`` – JSON endpoints the panel and kit call. They expose every
+  protocol feature, including the write-only settings and the LAN address,
+  which the plain listener routes deliberately leave out.
 
 The switch cannot read back buzzer, display timeout, or auto-detect. The
 panel shows the last value *sent through this server* and says so.
@@ -23,7 +26,7 @@ from importlib import resources
 from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, urlsplit
 
-from . import callbacks, config, notices, version as pkg_version
+from . import callbacks, config, kit_window, notices, version as pkg_version
 from .peek import apply_follow
 from .protocol import LedTimeout
 from .switch import SwitchError, next_input, previous_input
@@ -37,6 +40,9 @@ STATIC_TYPES = {
     ".css": "text/css; charset=utf-8",
     ".js": "application/javascript; charset=utf-8",
     ".svg": "image/svg+xml",
+    ".png": "image/png",
+    ".json": "application/json",
+    ".md": "text/markdown; charset=utf-8",
 }
 
 # ``blocked`` routes are listed but not sent from the panel's API dialog.
@@ -80,6 +86,12 @@ API_CATALOG: list[dict[str, Any]] = [
     {"method": "POST", "path": "/api/callbacks/health", "summary": "same as GET /api/callbacks/health"},
     {"method": "DELETE", "path": "/api/callbacks", "summary": "remove by url and/or name", "sample": {"url": "http://192.168.1.5/hook"}},
     {"method": "POST", "path": "/api/callbacks/remove", "summary": "same as DELETE /api/callbacks (for clients that cannot send DELETE)", "sample": {"url": "http://192.168.1.5/hook"}},
+    {
+        "method": "POST",
+        "path": "/api/kit-window",
+        "summary": "open /kit in a chrome-less desktop window on the listener host (Chrome/Edge --app, or pywebview)",
+        "sample": {"prefer": "auto"},
+    },
 ]
 
 
@@ -127,17 +139,22 @@ def _as_bool(value: Any, field: str) -> bool:
 
 
 def _static_body(name: str) -> bytes:
-    if "/" in name or name.startswith(".") or not name:
+    """Load a file under ``tesmart/static/``. ``name`` may include subdirs (e.g. ``kit/styles.css``)."""
+    if not name or name.startswith("/") or name.startswith(".") or ".." in name.split("/"):
+        raise PanelError("not found", HTTPStatus.NOT_FOUND)
+    parts = [part for part in name.split("/") if part]
+    if not parts or any(part.startswith(".") for part in parts):
         raise PanelError("not found", HTTPStatus.NOT_FOUND)
     try:
-        return resources.files("tesmart").joinpath("static", name).read_bytes()
-    except (FileNotFoundError, OSError) as exc:
+        return resources.files("tesmart").joinpath("static", *parts).read_bytes()
+    except (FileNotFoundError, OSError, IsADirectoryError, NotADirectoryError) as exc:
         raise PanelError("not found", HTTPStatus.NOT_FOUND) from exc
 
 
 def _content_type(name: str) -> str:
+    lower = name.lower()
     for suffix, content_type in STATIC_TYPES.items():
-        if name.endswith(suffix):
+        if lower.endswith(suffix):
             return content_type
     return "application/octet-stream"
 
@@ -409,10 +426,10 @@ def _action_cycle(handler: "_Handler", body: dict[str, Any]) -> dict[str, Any]:
 
 
 def handle(handler: "_Handler", method: str, path: str) -> bool:
-    """Serve panel, static and API routes. Returns False if ``path`` is not ours."""
+    """Serve panel, kit, static and API routes. Returns False if ``path`` is not ours."""
     parts = urlsplit(path)
     segments = [segment for segment in parts.path.split("/") if segment]
-    if not segments or segments[0] not in {"panel", "static", "api"}:
+    if not segments or segments[0] not in {"panel", "kit", "static", "api"}:
         return False
 
     if not handler.server.panel:
@@ -426,12 +443,19 @@ def handle(handler: "_Handler", method: str, path: str) -> bool:
 
     try:
         if segments[0] == "panel":
+            if len(segments) != 1:
+                raise PanelError("not supported", HTTPStatus.NOT_FOUND)
             _send_bytes(handler, HTTPStatus.OK, _static_body("panel.html"), STATIC_TYPES[".html"])
             return True
-        if segments[0] == "static":
-            if len(segments) != 2:
+        if segments[0] == "kit":
+            if len(segments) != 1:
                 raise PanelError("not supported", HTTPStatus.NOT_FOUND)
-            name = segments[1]
+            _send_bytes(handler, HTTPStatus.OK, _static_body("kit/index.html"), STATIC_TYPES[".html"])
+            return True
+        if segments[0] == "static":
+            if len(segments) < 2:
+                raise PanelError("not supported", HTTPStatus.NOT_FOUND)
+            name = "/".join(segments[1:])
             _send_bytes(handler, HTTPStatus.OK, _static_body(name), _content_type(name))
             return True
         _send_json(handler, HTTPStatus.OK, _api(handler, method, segments[1:], parts.query))
@@ -472,7 +496,7 @@ def _api(handler: "_Handler", method: str, segments: list[str], query_text: str)
 
     writable = {
         "input", "next", "previous", "peek", "peek-default", "peek-follow",
-        "buzzer", "led", "autodetect", "network", "names", "cycle",
+        "buzzer", "led", "autodetect", "network", "names", "cycle", "kit-window",
     }
     if name not in writable:
         raise PanelError("not supported", HTTPStatus.NOT_FOUND)
@@ -492,8 +516,42 @@ def _api(handler: "_Handler", method: str, segments: list[str], query_text: str)
         "network": lambda: _action_network_set(handler, body),
         "names": lambda: _action_names(handler, body),
         "cycle": lambda: _action_cycle(handler, body),
+        "kit-window": lambda: _action_kit_window(handler, body),
     }
     return actions[name]()
+
+
+def _action_kit_window(handler: "_Handler", body: dict[str, Any]) -> dict[str, Any]:
+    """Open /kit without browser chrome on the machine running tesmartctl."""
+    prefer = str(body.get("prefer") or "auto")
+    try:
+        width = int(body.get("width") or kit_window.DEFAULT_WIDTH)
+        height = int(body.get("height") or kit_window.DEFAULT_HEIGHT)
+    except (TypeError, ValueError) as exc:
+        raise PanelError("width and height must be integers") from exc
+    if width < 320 or height < 320:
+        raise PanelError("width and height must be at least 320")
+    host = handler.headers.get("Host") or "127.0.0.1"
+    # Prefer loopback on the listener host so the app window hits this process.
+    server = handler.server
+    bound_host, bound_port = server.server_address[:2]
+    if bound_host in {"0.0.0.0", "::", ""}:
+        base = f"http://127.0.0.1:{bound_port}"
+    else:
+        base = f"http://{bound_host}:{bound_port}"
+    raw_url = body.get("url")
+    if raw_url:
+        url = str(raw_url).strip()
+        if not url.startswith(("http://", "https://")):
+            raise PanelError("url must be an absolute http(s) address")
+    else:
+        url = f"{base}/kit?app=1"
+    try:
+        result = kit_window.open_kit_window(url, width=width, height=height, prefer=prefer)
+    except kit_window.KitWindowError as exc:
+        raise PanelError(str(exc)) from exc
+    result["host_header"] = host
+    return result
 
 
 def _action_compat(handler: "_Handler", method: str, query: dict[str, list[str]]) -> dict[str, Any]:

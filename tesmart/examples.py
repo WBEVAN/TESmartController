@@ -150,8 +150,20 @@ EXAMPLES: dict[str, list[tuple[str, str]]] = {
         ("curl http://127.0.0.1:8080/status", "input, names and LAN settings"),
         ("curl 'http://127.0.0.1:8080/input/3?format=text'", "plain `3` instead of JSON"),
         ("tesmartctl listen --http 0.0.0.0:8080", "HTTP on every interface; other devices use this computer's address (no authentication)"),
-        ("tesmartctl listen --http 8080 --panel", "also serve the control panel at http://127.0.0.1:8080/panel"),
+        ("tesmartctl listen --http 8080 --panel", "also serve /panel and the floating /kit UI"),
         ("curl http://127.0.0.1:8080/api/state", "panel API: everything the panel shows, as JSON"),
+        ("curl -X POST http://127.0.0.1:8080/api/kit-window -H 'Content-Type: application/json' -d '{}'", "open /kit without browser chrome on this host"),
+    ],
+    "kit": [
+        ("pip install 'tesmartctl[kit]'", "install frameless pywebview backend"),
+        ("tesmartctl kit", "frameless window for http://127.0.0.1:8080/kit?app=1 (needs listen --panel)"),
+        ("tesmartctl kit --listen 7272", "same, when the listener is on port 7272"),
+        (
+            "tesmartctl kit 'http://172.16.0.131:7272/kit?app=1'",
+            "frameless window on this machine, talking to a remote listener (quote the URL)",
+        ),
+        ("tesmartctl kit --prefer webview", "force frameless pywebview"),
+        ("tesmartctl kit --prefer chromium", "Chrome/Edge --app (still has OS title bar on macOS)"),
     ],
 }
 
@@ -192,7 +204,7 @@ def all_examples_text() -> str:
     sections = []
     for command in (
         "status", "input", "rotate", "next", "previous", "peek", "cycle", "buzzer", "led", "autodetect",
-        "net", "config", "name", "raw", "monitor", "listen",
+        "net", "config", "name", "raw", "monitor", "listen", "kit",
     ):
         sections.append(f"{command}\n{format_examples(EXAMPLES[command])}")
     return "\n\n".join(sections)

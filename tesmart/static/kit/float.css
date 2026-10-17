@@ -1,0 +1,456 @@
+/* Free-floating presentation for /kit (does not affect the Bootstrap /panel). */
+
+html {
+  height: 100%;
+}
+
+html, body.kit-float {
+  margin: 0;
+  background: transparent;
+  color: #e7edf1;
+  font: 14px system-ui, sans-serif;
+}
+
+body.kit-float {
+  box-sizing: border-box;
+  min-height: 100%;
+  min-height: 100dvh;
+  padding: 12px;
+  /* Checkerboard only when not popped out, so the deck reads as floating. */
+  background:
+    linear-gradient(45deg, #1a1f25 25%, transparent 25%) 0 0 / 24px 24px,
+    linear-gradient(-45deg, #1a1f25 25%, transparent 25%) 0 0 / 24px 24px,
+    #10151b;
+}
+
+body.kit-float.is-popup {
+  background: #10151b;
+  padding: 0;
+  height: 100%;
+  height: 100dvh;
+  overflow: hidden;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.float-chrome {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto 10px;
+}
+
+body.kit-float.is-popup .float-chrome #btn-popout,
+body.kit-float.is-app .float-chrome {
+  display: none;
+}
+
+body.kit-float.is-app {
+  background: #10151b;
+  padding: 0;
+  overflow: hidden;
+  height: 100%;
+  height: 100dvh;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+body.kit-float.is-app .float-note,
+body.kit-float.is-popup .float-note {
+  display: none;
+}
+
+/* Hardware-style setup door covering peek / cycle controls. */
+.kit-float .service-bay {
+  margin-top: 16px;
+  flex: 0 0 auto;
+}
+
+.kit-float .service-door {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 1px solid #5c656d;
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, #4a5158 0%, #2a3036 42%, #1a1f24 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    inset 0 -2px 4px rgba(0, 0, 0, 0.45),
+    0 4px 10px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+  color: #c5d0d8;
+}
+
+.kit-float .service-door:hover {
+  border-color: #8a949c;
+  color: #e7edf1;
+}
+
+.kit-float .service-door:focus-visible {
+  outline: 3px solid #fff;
+  outline-offset: 3px;
+}
+
+.kit-float .door-face {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 38px;
+  padding: 0 12px;
+}
+
+.kit-float .door-vents {
+  width: 52px;
+  height: 14px;
+  border-radius: 3px;
+  background:
+    repeating-linear-gradient(
+      90deg,
+      #0f1317 0 3px,
+      transparent 3px 7px
+    );
+  box-shadow: inset 0 1px 2px #000a;
+  opacity: 0.85;
+  flex: 0 0 auto;
+}
+
+.kit-float .door-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  flex: 1;
+}
+
+.kit-float .door-latch {
+  width: 34px;
+  height: 10px;
+  border-radius: 999px;
+  border: 1px solid #6a737b;
+  background: linear-gradient(180deg, #3a424a, #1c2228);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  flex: 0 0 auto;
+}
+
+.kit-float .service-bay[data-open="true"] .service-door {
+  border-radius: 12px 12px 4px 4px;
+  border-bottom-color: #3a4248;
+}
+
+.kit-float .service-bay[data-open="true"] .door-label {
+  color: #9cce66;
+}
+
+.kit-float .service-bay-inner {
+  margin-top: 0;
+  padding: 12px 4px 2px;
+  border: 1px solid #3a4248;
+  border-top: 0;
+  border-radius: 0 0 12px 12px;
+  background:
+    linear-gradient(180deg, #1a1f24 0%, #12161a 100%);
+  box-shadow: inset 0 8px 16px rgba(0, 0, 0, 0.35);
+}
+
+.kit-float .service-bay-inner[hidden] {
+  display: none !important;
+}
+
+.kit-float .panel.compact .door-face {
+  min-height: 30px;
+  padding: 0 8px;
+}
+
+.kit-float .panel.compact .door-vents {
+  width: 36px;
+  height: 10px;
+}
+
+.kit-float .panel.compact .door-label {
+  font-size: 10px;
+  letter-spacing: 1px;
+}
+
+.kit-float .cycle-inputs-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 180px;
+  min-width: 140px;
+}
+
+.kit-float .cycle-inputs-field input[type="text"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: auto;
+}
+
+.kit-float #cycle-error:empty {
+  display: none;
+}
+
+/* Close control only in frameless / app windows (no OS traffic lights). */
+.kit-float .app-only {
+  display: none;
+}
+
+body.kit-float.is-app .app-only {
+  display: inline-flex;
+}
+
+.kit-float .drag-handle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  min-height: 36px;
+  cursor: grab;
+  touch-action: none;
+}
+
+.kit-float .drag-handle:active {
+  cursor: grabbing;
+}
+
+.kit-float .drag-handle strong {
+  letter-spacing: 3px;
+}
+
+.kit-float .drag-handle .led {
+  margin-left: auto;
+  margin-right: 0;
+}
+
+.chrome-btn, .chrome-link {
+  background: #1a2026;
+  color: #e7edf1;
+  border: 1px solid #66717a;
+  border-radius: 8px;
+  padding: 6px 10px;
+  text-decoration: none;
+  font-size: 12px;
+}
+
+.chrome-btn[aria-pressed="true"] {
+  border-color: #35dafa;
+  color: #35dafa;
+}
+
+/*
+ * Natural deck geometry. App/popup windows scale this with CSS zoom so
+ * Compact/Expand and manual resize never overlap controls.
+ */
+.kit-float .panel {
+  width: 720px;
+  max-width: 720px;
+  margin: 0 auto;
+  user-select: none;
+  box-sizing: border-box;
+  transform-origin: top center;
+}
+
+.kit-float .panel.compact {
+  width: 380px;
+  max-width: 380px;
+}
+
+body.kit-float.is-app .panel,
+body.kit-float.is-popup .panel {
+  margin: 0;
+}
+
+.kit-float .title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.kit-float .drag-region {
+  cursor: grab;
+  touch-action: none;
+}
+
+.kit-float .drag-region:active {
+  cursor: grabbing;
+}
+
+.kit-float .led {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  margin-right: 10px;
+  font-size: 11px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #aebbc5;
+}
+
+.kit-float .led img {
+  width: 14px;
+  height: 14px;
+}
+
+.kit-float .led[data-state="connected"] { color: #9cce66; }
+.kit-float .led[data-state="busy"] { color: #ffc45c; }
+.kit-float .led[data-state="error"] { color: #f08080; }
+
+.kit-float .float-note {
+  max-width: 720px;
+  margin: 12px auto 0;
+  color: #aebbc5;
+  font-size: 12px;
+}
+
+.kit-float .mono {
+  font-family: ui-monospace, monospace;
+  margin-left: 8px;
+}
+
+body.kit-float.is-popup .float-note {
+  display: none;
+}
+
+/* In-kit rename dialog (never use window.prompt). */
+.kit-float .kit-dialog {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: rgba(8, 10, 12, 0.72);
+  border-radius: inherit;
+}
+
+.kit-float .kit-dialog[hidden] {
+  display: none !important;
+}
+
+.kit-float .panel {
+  position: relative;
+}
+
+.kit-float .kit-dialog-card {
+  width: min(100%, 340px);
+  padding: 18px 18px 14px;
+  border: 1px solid #798189;
+  border-radius: 16px;
+  background: linear-gradient(160deg, #3a4047, #1c2126 55%, #12161a);
+  box-shadow: inset 0 0 0 3px #1b1f23, 0 18px 40px #000a;
+  color: #e7edf1;
+}
+
+.kit-float .kit-dialog-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+
+.kit-float .kit-dialog-hint {
+  margin: 0 0 14px;
+  color: #aebbc5;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.kit-float .kit-dialog-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #aebbc5;
+  margin-bottom: 16px;
+}
+
+.kit-float .kit-dialog-field input {
+  background: #0d1114;
+  color: #e7edf1;
+  border: 1px solid #66717a;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 16px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.kit-float .kit-dialog-field input:focus {
+  outline: none;
+  border-color: #35dafa;
+  box-shadow: 0 0 0 2px rgba(53, 218, 250, 0.25);
+}
+
+.kit-float .kit-dialog-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.kit-float .kit-dialog-spacer {
+  flex: 1;
+}
+
+.kit-float .kit-dialog-btn {
+  background: #1a2026;
+  color: #e7edf1;
+  border: 1px solid #66717a;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+}
+
+.kit-float .kit-dialog-btn.ghost {
+  border-color: transparent;
+  color: #aebbc5;
+}
+
+.kit-float .kit-dialog-btn.primary {
+  border-color: #9cce66;
+  color: #10151b;
+  background: linear-gradient(#bbdc63, #91b74a);
+  font-weight: 600;
+}
+
+.kit-float .kit-dialog-btn:hover {
+  border-color: #b5c3cc;
+}
+
+.kit-float .kit-dialog-btn.primary:hover {
+  border-color: #d4f08a;
+}
+
+.kit-float .panel.compact .kit-dialog-card {
+  width: min(100%, 300px);
+  padding: 14px;
+}
+
+/* Fix relative SVG urls inside the kit styles when served from /static/kit/ */
+.kit-float .input {
+  background-image: url(/static/kit/svg/button-idle.svg);
+}
+.kit-float .input:hover { background-image: url(/static/kit/svg/button-hover.svg); }
+.kit-float .input:active { background-image: url(/static/kit/svg/button-pressed.svg); }
+.kit-float .input.selected { background-image: url(/static/kit/svg/button-selected.svg); }
+.kit-float .input.peeking { background-image: url(/static/kit/svg/button-peek.svg); }
+.kit-float .compact .input {
+  background-image: url(/static/kit/svg/button-idle.svg);
+}
+.kit-float .compact .input:hover { background-image: url(/static/kit/svg/button-hover.svg); }
+.kit-float .compact .input:active { background-image: url(/static/kit/svg/button-pressed.svg); }
+.kit-float .compact .input.selected { background-image: url(/static/kit/svg/button-selected.svg); }
+.kit-float .compact .input.peeking { background-image: url(/static/kit/svg/button-peek.svg); }
