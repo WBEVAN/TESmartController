@@ -1,8 +1,8 @@
 # Hubitat integration
 
-Drive a TESmart 8-port or 16-port HDMI/KVM switch from [Hubitat Elevation](https://hubitat.com/) through the `tesmartctl` REST listener.
+Drive a TESmart 8-port or 16-port HDMI/KVM switch from [Hubitat Elevation](https://hubitat.com/) through the `tesmartctl` REST server.
 
-Use **TESmart Manager** (the app) for setup. It walks through the listener address, optional port names, and creates the controller device plus child input switches.
+Use **TESmart Manager** (the app) for setup. It walks through the server address, optional port names, and creates the controller device plus child input switches.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/WBEVAN/TESmartController/main/Docs/images/readme-banner.png" alt="tesmartctl" width="640"/>
@@ -39,7 +39,7 @@ Confirm:
 curl http://192.168.1.20:8080/status?network=0
 ```
 
-There is no authentication on the listener — only do this on a trusted network. Details: [`listener.md`](listener.md).
+There is no authentication on the server — only do this on a trusted network. Details: [`listener.md`](listener.md).
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/WBEVAN/TESmartController/main/Docs/images/buttons.png" alt="Input buttons" width="400"/>
@@ -77,10 +77,10 @@ Packaging follows the [HPM developer documentation](https://hubitatpackagemanage
 
 1. **Apps** → **Add User App** → **TESmart Manager** (skipped if HPM already opened it)
 2. Read the intro (banner / button images load from GitHub).
-3. **Configure listener host & port** — enter the machine running `tesmartctl`, run the connection test.
-4. **Edit port names** — **Refresh Names**, edit the fields, then **Done**. Hubitat writes them with `POST /names` to the tesmartctl listener (needs a recent tesmartctl that includes that route). You can still use `tesmartctl name set N Label` on the host.
+3. **Configure server host & port** — enter the machine running `tesmartctl`, run the connection test.
+4. **Edit port names** — **Refresh Names**, edit the fields, then **Done**. Hubitat writes them with `POST /names` to the tesmartctl server (needs a recent tesmartctl that includes that route). You can still use `tesmartctl name set N Label` on the host.
 5. Set the device label, leave **Create child switch per input** on if you want dashboard tiles.
-6. **Done** — creates/updates the **TESmart Controller** device, saves names to the listener, and pushes connection settings.
+6. **Done** — creates/updates the **TESmart Controller** device, saves names to the server, and pushes connection settings.
 
 After the next device refresh, child devices show labels like `Office` or `Input 3`.
 
@@ -130,7 +130,7 @@ Add child devices as Switch tiles. The lit tile is the active input.
 - Select a port: `setInputSource` with `3` or `3 — Office` (driver sends the port number)
 - Condition: attribute `activeInput`
 
-## Listener routes used
+## Server routes used
 
 | Hubitat action | HTTP |
 | --- | --- |

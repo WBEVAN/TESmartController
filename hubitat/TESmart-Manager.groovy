@@ -2,7 +2,7 @@
  *  TESmart Manager
  *
  *  Guided Hubitat app to connect a TESmart HDMI/KVM switch through the
- *  tesmartctl REST listener. Creates the TESmart Controller device, optional
+ *  tesmartctl REST server. Creates the TESmart Controller device, optional
  *  child input switches, and local input-name overrides.
  *
  *  Copyright 2026 — independent community project; not affiliated with TESmart.
@@ -44,24 +44,24 @@ def mainPage() {
     dynamicPage(name: "mainPage", title: "TESmart Manager", install: true, uninstall: true) {
         section {
             paragraph imgHtml(IMG_BANNER, "tesmartctl")
-            paragraph "<b>Control a TESmart 8-port or 16-port HDMI/KVM switch</b> from Hubitat through the tesmartctl REST listener."
+            paragraph "<b>Control a TESmart 8-port or 16-port HDMI/KVM switch</b> from Hubitat through the tesmartctl REST server."
             paragraph "Exactly one input is active at a time. This app creates a <b>TESmart Controller</b> device (MediaInputSource) and optional child switches for your dashboard."
         }
         section("How it looks") {
             paragraph imgHtml(IMG_BUTTONS, "input buttons", 320)
-            paragraph "Optional browser panel and HTTP routes are documented with tesmartctl — Hubitat uses the same listener."
+            paragraph "Optional browser panel and HTTP routes are documented with tesmartctl — Hubitat uses the same server."
             paragraph imgHtml(IMG_DEMO, "control panel demo", 360)
         }
         section("1. Prerequisites") {
             paragraph """Before continuing, on a machine Hubitat can reach run:
 <pre style="white-space:pre-wrap">tesmartctl listen --http 0.0.0.0:8080</pre>
 Bind to <code>0.0.0.0</code> (or your LAN IP). There is no authentication — use a trusted network.
-<a href="${LISTENER_DOCS}" target="_blank">Listener docs on GitHub</a>"""
+<a href="${LISTENER_DOCS}" target="_blank">HTTP server docs on GitHub</a>"""
         }
         section("2. Connection") {
             href(
                 name: "toConnection",
-                title: state.connectionOk ? "Connection — OK (${atomicState.lastActive != null ? "active input ${atomicState.lastActive}" : "tested"})" : "Configure listener host & port",
+                title: state.connectionOk ? "Connection — OK (${atomicState.lastActive != null ? "active input ${atomicState.lastActive}" : "tested"})" : "Configure server host & port",
                 description: "Host, port, port count, refresh interval",
                 page: "connectionPage"
             )
@@ -70,7 +70,7 @@ Bind to <code>0.0.0.0</code> (or your LAN IP). There is no authentication — us
             href(
                 name: "toNames",
                 title: "Edit port names",
-                description: "Stored on the tesmartctl listener. Load from /status, edit here, save with Done to write back via POST /names.",
+                description: "Stored on the tesmartctl server. Load from /status, edit here, save with Done to write back via POST /names.",
                 page: "namesPage"
             )
         }
@@ -97,12 +97,12 @@ def connectionPage() {
     // here so listenerHost/port from this same submit are already saved.
     runPendingListenerAction()
 
-    dynamicPage(name: "connectionPage", title: "Listener connection", nextPage: "mainPage") {
+    dynamicPage(name: "connectionPage", title: "Server connection", nextPage: "mainPage") {
         section {
-            paragraph "Point Hubitat at the host running <code>tesmartctl listen --http</code>."
-            input name: "listenerHost", type: "text", title: "Listener host / IP",
+            paragraph "Point Hubitat at the server running <code>tesmartctl listen --http</code>."
+            input name: "listenerHost", type: "text", title: "Server host / IP",
                 required: true, defaultValue: "192.168.1.20", submitOnChange: true
-            input name: "listenerPort", type: "text", title: "Listener port",
+            input name: "listenerPort", type: "text", title: "Server port",
                 description: "e.g. 7272 (plain digits, no commas)",
                 required: true, defaultValue: "8080", submitOnChange: true
             input name: "useHttps", type: "bool", title: "Use HTTPS", defaultValue: false, submitOnChange: true
@@ -148,7 +148,7 @@ def namesPage() {
 
     dynamicPage(name: "namesPage", title: "Port names", nextPage: "mainPage") {
         section {
-            paragraph "<b>Names are stored on the tesmartctl listener</b> (env file on the machine running <code>tesmartctl listen</code>), not in the TESmart hardware."
+            paragraph "<b>Names are stored on the tesmartctl server</b> (env file on the machine running <code>tesmartctl listen</code>), not in the TESmart hardware."
             paragraph "Load current values, edit the fields, then tap <b>Done</b> on the main page — Hubitat writes them with <code>POST /names</code>."
             input name: "btnRefreshNames", type: "button", title: "Refresh Names"
             if (atomicState.lastNamesPushMessage) {
@@ -211,14 +211,14 @@ private void runPendingListenerAction() {
         applyListenerNamesToSettings()
     }
     if (logEnable) {
-        log.debug "TESmart Manager listener fetch: ${atomicState.lastTestMessage}"
+        log.debug "TESmart Manager server fetch: ${atomicState.lastTestMessage}"
     }
 }
 
 private void runConnectionTest() {
     String base = listenerBaseUrl()
     if (!base) {
-        atomicState.lastTestMessage = "<span style='color:red'>Host is required.</span> Enter the listener IP, wait a moment for it to save, then test again."
+        atomicState.lastTestMessage = "<span style='color:red'>Host is required.</span> Enter the server IP, wait a moment for it to save, then test again."
         state.connectionOk = false
         return
     }
@@ -235,7 +235,7 @@ private void runConnectionTest() {
                 atomicState.lastInputCount = count
                 atomicState.lastListenerNames = new JsonBuilder(names).toString()
                 state.connectionOk = true
-                atomicState.lastTestMessage = "<span style='color:green'><b>Connected.</b></span> Active input <b>${active}</b>, ${count} ports, ${names.size()} listener name(s)."
+                atomicState.lastTestMessage = "<span style='color:green'><b>Connected.</b></span> Active input <b>${active}</b>, ${count} ports, ${names.size()} server name(s)."
             } else {
                 state.connectionOk = false
                 atomicState.lastTestMessage = "<span style='color:red'>HTTP ${resp.status}</span>"
@@ -354,7 +354,7 @@ private void pushNamesToListener() {
                 def json = resp.data instanceof Map ? resp.data : new JsonSlurper().parseText(resp.data?.toString() ?: "{}")
                 Map saved = (json.names instanceof Map) ? (json.names as Map) : [:]
                 atomicState.lastListenerNames = new JsonBuilder(saved).toString()
-                atomicState.lastNamesPushMessage = "<span style='color:green'><b>Saved ${saved.size()} name(s)</b> to the listener.</span>"
+                atomicState.lastNamesPushMessage = "<span style='color:green'><b>Saved ${saved.size()} name(s)</b> to the server.</span>"
                 applyListenerNamesToSettings()
             } else {
                 atomicState.lastNamesPushMessage = "<span style='color:red'>Could not save names (HTTP ${resp.status}). Update tesmartctl so <code>POST /names</code> is available.</span>"

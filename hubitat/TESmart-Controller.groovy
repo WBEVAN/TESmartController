@@ -15,7 +15,7 @@ import groovy.transform.Field
 import groovy.json.JsonSlurper
 import groovy.json.JsonBuilder
 
-@Field static final String DRIVER_VERSION = "1.3.3"
+@Field static final String DRIVER_VERSION = "1.3.4"
 @Field static final String CHILD_NAMESPACE = "tesmart"
 @Field static final String CHILD_TYPE = "TESmart Input"
 @Field static final String BUILTIN_CHILD_NAMESPACE = "hubitat"
@@ -29,7 +29,7 @@ metadata {
         name: "TESmart Controller",
         namespace: "tesmart",
         author: "WBEVAN",
-        description: "TESmart 8/16-port HDMI/KVM switch via tesmartctl REST listener",
+        description: "TESmart 8/16-port HDMI/KVM switch via tesmartctl REST server",
         category: "Convenience",
         importUrl: "https://raw.githubusercontent.com/WBEVAN/TESmartController/main/hubitat/TESmart-Controller.groovy"
     ) {
@@ -80,15 +80,15 @@ metadata {
             description: "Same named list as Switch to input",
             options: liveInputOptions(), submitOnChange: true
         input name: "uiPeekSeconds", type: "number", title: "Peek seconds (optional)",
-            description: "Blank = listener default", range: "1..600"
-        input name: "listenerHost", type: "text", title: "Listener host / IP",
+            description: "Blank = server default", range: "1..600"
+        input name: "listenerHost", type: "text", title: "Server host / IP",
             description: "Host running ``tesmartctl listen --http`` (reachable from Hubitat)",
             required: true, defaultValue: "192.168.1.20"
-        input name: "listenerPort", type: "text", title: "Listener port",
+        input name: "listenerPort", type: "text", title: "Server port",
             description: "e.g. 7272 (plain digits, no commas)",
             required: true, defaultValue: "8080"
         input name: "useHttps", type: "bool", title: "Use HTTPS",
-            description: "Only if you terminate TLS in front of the listener",
+            description: "Only if you terminate TLS in front of the server",
             defaultValue: false
         input name: "prefInputCount", type: "enum", title: "Port count (until first refresh)",
             description: "Used for dropdowns before /status reports input_count",
@@ -280,7 +280,7 @@ private void selectInput(String token) {
 private void httpGetAsync(String path, String callback, Map data = [:]) {
     String base = listenerBaseUrl()
     if (!base) {
-        logWarn "listener host is not configured"
+        logWarn "server host is not configured"
         sendEvent(name: "healthStatus", value: "offline")
         return
     }
