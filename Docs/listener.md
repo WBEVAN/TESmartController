@@ -109,10 +109,11 @@ JSON is the default. Add `format=text` to get plain text: a bare input number, o
 | `/status?network=0` | active input only | `"network": null` |
 | `/names` | GET local input names | `{"names": {"2": "Office"}}` |
 | `POST /names` | set or clear local names (JSON body) | `{"names": {"2": "Office", "3": ""}}` — empty string clears |
-| `/callbacks` | GET registered URLs and POST timeout | `{"callbacks": ["http://…"], "count": 1, "timeout": 10}` |
-| `POST /callbacks` | register a URL (duplicates ignored) | `{"url": "http://192.168.1.5/hook"}` → `{"callbacks":[…], "added": true, "timeout": 10}` |
+| `/callbacks` | GET registered callbacks and POST timeout | `{"callbacks":[{"url":"…","name":"Hubitat"}], "urls":[…], "count": 1, "timeout": 10}` |
+| `POST /callbacks` | register a URL (optional name; same URL updates the name) | `{"url": "http://…", "name": "Hubitat"}` |
 | `POST /callbacks` or `/callbacks/timeout` | set how long each callback POST may wait | `{"timeout": 10}` (seconds; default 10; stored in env) |
-| `DELETE /callbacks` or `POST /callbacks/remove` | remove a URL | body or `?url=` with the same address |
+| `GET` or `POST /callbacks/health` | probe every registered URL with a `health_check` event | `{"healthy": 1, "unhealthy": 0, "results":[…]}` |
+| `DELETE /callbacks` or `POST /callbacks/remove` | remove by URL and/or name | body or `?url=` / `?name=` |
 | `POST /callbacks/clear` | remove every URL | `{"callbacks": [], "count": 0, "timeout": 10}` |
 
 ### Change callbacks
@@ -122,11 +123,13 @@ While `tesmartctl listen --http` is running it watches the switch for input repo
 ```bash
 curl -X POST http://127.0.0.1:8080/callbacks \
   -H 'Content-Type: application/json' \
-  -d '{"url":"http://192.168.1.20/apps/api/123/tesmart-event?access_token=…"}'
+  -d '{"url":"http://192.168.1.20/apps/api/123/tesmart-event?access_token=…","name":"Hubitat home"}'
 
 curl -X POST http://127.0.0.1:8080/callbacks/timeout \
   -H 'Content-Type: application/json' \
   -d '{"timeout":10}'
+
+curl http://127.0.0.1:8080/callbacks/health
 ```
 
 Input change:
@@ -160,7 +163,11 @@ Name change (panel, Hubitat Manager, or `POST /names`):
 }
 ```
 
-`source` is `unsolicited` for switch-originated input reports and `command` when this listener changed the input or names. The same URL registered twice stays a single entry. URLs (`TESMART_CALLBACKS`) and the POST timeout (`TESMART_CALLBACK_TIMEOUT`) live in the env file and reload on the next start. With `--panel`, manage URLs from the **API** dialog (`GET` / `POST` / `DELETE /api/callbacks`); set timeout the same way (`{"timeout": 10}`), not from a panel control.
+`source` is `unsolicited` for switch-originated input reports and `command` when this listener changed the input or names. The same URL registered twice stays a single entry (a new `name` updates the label). Entries are stored as JSON objects in the env file (`TESMART_CALLBACKS`); older plain-URL lists still load. The POST timeout (`TESMART_CALLBACK_TIMEOUT`) also lives in the env file.
+
+`GET` / `POST /callbacks/health` POSTs `{"event":"health_check","ok":true}` to every registered URL and returns per-client `ok` / `status` / `ms` (or `error`). Clients should answer with HTTP 2xx and ignore the body for state changes. `GET /callbacks` also includes a `last` object per entry when this process has delivered (or failed to deliver) an event or health probe since it started.
+
+With `--panel`, manage callbacks from the **API** dialog (`GET` / `POST` / `DELETE /api/callbacks`, plus `/api/callbacks/health`); set timeout the same way (`{"timeout": 10}`), not from a panel control.
 
 `network=0` also accepts `off`, `false`, and `no`. Skipping the LAN queries avoids four extra paced round trips.
 

@@ -69,11 +69,13 @@ API_CATALOG: list[dict[str, Any]] = [
     },
     {"method": "POST", "path": "/api/names", "summary": "set local names; an empty string removes one", "sample": {"names": {"1": "Office", "2": ""}}},
     {"method": "POST", "path": "/api/cycle", "summary": "save the cycle list, mode, and interval", "sample": {"inputs": [1, 2, 4], "mode": "manual", "seconds": 15}},
-    {"method": "GET", "path": "/api/callbacks", "summary": "list HTTP callback URLs and POST timeout (seconds)"},
-    {"method": "POST", "path": "/api/callbacks", "summary": "register a callback URL (duplicates ignored)", "sample": {"url": "http://192.168.1.5/hook"}},
+    {"method": "GET", "path": "/api/callbacks", "summary": "list callbacks (url, optional name, last delivery) and POST timeout"},
+    {"method": "POST", "path": "/api/callbacks", "summary": "register a callback URL with optional name", "sample": {"url": "http://192.168.1.5/hook", "name": "Hubitat"}},
     {"method": "POST", "path": "/api/callbacks", "summary": "set callback POST timeout (default 10s; not on the panel UI)", "sample": {"timeout": 10}},
     {"method": "POST", "path": "/api/callbacks/timeout", "summary": "same as POST /api/callbacks with timeout only", "sample": {"timeout": 10}},
-    {"method": "DELETE", "path": "/api/callbacks", "summary": "remove a registered callback URL", "sample": {"url": "http://192.168.1.5/hook"}},
+    {"method": "GET", "path": "/api/callbacks/health", "summary": "probe each callback with a health_check event"},
+    {"method": "POST", "path": "/api/callbacks/health", "summary": "same as GET /api/callbacks/health"},
+    {"method": "DELETE", "path": "/api/callbacks", "summary": "remove by url and/or name", "sample": {"url": "http://192.168.1.5/hook"}},
     {"method": "POST", "path": "/api/callbacks/remove", "summary": "same as DELETE /api/callbacks (for clients that cannot send DELETE)", "sample": {"url": "http://192.168.1.5/hook"}},
 ]
 
@@ -156,7 +158,7 @@ def build_state(handler: "_Handler", include_network: bool) -> dict[str, Any]:
     status["inputs"] = [
         {"number": number, "name": names.get(number)} for number in range(1, switch.input_count + 1)
     ]
-    status["callbacks"] = callbacks.read_callback_urls(server.env_file)
+    status["callbacks"] = callbacks.list_callbacks(server.env_file).get("callbacks", [])
     return status
 
 
@@ -482,6 +484,10 @@ def _api(handler: "_Handler", method: str, segments: list[str], query_text: str)
 
 def _action_callbacks(handler: "_Handler", method: str, rest: list[str]) -> dict[str, Any]:
     env = handler.server.env_file
+    if rest and rest[0].lower() == "health":
+        if method not in {"GET", "POST"}:
+            raise PanelError("use GET or POST /api/callbacks/health")
+        return callbacks.health_check(env)
     if rest and rest[0].lower() == "timeout":
         if method == "GET":
             return callbacks.list_callbacks(env)
@@ -496,11 +502,15 @@ def _action_callbacks(handler: "_Handler", method: str, rest: list[str]) -> dict
     if not rest and method == "POST":
         body = _read_json(handler)
         url = body.get("url") or body.get("callback")
+        name = body.get("name") or body.get("label")
+        action = str(body.get("action") or "add").lower()
+        if action in {"health", "ping", "check"}:
+            return callbacks.health_check(env)
         if "timeout" in body and not url:
             return callbacks.set_timeout(body["timeout"], env)
         if not url:
             raise PanelError('provide {"url": "http://..."} or {"timeout": 10}')
-        result = callbacks.add_callback(str(url), env)
+        result = callbacks.add_callback(str(url), env, name=str(name) if name else None)
         if "timeout" in body:
             timed = callbacks.set_timeout(body["timeout"], env)
             result["timeout"] = timed["timeout"]
@@ -508,13 +518,19 @@ def _action_callbacks(handler: "_Handler", method: str, rest: list[str]) -> dict
     if (not rest and method == "DELETE") or (rest and rest[0].lower() == "remove" and method in {"POST", "DELETE"}):
         body = _read_json(handler)
         url = body.get("url") or body.get("callback")
-        if not url:
-            # Allow ?url= when the explorer or client cannot send a DELETE body.
+        name = body.get("name") or body.get("label")
+        if not url and not name:
+            # Allow ?url= / ?name= when the explorer or client cannot send a DELETE body.
             query = parse_qs(urlsplit(handler.path).query)
             url = (query.get("url") or [None])[0]
-        if not url:
-            raise PanelError('provide {"url": "http://..."} or ?url=')
-        return callbacks.remove_callback(str(url), env)
+            name = (query.get("name") or [None])[0]
+        if not url and not name:
+            raise PanelError('provide {"url": "http://..."} or {"name": "..."}')
+        return callbacks.remove_callback(
+            str(url) if url else None,
+            env,
+            name=str(name) if name else None,
+        )
     raise PanelError("unknown callbacks route", HTTPStatus.NOT_FOUND)
 
 

@@ -230,6 +230,13 @@ def handleTesmartEvent() {
     if (logEnable) {
         log.debug "TESmart callback: ${body}"
     }
+    // Health probes from GET|POST /callbacks/health — acknowledge without touching the device.
+    if ((body?.event ?: "").toString() == "health_check") {
+        if (logEnable) {
+            log.debug "TESmart health_check ok"
+        }
+        return
+    }
     def device = getControllerDevice()
     if (!device) {
         log.warn "TESmart callback received but no controller device exists"
@@ -293,7 +300,8 @@ private void registerCallbackWithListener(String url = null) {
     if (!base || !target) {
         return
     }
-    String body = new JsonBuilder([url: target]).toString()
+    String callbackName = "Hubitat ${location?.name ?: hub?.zigbeeId ?: 'hub'}"
+    String body = new JsonBuilder([url: target, name: callbackName]).toString()
     try {
         httpPost([
             uri                : "${base}/callbacks",
@@ -303,7 +311,7 @@ private void registerCallbackWithListener(String url = null) {
             timeout            : 20
         ]) { resp ->
             if (resp.status in [200, 201]) {
-                atomicState.callbackMessage = "<span style='color:green'>Callback registered with the server.</span>"
+                atomicState.callbackMessage = "<span style='color:green'>Callback registered with the server as <b>${callbackName}</b>.</span>"
             } else {
                 atomicState.callbackMessage = "<span style='color:red'>Callback register HTTP ${resp.status}. Update tesmartctl for /callbacks.</span>"
             }

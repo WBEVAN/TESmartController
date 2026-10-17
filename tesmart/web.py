@@ -24,8 +24,8 @@ Routes (GET or POST)
 ``/peek/always``             every plain input change peeks until ``/peek/off``
 ``/peek/off``                plain input changes stick again
 ``/names``                   local input names (GET list; POST JSON to set)
-``/callbacks``               GET list; POST {\"url\": \"...\"} register (deduped); DELETE {\"url\": \"...\"} remove;
-                             POST {\"timeout\": 10} set POST wait (seconds, default 10)
+``/callbacks``               GET list; POST {\"url\": \"...\", \"name\": \"...\"} register; DELETE remove;
+                             POST {\"timeout\": 10} set wait; GET|POST /callbacks/health probe clients
 ``/panel``, ``/api/...``      browser control panel; only with ``--panel`` (see :mod:`tesmart.panel`)
 """
 
@@ -65,7 +65,7 @@ ROUTES = {
     "/peek/always": "every plain input change peeks until /peek/off",
     "/peek/off": "plain input changes stick again",
     "/names": "GET local input names; POST {\"names\": {\"2\": \"Office\", \"3\": \"\"}} to set or clear",
-    "/callbacks": "GET list (+ timeout); POST {\"url\": \"...\"} register; POST {\"timeout\": 10} set wait; DELETE remove",
+    "/callbacks": "GET list; POST {\"url\",\"name\"} register; POST {\"timeout\":10}; GET|POST /health probe; DELETE remove",
     "/panel": "browser control panel (only when started with --panel)",
     "?format=text": "add to any route for plain text instead of JSON",
 }
@@ -126,7 +126,7 @@ def _parse_request(path: str) -> WebRequest:
     if head == "callbacks":
         if len(segments) == 1:
             return WebRequest("callbacks", None, as_text, include_network)
-        if len(segments) == 2 and segments[1].lower() in {"remove", "clear", "timeout"}:
+        if len(segments) == 2 and segments[1].lower() in {"remove", "clear", "timeout", "health"}:
             return WebRequest(f"callbacks-{segments[1].lower()}", None, as_text, include_network)
         raise LookupError(parts.path)
     if head in {"rotate", "next", "previous"}:
@@ -254,7 +254,13 @@ class _Handler(BaseHTTPRequestHandler):
                 payload["seconds"] = state["seconds"]
             self._send(HTTPStatus.OK, payload, request.as_text, state["mode"])
             return
-        if request.verb in {"callbacks", "callbacks-remove", "callbacks-clear", "callbacks-timeout"}:
+        if request.verb in {
+            "callbacks",
+            "callbacks-remove",
+            "callbacks-clear",
+            "callbacks-timeout",
+            "callbacks-health",
+        }:
             try:
                 payload = self._callbacks(request.verb, self.command)
             except config.ConfigError as exc:
@@ -263,12 +269,7 @@ class _Handler(BaseHTTPRequestHandler):
             except ValueError as exc:
                 self._send(HTTPStatus.BAD_REQUEST, {"error": str(exc)}, request.as_text)
                 return
-            text = None
-            if request.as_text:
-                urls = payload.get("callbacks") or []
-                lines = list(urls) if urls else ["(none)"]
-                lines.append(f"timeout: {payload.get('timeout', callbacks.DEFAULT_TIMEOUT)}")
-                text = "\n".join(lines)
+            text = callbacks.format_callbacks_text(payload) if request.as_text else None
             self._send(HTTPStatus.OK, payload, request.as_text, text)
             return
         if request.verb == "names":
@@ -383,13 +384,18 @@ class _Handler(BaseHTTPRequestHandler):
         return {"names": {str(number): label for number, label in names.items()}}
 
     def _callbacks(self, verb: str, method: str) -> dict:
-        """List, register, or remove HTTP callback URLs; set POST timeout."""
+        """List, register, remove, health-check callbacks; set POST timeout."""
         env = self.server.env_file
         method = method.upper()
         if verb == "callbacks-clear":
             if method not in {"POST", "DELETE"}:
                 raise ValueError("use POST or DELETE on /callbacks/clear")
             return callbacks.clear_callbacks(env)
+
+        if verb == "callbacks-health":
+            if method not in {"GET", "POST"}:
+                raise ValueError("use GET or POST on /callbacks/health")
+            return callbacks.health_check(env)
 
         if verb == "callbacks-timeout":
             if method == "GET":
@@ -406,13 +412,19 @@ class _Handler(BaseHTTPRequestHandler):
                 raise ValueError("use POST /callbacks/remove or DELETE /callbacks")
             body = self._read_json_body() if method != "GET" else {}
             url = body.get("url") or body.get("callback")
-            if not url:
-                # Allow ?url= for DELETE without a body.
+            name = body.get("name") or body.get("label")
+            if not url and not name:
+                # Allow ?url= / ?name= for DELETE without a body.
                 query = parse_qs(urlsplit(self.path).query)
                 url = (query.get("url") or [None])[0]
-            if not url:
-                raise ValueError('provide {"url": "http://..."} to remove')
-            return callbacks.remove_callback(str(url), env)
+                name = (query.get("name") or [None])[0]
+            if not url and not name:
+                raise ValueError('provide {"url": "http://..."} or {"name": "..."} to remove')
+            return callbacks.remove_callback(
+                str(url) if url else None,
+                env,
+                name=str(name) if name else None,
+            )
 
         if verb == "callbacks" and method == "GET":
             return callbacks.list_callbacks(env)
@@ -421,19 +433,26 @@ class _Handler(BaseHTTPRequestHandler):
             body = self._read_json_body()
             action = str(body.get("action") or "add").lower()
             url = body.get("url") or body.get("callback")
+            name = body.get("name") or body.get("label")
+            if action in {"health", "ping", "check"}:
+                return callbacks.health_check(env)
             if action in {"remove", "delete", "unregister"}:
-                if not url:
-                    raise ValueError('provide {"url": "http://...", "action": "remove"}')
-                return callbacks.remove_callback(str(url), env)
+                if not url and not name:
+                    raise ValueError('provide {"url": "http://..."} or {"name": "..."} with action remove')
+                return callbacks.remove_callback(
+                    str(url) if url else None,
+                    env,
+                    name=str(name) if name else None,
+                )
             if action in {"clear", "reset"}:
                 return callbacks.clear_callbacks(env)
-            if action in {"timeout", "set-timeout"} or ("timeout" in body and not url):
+            if action in {"timeout", "set-timeout"} or ("timeout" in body and not url and not name):
                 if "timeout" not in body:
                     raise ValueError('provide {"timeout": 10} (seconds)')
                 return callbacks.set_timeout(body["timeout"], env)
             if not url:
                 raise ValueError('provide {"url": "http://..."} to register, or {"timeout": 10}')
-            result = callbacks.add_callback(str(url), env)
+            result = callbacks.add_callback(str(url), env, name=str(name) if name else None)
             if "timeout" in body:
                 timed = callbacks.set_timeout(body["timeout"], env)
                 result["timeout"] = timed["timeout"]

@@ -70,12 +70,13 @@ The page talks to JSON routes under `/api`. `GET /api` lists them. Errors are `{
 | `GET /api/network/notice` | | Risk and liability wording as `risks`, `liability`, `after_write` |
 | `POST /api/network` | `{"ip": "192.168.1.50", "confirm": true, "accept_risk": true}` | Writes, reads back, returns `requested`, `acknowledged`, `stored`, `verified`, `all_verified` |
 | `POST /api/names` | `{"names": {"1": "Office", "2": ""}}` | Empty string removes that name |
-| `GET /api/callbacks` | | Registered URLs and POST `timeout` (seconds; also in the **API** dialog) |
-| `POST /api/callbacks` | `{"url": "http://192.168.1.5/hook"}` | Register (same URL twice stays once); also fires `names_changed` callbacks when names are saved |
+| `GET /api/callbacks` | | Registered callbacks (`url`, optional `name`, optional `last`) and POST `timeout` |
+| `POST /api/callbacks` | `{"url": "http://…", "name": "Hubitat"}` | Register (same URL twice updates the name); name changes also fire `names_changed` callbacks |
 | `POST /api/callbacks` | `{"timeout": 10}` | Set how long each callback POST may wait (default 10; API only, not a panel control) |
 | `POST /api/callbacks/timeout` | `{"timeout": 10}` | Same as timeout-only POST above |
-| `DELETE /api/callbacks` | `{"url": "http://192.168.1.5/hook"}` | Unregister |
-| `POST /api/callbacks/remove` | `{"url": "http://192.168.1.5/hook"}` | Same as DELETE (for clients that cannot send DELETE) |
+| `GET` / `POST /api/callbacks/health` | | Probe each client with a `health_check` event; returns `healthy` / `unhealthy` / `results` |
+| `DELETE /api/callbacks` | `{"url": "…"}` or `{"name": "…"}` | Unregister |
+| `POST /api/callbacks/remove` | `{"url": "…"}` or `{"name": "…"}` | Same as DELETE (for clients that cannot send DELETE) |
 | `POST /api/cycle` | `{"inputs": [1, 3, 5], "mode": "manual", "seconds": 15}` | An empty `inputs` list means every input |
 
 `POST /api/network` may include any of `ip`, `port`, `gateway`, and `mask`. At least one is required, and both `confirm` and `accept_risk` must be true. `stored` is the full set of four values the switch reports after the write; `verified` compares each requested key against it. `all_verified` is the only result that should be treated as "stored, safe to power-cycle".

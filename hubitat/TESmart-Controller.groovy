@@ -364,6 +364,10 @@ void handleInputChanged(String jsonText) {
     }
     Map json = parsed as Map
     String eventKind = (json.event ?: "input_changed").toString()
+    if (eventKind == "health_check") {
+        logDebug "health_check callback ignored on device"
+        return
+    }
     Integer previous = (json.previous ?: json.previous_input ?: json.previousInput) as Integer
     if (previous != null) {
         sendEvent(name: "previousInput", value: previous)
