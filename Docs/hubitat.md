@@ -87,8 +87,8 @@ After the next device **Refresh**, children labeled `Input N` are recreated with
 | Command | Effect |
 | --- | --- |
 | `refresh` | `GET /status?network=0` (rebuilds named lists + child labels) |
-| Preferences → **Switch to input** / **Peek at input** | Named list (`2 — Office`) rebuilt each time you open the device page — use these on the device UI |
-| `setInputSource` / `peek` (Commands) | Same values for Rule Machine; Hubitat often freezes these command ENUMs as bare numbers — prefer Preferences on the device page |
+| Preferences → **Switch to input** / **Peek at input** | Always `1 - Old Mac` or `1 - Input 1`; rebuilt each time you open the device page |
+| `setInputSource` / `peek` (Commands) | Same format for Rule Machine; Hubitat may freeze command ENUMs until the driver is re-saved — use Preferences on the device page |
 | `nextInput` / `previousInput` | `GET /next` / `GET /previous` |
 | `createChildInputs` / `deleteChildInputs` | manage child devices |
 

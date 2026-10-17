@@ -15,7 +15,7 @@ import groovy.transform.Field
 import groovy.json.JsonSlurper
 import groovy.json.JsonBuilder
 
-@Field static final String DRIVER_VERSION = "1.3.5"
+@Field static final String DRIVER_VERSION = "1.3.6"
 @Field static final String CHILD_NAMESPACE = "tesmart"
 @Field static final String CHILD_TYPE = "TESmart Input"
 @Field static final String BUILTIN_CHILD_NAMESPACE = "hubitat"
@@ -46,12 +46,12 @@ metadata {
         attribute "healthStatus", "enum", ["online", "offline"]
         attribute "lastRefresh", "string"
 
-        // Prefer Preferences → "Switch to input" / "Peek at input" (those lists
-        // rebuild with names). Command ENUMs are often frozen by Hubitat as bare numbers.
+        // Format is always "1 - Name" or "1 - Input 1". Prefer Preferences lists —
+        // those rebuild on each page open; command ENUMs may stay stale until the driver is re-saved.
         command "setInputSource", [[
             name: "Input*",
             type: "ENUM",
-            description: "Prefer Preferences → Switch to input for named ports; or pick here / type N — Name",
+            description: "1 - Name (or 1 - Input 1). Prefer Preferences → Switch to input if this list is stale",
             constraints: inputSourceConstraints()
         ]]
         command "nextInput"
@@ -60,7 +60,7 @@ metadata {
             [
                 name: "Input*",
                 type: "ENUM",
-                description: "Prefer Preferences → Peek at input for named ports",
+                description: "Same format as setInputSource. Prefer Preferences → Peek at input if stale",
                 constraints: inputSourceConstraints()
             ],
             [name: "Seconds", type: "NUMBER", description: "Optional peek duration in seconds"]
@@ -74,10 +74,10 @@ metadata {
         // Preference enums are rebuilt every time this page opens (unlike command ENUMs,
         // which Hubitat often freezes as bare port numbers after first install).
         input name: "uiSwitchInput", type: "enum", title: "Switch to input",
-            description: "Names from the last Refresh — reopen this page after Refresh if the list looks stale",
+            description: "Always 1 - Name (or 1 - Input 1). Rebuilt from the server on each page open",
             options: liveInputOptions(), submitOnChange: true
         input name: "uiPeekInput", type: "enum", title: "Peek at input",
-            description: "Same named list as Switch to input",
+            description: "Same list as Switch to input",
             options: liveInputOptions(), submitOnChange: true
         input name: "uiPeekSeconds", type: "number", title: "Peek seconds (optional)",
             description: "Blank = server default", range: "1..600"
@@ -118,15 +118,22 @@ metadata {
     }
 }
 
-// Command ENUM helper — Hubitat often freezes these after first save; prefer the
-// preference "Switch to input" / "Peek at input" lists, which refresh on each page open.
+// Command ENUM helper — Hubitat often freezes these after first save.
 List inputSourceConstraints() {
     return cachedChoiceList("inputSourceChoices", INPUT_SOURCE_OPTIONS) ?: defaultSourceChoices()
 }
 
-/** Preference enum options — evaluated when the device page is rendered. */
+/**
+ * Preference enum options — rebuilt every time the device page opens (not the
+ * frozen command-ENUM cache). Always "N - Name" or "N - Input N".
+ */
 List liveInputOptions() {
-    return inputSourceConstraints()
+    try {
+        Integer count = resolveInputCountForMenu()
+        return (1..count).collect { Integer n -> choiceLabel(n, effectiveNames()) }
+    } catch (ignored) {
+        return defaultSourceChoices()
+    }
 }
 
 // ── lifecycle ──────────────────────────────────────────────────────────────
@@ -694,21 +701,25 @@ private List cachedChoiceList(String dataName, Map<String, List> fieldMap) {
 }
 
 private List defaultSourceChoices() {
-    Integer count = 16
+    Integer count = 8
     Map names = [:]
     try {
         count = resolveInputCountForMenu()
-        names = (state?.names instanceof Map) ? (state.names as Map) : [:]
+        names = effectiveNames()
     } catch (ignored) {
-        count = 16
+        count = 8
     }
     return (1..count).collect { Integer n -> choiceLabel(n, names) }
 }
 
-/** Display value for menus: "2 — Office" or "5". */
+/** Menu value: always ``1 - Old Mac`` or ``1 - Input 1`` when unnamed. */
 private String choiceLabel(Integer number, Map names) {
+    if (number == null) {
+        return null
+    }
     String named = lookupInputName(number, names)
-    return named ? "${number} — ${named}" : "${number}"
+    String suffix = named ?: "Input ${number}"
+    return "${number} - ${suffix}"
 }
 
 /**
