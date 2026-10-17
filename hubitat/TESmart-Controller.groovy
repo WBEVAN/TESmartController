@@ -15,8 +15,8 @@ import groovy.transform.Field
 import groovy.json.JsonSlurper
 import groovy.json.JsonBuilder
 
-@Field static final String DRIVER_VERSION = "1.3.6"
-@Field static final String CHILD_NAMESPACE = "tesmart"
+@Field static final String DRIVER_VERSION = "1.4.0"
+@Field static final String CHILD_NAMESPACE = "wbevan_tesmart"
 @Field static final String CHILD_TYPE = "TESmart Input"
 @Field static final String BUILTIN_CHILD_NAMESPACE = "hubitat"
 @Field static final String BUILTIN_CHILD_TYPE = "Generic Component Switch"
@@ -27,7 +27,7 @@ import groovy.json.JsonBuilder
 metadata {
     definition(
         name: "TESmart Controller",
-        namespace: "tesmart",
+        namespace: "wbevan_tesmart",
         author: "WBEVAN",
         description: "TESmart 8/16-port HDMI/KVM switch via tesmartctl REST server",
         category: "Convenience",

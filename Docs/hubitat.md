@@ -18,6 +18,8 @@ A TESmart unit is **not** a bank of independent relays. Exactly one input is act
 | Parent device (`TESmart Controller`) | `MediaInputSource`, refresh polling, next / previous / peek |
 | Child switches (`TESmart Input`) | One dashboard tile per port; turning one **on** selects that input (radio group) |
 
+App and drivers use the Hubitat namespace **`wbevan_tesmart`**. If you previously installed under `tesmart`, uninstall the old app/devices and install fresh (or update via HPM and recreate the Manager device).
+
 ## Prerequisites
 
 On a host Hubitat can reach:

@@ -15,7 +15,7 @@
 metadata {
     definition(
         name: "TESmart Input",
-        namespace: "tesmart",
+        namespace: "wbevan_tesmart",
         author: "WBEVAN",
         description: "Child input switch for TESmart Controller (number + local name)",
         category: "Convenience",

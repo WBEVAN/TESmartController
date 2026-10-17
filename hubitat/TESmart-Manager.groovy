@@ -20,7 +20,7 @@ import groovy.transform.Field
 
 definition(
     name: "TESmart Manager",
-    namespace: "tesmart",
+    namespace: "wbevan_tesmart",
     author: "WBEVAN",
     description: "Set up and manage a TESmart HDMI/KVM switch via tesmartctl REST",
     category: "Convenience",
@@ -248,7 +248,7 @@ private void upsertControllerDevice() {
     if (!device) {
         try {
             device = addChildDevice(
-                "tesmart",
+                "wbevan_tesmart",
                 "TESmart Controller",
                 dni,
                 [
