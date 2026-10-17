@@ -45,7 +45,9 @@
       "description": "TESmart 8/16-port HDMI/KVM switch via tesmartctl REST. Includes Manager app, controller driver, and child input switches.",
       "tags": [
         "LAN",
-        "Multimedia"
+        "Multimedia",
+        "HDMI",
+        "KVM"
       ]
     }
   ]
