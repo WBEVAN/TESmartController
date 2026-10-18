@@ -9,3 +9,6 @@ venv/
 .env.*
 .DS_Store
 *.swp
+
+# Local Cursor IDE settings / rules
+.cursor/
