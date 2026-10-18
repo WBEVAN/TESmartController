@@ -20,7 +20,7 @@
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Syne:wght@600;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="site.css?v=7" />
+    <link rel="stylesheet" href="site.css?v=8" />
   </head>
   <body>
     <header class="hero">
@@ -52,6 +52,12 @@ tesmartctl listen --http --panel</code></pre>
             <button type="button" class="chip is-active" data-kit-body="black" aria-pressed="true">Black</button>
             <button type="button" class="chip" data-kit-body="silver" aria-pressed="false">Silver</button>
           </div>
+          <div class="control-group" role="group" aria-label="LCD colour">
+            <button type="button" class="chip lcd-chip is-active" data-kit-lcd="green" aria-pressed="true">Green</button>
+            <button type="button" class="chip lcd-chip" data-kit-lcd="blue" aria-pressed="false">Blue</button>
+            <button type="button" class="chip lcd-chip" data-kit-lcd="red" aria-pressed="false">Red</button>
+            <button type="button" class="chip lcd-chip" data-kit-lcd="amber" aria-pressed="false">Amber</button>
+          </div>
           <div class="control-group" role="group" aria-label="Hubitat banners">
             <button type="button" class="chip" data-kit-banner="door">Door unlocked</button>
             <button type="button" class="chip" data-kit-banner="meeting">Meeting in 5</button>
@@ -64,11 +70,11 @@ tesmartctl listen --http --panel</code></pre>
             id="kit-frame"
             class="kit-frame"
             title="Interactive tesmartctl floating kit demo"
-            src="kit-demo.html?v=7"
+            src="kit-demo.html?v=8"
           ></iframe>
         </div>
         <p class="preview-note">
-          Interactive demo — same UI as <code>tesmartctl kit</code>. Try size, colour, and Hubitat-style banners.
+          Interactive demo — same UI as <code>tesmartctl kit</code>. Try size, body/LCD colour, and Hubitat-style banners.
         </p>
       </div>
     </header>
@@ -158,6 +164,6 @@ tesmartctl listen --http --panel</code></pre>
         <a href="https://github.com/WBEVAN/TESmartController/blob/main/LICENSE">MIT License</a>
       </p>
     </footer>
-    <script src="site.js?v=7"></script>
+    <script src="site.js?v=8"></script>
   </body>
 </html>

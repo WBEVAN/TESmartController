@@ -24,3 +24,29 @@ body.kit-float.is-popup {
   display: inline-block;
 }
 
+/* Keep LCD message icons readable on the phosphor glass in the marketing iframe. */
+.kit-float .lcd-message-actions {
+  position: relative;
+  z-index: 2;
+}
+
+.kit-float .lcd-message-btn {
+  color: currentColor !important;
+  opacity: 1 !important;
+}
+
+.kit-float .lcd-message-btn .action-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.kit-float .panel.compact .lcd-message-btn {
+  width: 26px;
+  height: 26px;
+}
+
+.kit-float .panel.compact .lcd-message-btn .action-icon {
+  width: 20px;
+  height: 20px;
+}
+

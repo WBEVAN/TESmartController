@@ -195,6 +195,42 @@ a:hover {
   transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
 }
 
+.chip.lcd-chip[data-kit-lcd="green"] {
+  border-color: rgba(157, 206, 70, 0.55);
+}
+
+.chip.lcd-chip[data-kit-lcd="blue"] {
+  border-color: rgba(90, 170, 255, 0.55);
+}
+
+.chip.lcd-chip[data-kit-lcd="red"] {
+  border-color: rgba(255, 110, 110, 0.55);
+}
+
+.chip.lcd-chip[data-kit-lcd="amber"] {
+  border-color: rgba(232, 184, 74, 0.55);
+}
+
+.chip.lcd-chip.is-active[data-kit-lcd="green"] {
+  background: rgba(157, 206, 70, 0.18);
+  color: #c8f06a;
+}
+
+.chip.lcd-chip.is-active[data-kit-lcd="blue"] {
+  background: rgba(90, 170, 255, 0.18);
+  color: #9ecfff;
+}
+
+.chip.lcd-chip.is-active[data-kit-lcd="red"] {
+  background: rgba(255, 110, 110, 0.18);
+  color: #ffb0b0;
+}
+
+.chip.lcd-chip.is-active[data-kit-lcd="amber"] {
+  background: rgba(232, 184, 74, 0.18);
+  color: #f0d08a;
+}
+
 .chip:hover {
   border-color: rgba(61, 255, 138, 0.4);
 }

@@ -17,6 +17,7 @@
   const nameEl = $("#name");
 
   const VIEWS = ["compact", "mini", "full"];
+  const LCD_THEMES = ["green", "blue", "red", "amber"];
   const HISTORY_MAX = 10;
   const NAMES = {
     1: "Office",
@@ -28,12 +29,25 @@
     7: "NUC",
     8: "Pi",
   };
+  const DEMO_HISTORY = [
+    { text: "Door unlocked", sticky: false, seconds: 8 },
+    { text: "Meeting in 5", sticky: false, seconds: 12 },
+    { text: "Stay on camera", sticky: true, seconds: 8 },
+    { text: "Visitor at gate", sticky: false, seconds: 10 },
+    { text: "HVAC set to Eco", sticky: false, seconds: 8 },
+    { text: "Package delivered", sticky: false, seconds: 15 },
+    { text: "Garage closed", sticky: false, seconds: 6 },
+    { text: "Motion: driveway", sticky: false, seconds: 8 },
+    { text: "Lights: Scene Night", sticky: false, seconds: 10 },
+    { text: "Alarm armed", sticky: true, seconds: 8 },
+  ];
 
   const state = {
     count: 8,
     active: 2,
     view: "compact",
     body: "black",
+    lcd: "green",
     banner: null,
     bannerUntil: 0,
     bannerTimer: 0,
@@ -50,6 +64,13 @@
     state.body = body === "silver" ? "silver" : "black";
     bodyEl.dataset.body = state.body;
     deck.dataset.body = state.body;
+    postHeight();
+  }
+
+  function setLcd(lcd) {
+    state.lcd = LCD_THEMES.includes(lcd) ? lcd : "green";
+    bodyEl.dataset.lcd = state.lcd;
+    deck.dataset.lcd = state.lcd;
     postHeight();
   }
 
@@ -158,29 +179,23 @@
   function draw() {
     const banner = state.banner;
     const showing = Boolean(banner);
+    const hasHistory = state.history.length > 0;
     nameEl.classList.toggle("is-banner", showing);
-    listBtn.hidden = state.history.length === 0;
+    // Demo always surfaces both LCD icons once history is seeded (matches live kit).
+    listBtn.hidden = !hasHistory;
+    msgBtn.hidden = !hasHistory;
+    msgBtn.classList.toggle("is-active", showing);
     if (showing) {
       nameTrack.textContent = banner.text;
       statusEl.textContent = banner.sticky
         ? "HUBITAT • STICKY"
         : `HUBITAT • ${Math.max(1, Math.ceil((state.bannerUntil - performance.now()) / 1000))} SEC`;
       detailEl.textContent = "Notification from Hubitat";
-      msgBtn.hidden = false;
-      msgBtn.classList.add("is-active");
     } else {
       const label = NAMES[state.active] || `HDMI ${state.active}`;
       nameTrack.textContent = `${String(state.active).padStart(2, "0")}  ${label.toUpperCase()}`;
       statusEl.textContent = `INPUT ${state.active} SELECTED • DEMO`;
       detailEl.textContent = "Ready • PEEK OFF";
-      // Keep message icon available when history exists (reshow last).
-      if (state.history.length) {
-        msgBtn.hidden = false;
-        msgBtn.classList.remove("is-active");
-      } else {
-        msgBtn.hidden = true;
-        msgBtn.classList.remove("is-active");
-      }
     }
     digits.textContent = "--";
 
@@ -251,6 +266,7 @@
     if (!data || typeof data !== "object") return;
     if (data.type === "kit-demo-view") setView(data.view);
     if (data.type === "kit-demo-body") setBody(data.body);
+    if (data.type === "kit-demo-lcd") setLcd(data.lcd);
     if (data.type === "kit-demo-banner") {
       showBanner(data.text, { sticky: data.sticky, seconds: data.seconds });
     }
@@ -261,9 +277,17 @@
   window.addEventListener("resize", postHeight);
   setView("compact");
   setBody("black");
-  // Seed a couple of history entries so the list icon is visible immediately.
-  pushHistory({ id: state.nextId++, text: "Meeting in 5", sticky: false, seconds: 12, mode: "timed" });
-  pushHistory({ id: state.nextId++, text: "Stay on camera", sticky: true, seconds: 8, mode: "sticky" });
+  setLcd("green");
+  // Seed a full 10-message history so the list icon matches the live kit.
+  DEMO_HISTORY.forEach((item) => {
+    pushHistory({
+      id: state.nextId++,
+      text: item.text,
+      sticky: item.sticky,
+      seconds: item.seconds,
+      mode: item.sticky ? "sticky" : "timed",
+    });
+  });
   draw();
   showBanner("Door unlocked", { seconds: 8 });
   setTimeout(postHeight, 120);

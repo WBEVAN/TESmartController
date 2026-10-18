@@ -33,6 +33,14 @@
     });
   });
 
+  document.querySelectorAll("[data-kit-lcd]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const lcd = btn.getAttribute("data-kit-lcd");
+      setPressed("lcd", lcd);
+      send({ type: "kit-demo-lcd", lcd });
+    });
+  });
+
   document.querySelectorAll("[data-kit-banner]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const kind = btn.getAttribute("data-kit-banner");
@@ -62,5 +70,6 @@
     send({ type: "kit-demo-ping" });
     setPressed("view", "compact");
     setPressed("body", "black");
+    setPressed("lcd", "green");
   });
 })();
