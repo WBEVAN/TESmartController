@@ -13,7 +13,7 @@ license-files = ["LICENSE"]
 dependencies = []
 
 [project.urls]
-Homepage = "https://github.com/WBEVAN/TESmartController"
+Homepage = "https://wbevan.github.io/TESmartController/"
 Documentation = "https://github.com/WBEVAN/TESmartController#readme"
 Source = "https://github.com/WBEVAN/TESmartController"
 Issues = "https://github.com/WBEVAN/TESmartController/issues"

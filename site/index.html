@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>tesmartctl — TESmart HDMI switch control</title>
+    <meta
+      name="description"
+      content="Control TESmart 8- and 16-port HDMI and KVM switches over LAN or RS232: CLI, HTTP API, floating kit, panel, and Hubitat."
+    />
+    <meta property="og:title" content="tesmartctl" />
+    <meta
+      property="og:description"
+      content="Your TESmart switch, your controls — REST, kit, panel, Hubitat, and CLI."
+    />
+    <meta property="og:image" content="assets/readme-banner.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Syne:wght@600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="site.css" />
+  </head>
+  <body>
+    <header class="hero">
+      <div class="hero-bg" aria-hidden="true"></div>
+      <div class="hero-scrim" aria-hidden="true"></div>
+      <div class="hero-content">
+        <p class="brand">tesmartctl</p>
+        <h1>Your TESmart switch, your controls</h1>
+        <p class="lede">
+          REST API, floating kit, full panel, Hubitat, and CLI for TESmart 8- and
+          16-port HDMI / KVM switches over LAN or RS232.
+        </p>
+        <div class="cta">
+          <a class="btn primary" href="https://pypi.org/project/tesmartctl/">Install from PyPI</a>
+          <a class="btn ghost" href="https://github.com/WBEVAN/TESmartController">GitHub</a>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <section class="strip" aria-label="Quick start">
+        <pre class="install"><code>pip install -U tesmartctl
+tesmartctl listen --http --panel</code></pre>
+      </section>
+
+      <section class="links">
+        <h2>Documentation</h2>
+        <p class="section-lede">Start on GitHub, then dig into the guides that match how you run the switch.</p>
+        <ul class="card-list">
+          <li>
+            <a href="https://github.com/WBEVAN/TESmartController#readme">
+              <span class="label">README</span>
+              <span class="hint">Install, commands, listener overview</span>
+            </a>
+          </li>
+          <li>
+            <a href="https://github.com/WBEVAN/TESmartController/blob/main/Docs/panel.md">
+              <span class="label">Kit &amp; panel</span>
+              <span class="hint">Floating UI and full control surface</span>
+            </a>
+          </li>
+          <li>
+            <a href="https://github.com/WBEVAN/TESmartController/blob/main/Docs/listener.md">
+              <span class="label">Listener &amp; HTTP</span>
+              <span class="hint">Routes, banners, SSE, callbacks</span>
+            </a>
+          </li>
+          <li>
+            <a href="https://github.com/WBEVAN/TESmartController/blob/main/Docs/hubitat.md">
+              <span class="label">Hubitat</span>
+              <span class="hint">Manager app, controller, push notifications</span>
+            </a>
+          </li>
+          <li>
+            <a href="https://github.com/WBEVAN/TESmartController/blob/main/Docs/wiki/Home.md">
+              <span class="label">Wiki draft</span>
+              <span class="hint">Setup → kit → Hubitat → panel</span>
+            </a>
+          </li>
+          <li>
+            <a href="https://github.com/WBEVAN/TESmartController/releases">
+              <span class="label">Releases</span>
+              <span class="hint">Changelog and downloads</span>
+            </a>
+          </li>
+        </ul>
+      </section>
+
+      <section class="product">
+        <figure>
+          <img src="assets/kit.png" width="720" height="480" alt="Floating tesmartctl kit UI" />
+          <figcaption>Floating kit — input tiles, LCD banners, peek, and cycle.</figcaption>
+        </figure>
+      </section>
+    </main>
+
+    <footer>
+      <p>
+        Independent community project — not affiliated with TESmart.
+        <a href="https://github.com/WBEVAN/TESmartController/blob/main/LICENSE">MIT License</a>
+      </p>
+    </footer>
+  </body>
+</html>

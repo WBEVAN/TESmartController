@@ -79,7 +79,8 @@ The switch cannot say which HDMI inputs have a signal. A cycle is the list you c
 | Document | What it covers |
 | --- | --- |
 | This file | Install, configuration, every command |
-| [`Docs/wiki/`](Docs/wiki/Home.md) | GitHub Wiki draft — setup → kit → Hubitat → panel |
+| [Project site](https://wbevan.github.io/TESmartController/) | GitHub Pages landing (install + doc links) |
+| [`Docs/wiki/`](Docs/wiki/Home.md) | Wiki draft in-repo — setup → kit → Hubitat → panel |
 | [`Docs/protocol.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/protocol.md) | Byte protocol the switch speaks |
 | [`Docs/listener.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/listener.md) | Long-running line protocol and HTTP URLs |
 | [`Docs/panel.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/panel.md) | Floating kit (`/kit`) and full panel (`/panel`), including remote launch |

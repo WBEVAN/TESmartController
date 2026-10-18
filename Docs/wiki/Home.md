@@ -18,6 +18,7 @@ Control TESmart 8- and 16-port HDMI / KVM switches over LAN or RS232 — CLI, HT
 
 | Doc | Role |
 | --- | --- |
+| [Project site](https://wbevan.github.io/TESmartController/) | GitHub Pages landing |
 | [README](https://github.com/WBEVAN/TESmartController#readme) | Install + command overview |
 | [Docs/panel.md](https://github.com/WBEVAN/TESmartController/blob/main/Docs/panel.md) | Kit + panel detail |
 | [Docs/listener.md](https://github.com/WBEVAN/TESmartController/blob/main/Docs/listener.md) | Line protocol + HTTP routes |
