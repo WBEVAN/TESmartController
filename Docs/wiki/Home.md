@@ -25,13 +25,3 @@ Control TESmart 8- and 16-port HDMI / KVM switches over LAN or RS232 — CLI, HT
 | [Docs/hubitat.md](https://github.com/WBEVAN/TESmartController/blob/main/Docs/hubitat.md) | Hubitat package detail |
 | [Docs/protocol.md](https://github.com/WBEVAN/TESmartController/blob/main/Docs/protocol.md) | Wire protocol |
 | [Docs/embed.md](https://github.com/WBEVAN/TESmartController/blob/main/Docs/embed.md) | Embed input buttons on your page |
-
-## Live wiki
-
-Published at [github.com/WBEVAN/TESmartController/wiki](https://github.com/WBEVAN/TESmartController/wiki). Edit `Docs/wiki/` in the main repo, then sync:
-
-```bash
-git clone https://github.com/WBEVAN/TESmartController.wiki.git
-cp Docs/wiki/*.md TESmartController.wiki/
-cd TESmartController.wiki && git add . && git commit -m "Sync wiki from Docs/wiki" && git push
-```
