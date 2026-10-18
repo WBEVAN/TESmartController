@@ -11,9 +11,13 @@
   const viewBtn = $("#view-mode");
   const viewLabel = $("#view-mode-label");
   const msgBtn = $("#btn-message");
+  const listBtn = $("#btn-message-list");
+  const historyDialog = $("#message-history-dialog");
+  const historyList = $("#message-history-list");
   const nameEl = $("#name");
 
   const VIEWS = ["compact", "mini", "full"];
+  const HISTORY_MAX = 10;
   const NAMES = {
     1: "Office",
     2: "Mac Mini",
@@ -33,6 +37,8 @@
     banner: null,
     bannerUntil: 0,
     bannerTimer: 0,
+    history: [],
+    nextId: 1,
   };
 
   function postHeight() {
@@ -71,21 +77,29 @@
     }
   }
 
-  function showBanner(text, { sticky = false, seconds = 8 } = {}) {
+  function pushHistory(entry) {
+    state.history = [entry, ...state.history.filter((item) => item.text !== entry.text)].slice(0, HISTORY_MAX);
+  }
+
+  function showBanner(text, { sticky = false, seconds = 8, fromHistory = false } = {}) {
     const line = String(text || "").trim().slice(0, 160);
     if (!line) return;
     clearBannerTimer();
-    state.banner = {
+    const entry = {
+      id: state.nextId++,
       text: line,
       sticky: Boolean(sticky),
       seconds: Math.max(1, Math.min(60, Number(seconds) || 8)),
+      mode: sticky ? "sticky" : "timed",
     };
-    if (!state.banner.sticky) {
-      state.bannerUntil = performance.now() + state.banner.seconds * 1000;
+    state.banner = entry;
+    if (!fromHistory) pushHistory(entry);
+    if (!entry.sticky) {
+      state.bannerUntil = performance.now() + entry.seconds * 1000;
       state.bannerTimer = setTimeout(() => {
         state.banner = null;
         draw();
-      }, state.banner.seconds * 1000);
+      }, entry.seconds * 1000);
     } else {
       state.bannerUntil = 0;
     }
@@ -98,10 +112,54 @@
     draw();
   }
 
+  function openHistory() {
+    historyList.replaceChildren();
+    if (!state.history.length) {
+      const empty = document.createElement("p");
+      empty.className = "kit-dialog-hint";
+      empty.textContent = "No messages yet.";
+      historyList.append(empty);
+    } else {
+      state.history.forEach((entry) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "message-history-item";
+        btn.setAttribute("role", "option");
+        if (state.banner && state.banner.id === entry.id) btn.classList.add("is-active");
+        const text = document.createElement("span");
+        text.className = "message-history-text";
+        text.textContent = entry.text;
+        const meta = document.createElement("span");
+        meta.className = "message-history-meta";
+        meta.textContent = entry.mode === "sticky" ? "sticky" : `${entry.seconds}s`;
+        btn.append(text, meta);
+        btn.addEventListener("click", () => {
+          closeHistory();
+          showBanner(entry.text, {
+            sticky: entry.mode === "sticky",
+            seconds: entry.seconds,
+            fromHistory: true,
+          });
+        });
+        historyList.append(btn);
+      });
+    }
+    historyDialog.hidden = false;
+    bodyEl.classList.add("is-history-popout");
+    postHeight();
+  }
+
+  function closeHistory() {
+    historyDialog.hidden = true;
+    bodyEl.classList.remove("is-history-popout");
+    postHeight();
+  }
+
   function draw() {
     const banner = state.banner;
     const showing = Boolean(banner);
     nameEl.classList.toggle("is-banner", showing);
+    listBtn.hidden = state.history.length === 0;
     if (showing) {
       nameTrack.textContent = banner.text;
       statusEl.textContent = banner.sticky
@@ -115,8 +173,14 @@
       nameTrack.textContent = `${String(state.active).padStart(2, "0")}  ${label.toUpperCase()}`;
       statusEl.textContent = `INPUT ${state.active} SELECTED • DEMO`;
       detailEl.textContent = "Ready • PEEK OFF";
-      msgBtn.hidden = true;
-      msgBtn.classList.remove("is-active");
+      // Keep message icon available when history exists (reshow last).
+      if (state.history.length) {
+        msgBtn.hidden = false;
+        msgBtn.classList.remove("is-active");
+      } else {
+        msgBtn.hidden = true;
+        msgBtn.classList.remove("is-active");
+      }
     }
     digits.textContent = "--";
 
@@ -152,7 +216,26 @@
     draw();
   });
 
-  msgBtn.addEventListener("click", () => hideBanner());
+  msgBtn.addEventListener("click", () => {
+    if (state.banner) {
+      hideBanner();
+      return;
+    }
+    const last = state.history[0];
+    if (last) {
+      showBanner(last.text, {
+        sticky: last.mode === "sticky",
+        seconds: last.seconds,
+        fromHistory: true,
+      });
+    }
+  });
+
+  listBtn.addEventListener("click", () => openHistory());
+  $("#message-history-close").addEventListener("click", () => closeHistory());
+  historyDialog.addEventListener("click", (event) => {
+    if (event.target === historyDialog) closeHistory();
+  });
 
   $("#service-door").addEventListener("click", () => {
     const bay = $("#service-bay");
@@ -178,7 +261,10 @@
   window.addEventListener("resize", postHeight);
   setView("compact");
   setBody("black");
+  // Seed a couple of history entries so the list icon is visible immediately.
+  pushHistory({ id: state.nextId++, text: "Meeting in 5", sticky: false, seconds: 12, mode: "timed" });
+  pushHistory({ id: state.nextId++, text: "Stay on camera", sticky: true, seconds: 8, mode: "sticky" });
   draw();
-  showBanner("Door unlocked", { seconds: 6 });
+  showBanner("Door unlocked", { seconds: 8 });
   setTimeout(postHeight, 120);
 })();

@@ -33,7 +33,12 @@
           <div class="lcd-meta">
             <p id="detail"></p>
             <div class="lcd-message-actions">
-              <button type="button" id="btn-message" class="lcd-message-btn" hidden aria-label="Toggle message">
+              <button type="button" id="btn-message-list" class="lcd-message-btn" hidden
+                      aria-label="Message history" title="Browse last messages">
+                <img class="action-icon" src="kit/svg/icon-message-list.svg" alt="" />
+              </button>
+              <button type="button" id="btn-message" class="lcd-message-btn" hidden
+                      aria-label="Toggle message" title="Show or hide last message">
                 <img class="action-icon" src="kit/svg/icon-message.svg" alt="" />
               </button>
             </div>
@@ -74,6 +79,22 @@
         </div>
       </section>
     </main>
+
+    <div id="message-history-dialog" class="kit-dialog kit-dialog-popout" hidden>
+      <div class="kit-dialog-card kit-dialog-card-wide" role="dialog" aria-modal="true" aria-labelledby="message-history-title">
+        <header class="kit-dialog-head">
+          <img class="action-icon" src="kit/svg/icon-message-list.svg" alt="" />
+          <strong id="message-history-title">Message history</strong>
+        </header>
+        <p class="kit-dialog-hint">Last messages from Hubitat / banner demo — pick one to show</p>
+        <div id="message-history-list" class="message-history-list" role="listbox" aria-label="Recent LCD messages"></div>
+        <div class="kit-dialog-actions">
+          <span class="kit-dialog-spacer"></span>
+          <button type="button" id="message-history-close" class="kit-dialog-btn">Close</button>
+        </div>
+      </div>
+    </div>
+
     <script src="kit-demo.js"></script>
   </body>
 </html>
