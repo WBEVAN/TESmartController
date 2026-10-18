@@ -162,7 +162,7 @@ a:hover {
   font-family: var(--font-display);
   font-weight: 700;
   font-size: 0.78rem;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--phosphor-dim);
 }
