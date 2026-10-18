@@ -1,0 +1,1116 @@
+/* Kit body + LCD colour themes (chosen in Setup). Default: charcoal fascia + green LCD. */
+
+.kit-float .panel,
+body.kit-float {
+  --kit-face-top: #42474d;
+  --kit-face-mid: #25292e;
+  --kit-face-bot: #16191d;
+  --kit-face-border: #798189;
+  --kit-face-inset: #1b1f23;
+  --kit-face-text: #e7edf1;
+  --kit-face-muted: #aebbc5;
+  --kit-chrome-bg: #1a2026;
+  --kit-chrome-border: #66717a;
+  --kit-chrome-hover: #b5c3cc;
+  --kit-accent: #35dafa;
+  --kit-select: #a8c45c;
+  --kit-chrome-text: var(--kit-face-text);
+  --kit-bevel-hi: rgba(255, 255, 255, 0.14);
+  --kit-bevel-lo: rgba(0, 0, 0, 0.55);
+
+  --kit-lcd-top: #bbdc63;
+  --kit-lcd-bot: #91b74a;
+  --kit-lcd-text: #25330e;
+  --kit-lcd-bezel: #12160f;
+  --kit-lcd-outline: #68725c;
+  --kit-lcd-inset: #536f32;
+  --kit-lcd-rule: #536b2a;
+}
+
+/* —— Body: charcoal (default) —— */
+/* Include body.kit-float so popouts outside .panel (message history) match. */
+.kit-float[data-body="black"],
+.kit-float[data-body="black"] .panel,
+.kit-float .panel[data-body="black"] {
+  --kit-face-top: #42474d;
+  --kit-face-mid: #25292e;
+  --kit-face-bot: #16191d;
+  --kit-face-border: #798189;
+  --kit-face-inset: #1b1f23;
+  --kit-face-text: #e7edf1;
+  --kit-face-muted: #aebbc5;
+  --kit-chrome-bg: #1a2026;
+  --kit-chrome-border: #66717a;
+  --kit-chrome-hover: #b5c3cc;
+  --kit-chrome-text: var(--kit-face-text);
+  --kit-accent: #35dafa;
+  --kit-bevel-hi: rgba(255, 255, 255, 0.12);
+  --kit-bevel-lo: rgba(0, 0, 0, 0.55);
+}
+
+/* —— Body: brushed metallic silver —— */
+.kit-float[data-body="silver"],
+.kit-float[data-body="silver"] .panel,
+.kit-float .panel[data-body="silver"] {
+  /* Warm aluminium — chrome buttons are lighter raised metal with dark ink. */
+  --kit-face-top: #f7f6f3;
+  --kit-face-mid: #d8d5cf;
+  --kit-face-bot: #a8a49c;
+  --kit-face-border: #5a564f;
+  --kit-face-inset: #cfcbc4;
+  --kit-face-text: #141210;
+  --kit-face-muted: #2e2c28;
+  --kit-chrome-bg: #e8e4dc;
+  --kit-chrome-border: #3a3834;
+  --kit-chrome-hover: #1a1816;
+  --kit-chrome-text: #141210;
+  --kit-accent: #a84810;
+  --kit-bevel-hi: rgba(255, 255, 255, 0.75);
+  --kit-bevel-lo: rgba(60, 50, 40, 0.45);
+}
+
+/*
+ * --kit-select = key ring / glyph colour. Match the LCD family the way amber
+ * uses its bright phosphor (#ff9a3c) — readable on charcoal, not neon.
+ * Bright LCDs keep dark ink on the glass; keys use the phosphor mid-tone.
+ */
+/* —— LCD: green (default phosphor) —— */
+.kit-float[data-lcd="green"] .panel,
+.kit-float .panel[data-lcd="green"] {
+  --kit-lcd-top: #bbdc63;
+  --kit-lcd-bot: #91b74a;
+  --kit-lcd-text: #25330e;
+  --kit-lcd-bezel: #12160f;
+  --kit-lcd-outline: #68725c;
+  --kit-lcd-inset: #536f32;
+  --kit-lcd-rule: #536b2a;
+  --kit-select: #a8c45c;
+}
+
+/* —— LCD: blue (cool vacuum / blue backlit) —— */
+.kit-float[data-lcd="blue"] .panel,
+.kit-float .panel[data-lcd="blue"] {
+  --kit-lcd-top: #7ec8f5;
+  --kit-lcd-bot: #3a8fd4;
+  --kit-lcd-text: #0a2740;
+  --kit-lcd-bezel: #0c1a28;
+  --kit-lcd-outline: #4a7fa8;
+  --kit-lcd-inset: #1e5f92;
+  --kit-lcd-rule: #2a6a9a;
+  --kit-accent: #35b0e8;
+  --kit-select: #4aa3e0;
+}
+
+/* —— LCD: red (warm LED / ruby) —— */
+.kit-float[data-lcd="red"] .panel,
+.kit-float .panel[data-lcd="red"] {
+  --kit-lcd-top: #f09080;
+  --kit-lcd-bot: #c44a3a;
+  --kit-lcd-text: #3a100c;
+  --kit-lcd-bezel: #1a0806;
+  --kit-lcd-outline: #8a5248;
+  --kit-lcd-inset: #8a3028;
+  --kit-lcd-rule: #8a3830;
+  --kit-accent: #c44a3a;
+  --kit-select: #e07060;
+}
+
+/* —— LCD: dark panel with orange phosphor —— */
+.kit-float[data-lcd="amber"] .panel,
+.kit-float .panel[data-lcd="amber"] {
+  --kit-lcd-top: #2a2c30;
+  --kit-lcd-bot: #121416;
+  --kit-lcd-text: #ff9a3c;
+  --kit-lcd-bezel: #050505;
+  --kit-lcd-outline: #4a3218;
+  --kit-lcd-inset: #3a2008;
+  --kit-lcd-rule: #5a3010;
+  --kit-accent: #ff9a3c;
+  --kit-select: #ff9a3c;
+}
+
+/*
+ * Silver idle keys need dark ink. Selected keys should glow like charcoal:
+ * bright phosphor on the numeral / monitor glyph + matching inset ring.
+ * --kit-select stays dark for chrome; --kit-select-glow is the lit state.
+ */
+.kit-float[data-body="silver"][data-lcd="green"],
+.kit-float[data-body="silver"][data-lcd="green"] .panel,
+.kit-float .panel[data-body="silver"][data-lcd="green"],
+.kit-float[data-body="silver"] .panel[data-lcd="green"] {
+  /* Olive for chrome and selected keys (not the bright LCD phosphor). */
+  --kit-select: #2f4a12;
+  --kit-select-glow: #2f4a12;
+}
+
+.kit-float[data-body="silver"][data-lcd="blue"],
+.kit-float[data-body="silver"][data-lcd="blue"] .panel,
+.kit-float .panel[data-body="silver"][data-lcd="blue"],
+.kit-float[data-body="silver"] .panel[data-lcd="blue"] {
+  --kit-select: #0a3558;
+  --kit-select-glow: #4aa3e0;
+}
+
+.kit-float[data-body="silver"][data-lcd="red"],
+.kit-float[data-body="silver"][data-lcd="red"] .panel,
+.kit-float .panel[data-body="silver"][data-lcd="red"],
+.kit-float[data-body="silver"] .panel[data-lcd="red"] {
+  --kit-select: #8a2820;
+  --kit-select-glow: #e07060;
+}
+
+.kit-float[data-body="silver"][data-lcd="amber"],
+.kit-float[data-body="silver"][data-lcd="amber"] .panel,
+.kit-float .panel[data-body="silver"][data-lcd="amber"],
+.kit-float[data-body="silver"] .panel[data-lcd="amber"] {
+  --kit-select: #a85a18;
+  --kit-select-glow: #ff9a3c;
+}
+
+/* Apply variables: hardware bevel (highlight top-left, shade bottom-right). */
+.kit-float .panel {
+  color: var(--kit-face-text);
+  border: 2px solid var(--kit-face-border);
+  border-radius: 30px;
+  background:
+    linear-gradient(
+      145deg,
+      var(--kit-bevel-hi) 0%,
+      transparent 38%,
+      transparent 62%,
+      var(--kit-bevel-lo) 100%
+    ),
+    linear-gradient(
+      160deg,
+      var(--kit-face-top) 0%,
+      var(--kit-face-mid) 48%,
+      var(--kit-face-bot) 100%
+    );
+  box-shadow:
+    inset 0 1px 0 var(--kit-bevel-hi),
+    inset 0 -2px 4px var(--kit-bevel-lo),
+    inset 0 0 0 5px var(--kit-face-inset);
+  /* Clip Setup bay / door to the rounded chassis so corners stay hardware-true. */
+  overflow: hidden;
+}
+
+.kit-float .panel.compact {
+  border-radius: 22px;
+}
+
+.kit-float .panel.mini {
+  border-radius: 18px;
+}
+
+body.kit-float.is-transparent .panel {
+  box-shadow:
+    inset 0 1px 0 var(--kit-bevel-hi),
+    inset 0 -2px 4px var(--kit-bevel-lo),
+    inset 0 0 0 5px var(--kit-face-inset);
+}
+
+/*
+ * Silver: classic hi-fi brushed aluminium — horizontal hairlines at a few
+ * scales, soft sheen, and a machined lip. Grain stays under the LCD/keys.
+ */
+.kit-float[data-body="silver"] .panel,
+.kit-float .panel[data-body="silver"] {
+  background:
+    /* Fine brush hairlines (the “turned” aluminium look). */
+    repeating-linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.14) 0 1px,
+      rgba(0, 0, 0, 0.045) 1px 2px,
+      transparent 2px 3px
+    ),
+    /* Slightly coarser secondary grain so it doesn’t look like a screen. */
+    repeating-linear-gradient(
+      180deg,
+      transparent 0 5px,
+      rgba(255, 255, 255, 0.08) 5px 6px,
+      rgba(40, 35, 30, 0.05) 6px 7px
+    ),
+    /* Soft horizontal bands like rolled sheet. */
+    repeating-linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.04) 0 11px,
+      rgba(0, 0, 0, 0.03) 11px 22px
+    ),
+    /* Corner light catch + warm shade (machined face). */
+    linear-gradient(
+      145deg,
+      rgba(255, 255, 255, 0.72) 0%,
+      transparent 34%,
+      transparent 66%,
+      rgba(70, 58, 48, 0.32) 100%
+    ),
+    linear-gradient(
+      165deg,
+      #f5f3ef 0%,
+      #dedad3 26%,
+      #c2bdb4 55%,
+      #9a958c 100%
+    );
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.92),
+    inset 0 -3px 7px rgba(50, 45, 40, 0.38),
+    inset 0 0 0 5px #c8c3bb,
+    inset 0 0 0 6px rgba(255, 255, 255, 0.4);
+}
+
+/* Carry the same grain onto the Setup door so the chassis reads as one plate. */
+.kit-float[data-body="silver"] .service-door,
+.kit-float .panel[data-body="silver"] .service-door {
+  background:
+    repeating-linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.12) 0 1px,
+      rgba(0, 0, 0, 0.04) 1px 2px,
+      transparent 2px 3px
+    ),
+    linear-gradient(
+      180deg,
+      #ebe7e0 0%,
+      #c8c3bb 45%,
+      #a8a39a 100%
+    );
+}
+
+.kit-float .panel .title strong {
+  color: var(--kit-face-text);
+}
+
+.kit-float .panel .led {
+  color: var(--kit-face-muted);
+}
+
+.kit-float .panel .led[data-state="connected"] {
+  color: #9cce66;
+}
+
+.kit-float .view-toggle,
+.kit-float .mini-nav button,
+.kit-float .controls button,
+.kit-float .controls input,
+.kit-float .cycle-controls button,
+.kit-float .cycle-controls input,
+.kit-float .cycle-inputs-btn,
+.kit-float .window-controls button {
+  background: var(--kit-chrome-bg);
+  border: 1px solid var(--kit-chrome-border);
+  color: var(--kit-chrome-text);
+}
+
+.kit-float .view-toggle:hover,
+.kit-float .view-toggle:focus-visible,
+.kit-float .mini-nav button:hover,
+.kit-float .mini-nav button:focus-visible,
+.kit-float .window-controls button:hover {
+  border-color: var(--kit-select);
+  color: var(--kit-select);
+  outline: none;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--kit-select) 45%, transparent);
+}
+
+/* Silver: keep view / mini-nav hover readable on light metal. */
+.kit-float[data-body="silver"] .view-toggle:hover,
+.kit-float[data-body="silver"] .view-toggle:focus-visible,
+.kit-float[data-body="silver"] .mini-nav button:hover,
+.kit-float[data-body="silver"] .mini-nav button:focus-visible,
+.kit-float .panel[data-body="silver"] .view-toggle:hover,
+.kit-float .panel[data-body="silver"] .view-toggle:focus-visible,
+.kit-float .panel[data-body="silver"] .mini-nav button:hover,
+.kit-float .panel[data-body="silver"] .mini-nav button:focus-visible {
+  border-color: var(--kit-select) !important;
+  color: var(--kit-select) !important;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--kit-select) 50%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+/* Charcoal body: light glyphs on dark chrome (not mask-painted icons). */
+.kit-float[data-body="black"] .power-btn .action-icon,
+.kit-float .panel[data-body="black"] .power-btn .action-icon {
+  filter: brightness(0) invert(1);
+}
+
+/*
+ * Chrome icons painted with currentColor so selected / hover states match
+ * the highlight (border + label). Masks ignore ?v= on the img src.
+ */
+.kit-float #view-mode .action-icon,
+.kit-float #mini-prev .action-icon,
+.kit-float #mini-next .action-icon,
+.kit-float .controls .action-icon,
+.kit-float .cycle-controls .action-icon,
+.kit-float .window-controls .action-icon,
+.kit-float .service-door .action-icon,
+.kit-float .lcd-message-btn .action-icon,
+.kit-float .kit-dialog-head .action-icon {
+  filter: none !important;
+  opacity: 1 !important;
+  background-color: currentColor;
+  object-fit: none;
+  object-position: -9999px;
+  -webkit-mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-size: contain;
+  mask-repeat: no-repeat;
+  mask-position: center;
+}
+
+.kit-float #view-mode .action-icon,
+.kit-float .action-icon[src*="icon-monitor.svg"] {
+  -webkit-mask-image: url(/static/kit/svg/icon-monitor.svg);
+  mask-image: url(/static/kit/svg/icon-monitor.svg);
+}
+
+.kit-float .lcd-message-btn .action-icon[src*="icon-message.svg"],
+.kit-float .action-icon[src*="icon-message.svg"] {
+  -webkit-mask-image: url(/static/kit/svg/icon-message.svg);
+  mask-image: url(/static/kit/svg/icon-message.svg);
+}
+
+.kit-float .lcd-message-btn .action-icon[src*="icon-message-list.svg"],
+.kit-float .action-icon[src*="icon-message-list.svg"] {
+  -webkit-mask-image: url(/static/kit/svg/icon-message-list.svg);
+  mask-image: url(/static/kit/svg/icon-message-list.svg);
+}
+
+.kit-float #mini-prev .action-icon,
+.kit-float .action-icon[src*="icon-up.svg"] {
+  -webkit-mask-image: url(/static/kit/svg/icon-up.svg);
+  mask-image: url(/static/kit/svg/icon-up.svg);
+}
+
+.kit-float #mini-next .action-icon,
+.kit-float .action-icon[src*="icon-down.svg"] {
+  -webkit-mask-image: url(/static/kit/svg/icon-down.svg);
+  mask-image: url(/static/kit/svg/icon-down.svg);
+}
+
+.kit-float .action-icon[src*="icon-previous.svg"] {
+  -webkit-mask-image: url(/static/kit/svg/icon-previous.svg);
+  mask-image: url(/static/kit/svg/icon-previous.svg);
+}
+
+.kit-float .action-icon[src*="icon-next.svg"] {
+  -webkit-mask-image: url(/static/kit/svg/icon-next.svg);
+  mask-image: url(/static/kit/svg/icon-next.svg);
+}
+
+.kit-float .action-icon[src*="icon-peek.svg"] {
+  -webkit-mask-image: url(/static/kit/svg/icon-peek.svg);
+  mask-image: url(/static/kit/svg/icon-peek.svg);
+}
+
+.kit-float .action-icon[src*="icon-close.svg"] {
+  -webkit-mask-image: url(/static/kit/svg/icon-close.svg);
+  mask-image: url(/static/kit/svg/icon-close.svg);
+}
+
+.kit-float .action-icon[src*="icon-cycle.svg"] {
+  -webkit-mask-image: url(/static/kit/svg/icon-cycle.svg);
+  mask-image: url(/static/kit/svg/icon-cycle.svg);
+}
+
+.kit-float .action-icon[src*="icon-settings.svg"] {
+  -webkit-mask-image: url(/static/kit/svg/icon-settings.svg);
+  mask-image: url(/static/kit/svg/icon-settings.svg);
+}
+
+.kit-float .action-icon[src*="icon-pin.svg"] {
+  -webkit-mask-image: url(/static/kit/svg/icon-pin.svg);
+  mask-image: url(/static/kit/svg/icon-pin.svg);
+}
+
+/* Inputs summary uses the highlight; gear follows the chrome ink. */
+.kit-float .cycle-inputs-btn .action-icon {
+  color: inherit;
+}
+
+.kit-float .cycle-inputs-btn strong {
+  color: var(--kit-select);
+}
+
+/* Power stays danger-red — never the theme accent. */
+.kit-float .power-btn:hover,
+.kit-float .power-btn:focus-visible {
+  border-color: #f08080 !important;
+  color: #f08080 !important;
+}
+
+.kit-float .power-btn:hover .action-icon,
+.kit-float .power-btn:focus-visible .action-icon {
+  filter: brightness(1.15) sepia(1) saturate(4) hue-rotate(-40deg) !important;
+}
+
+/*
+ * LCD glass (Setup → Glass). Type stays solid (readable at any size).
+ *   matrix   — visible pixel grill over the glass (default)
+ *   phosphor — same grill + soft LCD-colour glow on the text
+ *   off      — plain LCD
+ */
+.kit-float .lcd {
+  position: relative;
+  isolation: isolate;
+  --kit-lcd-pitch: 3px;
+  background: linear-gradient(var(--kit-lcd-top), var(--kit-lcd-bot));
+  color: var(--kit-lcd-text);
+  border-color: var(--kit-lcd-bezel);
+  outline-color: var(--kit-lcd-outline);
+  box-shadow: inset 0 2px 10px var(--kit-lcd-inset);
+}
+
+.kit-float .lcd > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Pixel grill: dots + fine cross-lines so it reads on Full as well as Compact. */
+.kit-float[data-glass="matrix"] .lcd::after,
+.kit-float[data-glass="phosphor"] .lcd::after,
+.kit-float .panel[data-glass="matrix"] .lcd::after,
+.kit-float .panel[data-glass="phosphor"] .lcd::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  border-radius: inherit;
+  pointer-events: none;
+  background-image:
+    radial-gradient(
+      circle at center,
+      rgba(12, 20, 8, 0.38) 0.55px,
+      transparent 0.7px
+    ),
+    repeating-linear-gradient(
+      0deg,
+      transparent 0,
+      transparent calc(var(--kit-lcd-pitch) - 1px),
+      rgba(12, 20, 8, 0.1) calc(var(--kit-lcd-pitch) - 1px),
+      rgba(12, 20, 8, 0.1) var(--kit-lcd-pitch)
+    ),
+    repeating-linear-gradient(
+      90deg,
+      transparent 0,
+      transparent calc(var(--kit-lcd-pitch) - 1px),
+      rgba(12, 20, 8, 0.08) calc(var(--kit-lcd-pitch) - 1px),
+      rgba(12, 20, 8, 0.08) var(--kit-lcd-pitch)
+    );
+  background-size:
+    var(--kit-lcd-pitch) var(--kit-lcd-pitch),
+    100% var(--kit-lcd-pitch),
+    var(--kit-lcd-pitch) 100%;
+  background-repeat: repeat, repeat, repeat;
+  mix-blend-mode: multiply;
+  opacity: 0.72;
+}
+
+.kit-float[data-lcd="amber"][data-glass="matrix"] .lcd::after,
+.kit-float[data-lcd="amber"][data-glass="phosphor"] .lcd::after,
+.kit-float .panel[data-lcd="amber"][data-glass="matrix"] .lcd::after,
+.kit-float .panel[data-lcd="amber"][data-glass="phosphor"] .lcd::after,
+.kit-float[data-glass="matrix"] .panel[data-lcd="amber"] .lcd::after,
+.kit-float[data-glass="phosphor"] .panel[data-lcd="amber"] .lcd::after {
+  background-image:
+    radial-gradient(
+      circle at center,
+      rgba(0, 0, 0, 0.55) 0.55px,
+      transparent 0.7px
+    ),
+    repeating-linear-gradient(
+      0deg,
+      transparent 0,
+      transparent calc(var(--kit-lcd-pitch) - 1px),
+      rgba(0, 0, 0, 0.18) calc(var(--kit-lcd-pitch) - 1px),
+      rgba(0, 0, 0, 0.18) var(--kit-lcd-pitch)
+    ),
+    repeating-linear-gradient(
+      90deg,
+      transparent 0,
+      transparent calc(var(--kit-lcd-pitch) - 1px),
+      rgba(0, 0, 0, 0.14) calc(var(--kit-lcd-pitch) - 1px),
+      rgba(0, 0, 0, 0.14) var(--kit-lcd-pitch)
+    );
+  mix-blend-mode: normal;
+  opacity: 0.55;
+}
+
+/* Phosphor: keep solid glyphs; add a soft LCD bleed around the ink. */
+.kit-float[data-glass="phosphor"] .lcd,
+.kit-float .panel[data-glass="phosphor"] .lcd {
+  text-shadow:
+    0 0 0.5px color-mix(in srgb, var(--kit-lcd-bot) 40%, var(--kit-lcd-text)),
+    0 0 2px color-mix(in srgb, var(--kit-lcd-bot) 35%, transparent),
+    0 0 5px color-mix(in srgb, var(--kit-lcd-top) 25%, transparent);
+}
+
+.kit-float[data-glass="phosphor"] .lcd::after,
+.kit-float .panel[data-glass="phosphor"] .lcd::after {
+  opacity: 0.58;
+}
+
+.kit-float .panel.compact .lcd {
+  --kit-lcd-pitch: 2.75px;
+}
+
+.kit-float .panel.mini .lcd {
+  --kit-lcd-pitch: 2.5px;
+}
+
+.kit-float .countdown {
+  border-left-color: var(--kit-lcd-rule);
+}
+
+/*
+ * Selection = ring + numeral + monitor glyph (currentColor). Face SVG only —
+ * never a full-key colour flood.
+ */
+.kit-float .input.selected,
+.kit-float .compact .input.selected {
+  background-image: url(/static/kit/svg/button-face-idle.svg) !important;
+  color: var(--kit-select) !important;
+  border: 0 !important;
+  box-shadow: inset 0 0 0 3px var(--kit-select) !important;
+  filter: none !important;
+}
+
+.kit-float .input.peeking,
+.kit-float .compact .input.peeking {
+  background-image: url(/static/kit/svg/button-face-idle.svg) !important;
+  color: #ffc45c !important;
+  box-shadow: inset 0 0 0 3px #ffc45c !important;
+  filter: none !important;
+}
+
+.kit-float .controls button[aria-pressed="true"],
+.kit-float .cycle-controls button[aria-pressed="true"],
+.kit-float .window-controls button[aria-pressed="true"],
+.kit-float .peek-mode-btn[aria-pressed="true"] {
+  color: var(--kit-select) !important;
+  border-color: var(--kit-select) !important;
+}
+
+.kit-float .theme-swatch[aria-pressed="true"] {
+  border-color: var(--kit-select);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--kit-select) 35%, transparent);
+}
+
+/* Setup bay sits inside the chassis — match face, square into the clip. */
+.kit-float .service-door {
+  border-color: var(--kit-chrome-border);
+  background: linear-gradient(
+    180deg,
+    var(--kit-face-top) 0%,
+    var(--kit-face-mid) 45%,
+    var(--kit-face-bot) 100%
+  );
+  color: var(--kit-face-muted);
+  box-shadow:
+    inset 0 1px 0 var(--kit-bevel-hi),
+    inset 0 -2px 4px var(--kit-bevel-lo);
+}
+
+.kit-float .service-door:hover {
+  border-color: var(--kit-chrome-hover);
+  color: var(--kit-face-text);
+}
+
+.kit-float .door-latch {
+  border-color: var(--kit-chrome-border);
+  background: linear-gradient(180deg, var(--kit-chrome-bg), var(--kit-face-bot));
+}
+
+.kit-float .service-bay-inner {
+  border-color: var(--kit-chrome-border);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--kit-face-bot) 88%, #000) 0%,
+    var(--kit-face-bot) 100%
+  );
+  box-shadow: inset 0 8px 16px var(--kit-bevel-lo);
+  /* Bottom corners follow the panel radius (clipped by overflow:hidden). */
+  border-radius: 0;
+  margin-bottom: 0;
+}
+
+.kit-float .service-bay[data-open="true"] .service-door {
+  border-radius: 12px 12px 0 0;
+}
+
+.kit-float .service-bay[data-open="true"] .door-label {
+  color: var(--kit-select);
+}
+
+/* Silver: grip, chrome, keys, and Setup — raised metal that reads on the fascia. */
+.kit-float[data-body="silver"] .drag-handle .icon,
+.kit-float .panel[data-body="silver"] .drag-handle .icon {
+  filter: brightness(0) saturate(100%);
+  opacity: 0.85;
+}
+
+.kit-float[data-body="silver"] .led,
+.kit-float .panel[data-body="silver"] .led {
+  color: #2e2c28;
+}
+
+.kit-float[data-body="silver"] .led[data-state="connected"],
+.kit-float .panel[data-body="silver"] .led[data-state="connected"] {
+  color: #1f5a12;
+}
+
+.kit-float[data-body="silver"] .led[data-state="busy"],
+.kit-float .panel[data-body="silver"] .led[data-state="busy"] {
+  color: #8a4a08;
+}
+
+.kit-float[data-body="silver"] .led[data-state="error"],
+.kit-float .panel[data-body="silver"] .led[data-state="error"] {
+  color: #a02828;
+}
+
+/*
+ * Raised silver chrome: diagonal brush (crosses the fascia’s horizontal
+ * grain) so keys read as separate machined caps.
+ */
+.kit-float[data-body="silver"] .view-toggle,
+.kit-float[data-body="silver"] .mini-nav button,
+.kit-float[data-body="silver"] .controls button,
+.kit-float[data-body="silver"] .controls input,
+.kit-float[data-body="silver"] .cycle-controls button,
+.kit-float[data-body="silver"] .cycle-controls input,
+.kit-float[data-body="silver"] .cycle-inputs-btn,
+.kit-float[data-body="silver"] .window-controls button,
+.kit-float .panel[data-body="silver"] .view-toggle,
+.kit-float .panel[data-body="silver"] .mini-nav button,
+.kit-float .panel[data-body="silver"] .controls button,
+.kit-float .panel[data-body="silver"] .controls input,
+.kit-float .panel[data-body="silver"] .cycle-controls button,
+.kit-float .panel[data-body="silver"] .cycle-controls input,
+.kit-float .panel[data-body="silver"] .cycle-inputs-btn,
+.kit-float .panel[data-body="silver"] .window-controls button {
+  color: #141210;
+  border: 1px solid #3a3834;
+  background:
+    repeating-linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.22) 0 1px,
+      rgba(40, 35, 30, 0.08) 1px 2px,
+      transparent 2px 4px
+    ),
+    repeating-linear-gradient(
+      135deg,
+      transparent 0 7px,
+      rgba(255, 255, 255, 0.1) 7px 8px,
+      rgba(30, 25, 20, 0.06) 8px 9px
+    ),
+    linear-gradient(
+      145deg,
+      #fbf9f5 0%,
+      #e2ddd5 38%,
+      #c2bbb2 72%,
+      #a39d93 100%
+    );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    inset 0 -1px 2px rgba(40, 35, 30, 0.28),
+    0 1px 2px rgba(40, 35, 30, 0.22);
+}
+
+.kit-float[data-body="silver"] .power-btn .action-icon,
+.kit-float .panel[data-body="silver"] .power-btn .action-icon {
+  filter: brightness(0) saturate(100%);
+  opacity: 0.9;
+}
+
+.kit-float[data-body="silver"] .controls button[aria-pressed="true"],
+.kit-float[data-body="silver"] .cycle-controls button[aria-pressed="true"],
+.kit-float[data-body="silver"] .window-controls button[aria-pressed="true"],
+.kit-float[data-body="silver"] .peek-mode-btn[aria-pressed="true"],
+.kit-float .panel[data-body="silver"] .controls button[aria-pressed="true"],
+.kit-float .panel[data-body="silver"] .cycle-controls button[aria-pressed="true"],
+.kit-float .panel[data-body="silver"] .window-controls button[aria-pressed="true"],
+.kit-float .panel[data-body="silver"] .peek-mode-btn[aria-pressed="true"] {
+  color: var(--kit-select) !important;
+  border-color: var(--kit-select) !important;
+  background:
+    repeating-linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.18) 0 1px,
+      rgba(40, 35, 30, 0.07) 1px 2px,
+      transparent 2px 4px
+    ),
+    linear-gradient(
+      145deg,
+      #f2eee8 0%,
+      #d0cbc3 55%,
+      #aea89e 100%
+    );
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--kit-select) 45%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+/* Silver Inputs control: full raised metal like Start cycle; summary stays olive. */
+.kit-float[data-body="silver"] .cycle-inputs-btn,
+.kit-float .panel[data-body="silver"] .cycle-inputs-btn {
+  color: #141210 !important;
+}
+
+.kit-float[data-body="silver"] .cycle-inputs-btn .action-icon,
+.kit-float .panel[data-body="silver"] .cycle-inputs-btn .action-icon {
+  color: inherit !important;
+}
+
+.kit-float[data-body="silver"] .cycle-inputs-btn strong,
+.kit-float .panel[data-body="silver"] .cycle-inputs-btn strong {
+  color: var(--kit-select) !important;
+}
+
+.kit-float[data-body="silver"] .cycle-inputs-btn:hover,
+.kit-float[data-body="silver"] .cycle-inputs-btn:focus-visible,
+.kit-float .panel[data-body="silver"] .cycle-inputs-btn:hover,
+.kit-float .panel[data-body="silver"] .cycle-inputs-btn:focus-visible {
+  border-color: var(--kit-select) !important;
+  color: #141210 !important;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--kit-select) 50%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+/* Cycle picker tiles: raised silver caps; selected use olive ring. */
+.kit-float[data-body="silver"] .cycle-picker button,
+.kit-float .panel[data-body="silver"] .cycle-picker button {
+  opacity: 0.7;
+  color: #5a564f;
+  border: 1px solid #9a948c;
+  background:
+    repeating-linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.18) 0 1px,
+      rgba(40, 35, 30, 0.06) 1px 2px,
+      transparent 2px 4px
+    ),
+    linear-gradient(
+      145deg,
+      #e8e4dc 0%,
+      #cfc9c0 55%,
+      #b0aaa0 100%
+    );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 1px 1px rgba(40, 35, 30, 0.15);
+}
+
+.kit-float[data-body="silver"] .cycle-picker button .pick-name,
+.kit-float .panel[data-body="silver"] .cycle-picker button .pick-name {
+  color: inherit;
+}
+
+.kit-float[data-body="silver"] .cycle-picker button[aria-pressed="true"],
+.kit-float .panel[data-body="silver"] .cycle-picker button[aria-pressed="true"] {
+  opacity: 1 !important;
+  color: var(--kit-select) !important;
+  border-color: var(--kit-select) !important;
+  background:
+    repeating-linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.22) 0 1px,
+      rgba(40, 35, 30, 0.08) 1px 2px,
+      transparent 2px 4px
+    ),
+    linear-gradient(
+      145deg,
+      #fbf9f5 0%,
+      #e2ddd5 38%,
+      #c2bbb2 72%,
+      #a39d93 100%
+    ) !important;
+  box-shadow:
+    inset 0 0 0 2px var(--kit-select),
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    0 1px 2px rgba(40, 35, 30, 0.22) !important;
+}
+
+.kit-float[data-body="silver"] .cycle-picker button[aria-pressed="true"] .pick-name,
+.kit-float .panel[data-body="silver"] .cycle-picker button[aria-pressed="true"] .pick-name {
+  color: color-mix(in srgb, var(--kit-select) 75%, #141210) !important;
+}
+
+.kit-float[data-body="silver"] .kit-dialog-btn,
+.kit-float .panel[data-body="silver"] .kit-dialog-btn {
+  color: #141210;
+  border: 1px solid #3a3834;
+  background:
+    repeating-linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.22) 0 1px,
+      rgba(40, 35, 30, 0.08) 1px 2px,
+      transparent 2px 4px
+    ),
+    linear-gradient(
+      145deg,
+      #fbf9f5 0%,
+      #e2ddd5 38%,
+      #c2bbb2 72%,
+      #a39d93 100%
+    );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    inset 0 -1px 2px rgba(40, 35, 30, 0.28),
+    0 1px 2px rgba(40, 35, 30, 0.22);
+}
+
+.kit-float[data-body="silver"] .kit-dialog-btn.primary,
+.kit-float .panel[data-body="silver"] .kit-dialog-btn.primary {
+  color: #141210;
+  border-color: var(--kit-select);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--kit-select) 40%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.kit-float[data-body="silver"] .kit-dialog-btn.ghost,
+.kit-float .panel[data-body="silver"] .kit-dialog-btn.ghost {
+  background: transparent;
+  box-shadow: none;
+  border-color: #3a3834;
+}
+
+.kit-float[data-body="silver"] .input,
+.kit-float[data-body="silver"] .compact .input,
+.kit-float .panel[data-body="silver"] .input,
+.kit-float .panel[data-body="silver"] .compact .input {
+  background-image: url(/static/kit/svg/button-face-silver-idle.svg) !important;
+  color: #1a1816;
+  border: 0 !important;
+  outline: none !important;
+  box-shadow: none;
+}
+
+.kit-float[data-body="silver"] .input:hover,
+.kit-float[data-body="silver"] .compact .input:hover,
+.kit-float .panel[data-body="silver"] .input:hover,
+.kit-float .panel[data-body="silver"] .compact .input:hover {
+  background-image: url(/static/kit/svg/button-face-silver-hover.svg) !important;
+}
+
+.kit-float[data-body="silver"] .input:active,
+.kit-float[data-body="silver"] .compact .input:active,
+.kit-float .panel[data-body="silver"] .input:active,
+.kit-float .panel[data-body="silver"] .compact .input:active {
+  background-image: url(/static/kit/svg/button-face-silver-pressed.svg) !important;
+}
+
+.kit-float[data-body="silver"] .input.selected,
+.kit-float[data-body="silver"] .compact .input.selected,
+.kit-float .panel[data-body="silver"] .input.selected,
+.kit-float .panel[data-body="silver"] .compact .input.selected {
+  background-image: url(/static/kit/svg/button-face-silver-idle.svg) !important;
+  /* Same idea as charcoal: glyph + ring light up in the LCD phosphor. */
+  color: var(--kit-select-glow, var(--kit-select)) !important;
+  box-shadow:
+    inset 0 0 0 3px var(--kit-select-glow, var(--kit-select)),
+    inset 0 0 12px color-mix(in srgb, var(--kit-select-glow, var(--kit-select)) 28%, transparent) !important;
+}
+
+.kit-float[data-body="silver"] .input.peeking,
+.kit-float[data-body="silver"] .compact .input.peeking,
+.kit-float .panel[data-body="silver"] .input.peeking,
+.kit-float .panel[data-body="silver"] .compact .input.peeking {
+  background-image: url(/static/kit/svg/button-face-silver-idle.svg) !important;
+  color: #c45a12 !important;
+  box-shadow: inset 0 0 0 3px #c45a12 !important;
+}
+
+.kit-float[data-body="silver"] .service-bay-inner,
+.kit-float .panel[data-body="silver"] .service-bay-inner {
+  color: #141210;
+  background:
+    repeating-linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.08) 0 1px,
+      rgba(0, 0, 0, 0.04) 1px 2px,
+      transparent 2px 3px
+    ),
+    linear-gradient(180deg, #b8b3aa 0%, #948f86 100%);
+  box-shadow: inset 0 6px 14px rgba(40, 35, 30, 0.4);
+}
+
+.kit-float[data-body="silver"] .theme-row > span,
+.kit-float .panel[data-body="silver"] .theme-row > span,
+.kit-float[data-body="silver"] .controls > span,
+.kit-float .panel[data-body="silver"] .controls > span,
+.kit-float[data-body="silver"] .service-bay-inner .small,
+.kit-float .panel[data-body="silver"] .service-bay-inner .small,
+.kit-float[data-body="silver"] .cycle-controls label,
+.kit-float .panel[data-body="silver"] .cycle-controls label {
+  color: #141210;
+}
+
+.kit-float[data-body="silver"] .service-door,
+.kit-float .panel[data-body="silver"] .service-door {
+  color: #141210;
+  border-color: #4a4640;
+}
+
+.kit-float[data-body="silver"] .service-bay[data-open="true"] .door-label,
+.kit-float .panel[data-body="silver"] .service-bay[data-open="true"] .door-label {
+  color: var(--kit-select);
+  font-weight: 700;
+}
+
+.kit-float[data-body="silver"] .door-latch,
+.kit-float .panel[data-body="silver"] .door-latch {
+  border-color: #3a3834;
+  background: linear-gradient(180deg, #e8e4dc, #a8a29a);
+}
+
+/* Theme picker in Setup */
+.kit-float .theme-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--kit-chrome-border);
+}
+
+.kit-float .theme-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.kit-float .theme-row > span {
+  min-width: 4.5rem;
+  color: var(--kit-face-muted);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  font-size: 10px;
+}
+
+.kit-float .theme-swatch {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 2px solid var(--kit-chrome-border);
+  padding: 0;
+  cursor: pointer;
+  background: #333;
+}
+
+.kit-float .theme-swatch[data-body="black"] {
+  background: linear-gradient(135deg, #42474d, #16191d);
+}
+
+.kit-float .theme-swatch[data-body="silver"] {
+  background: linear-gradient(165deg, #f7f6f3, #a8a49c);
+}
+
+.kit-float .theme-swatch[data-lcd="green"] {
+  background: linear-gradient(#bbdc63, #91b74a);
+}
+
+.kit-float .theme-swatch[data-lcd="blue"] {
+  background: linear-gradient(#7ec8f5, #3a8fd4);
+}
+
+.kit-float .theme-swatch[data-lcd="red"] {
+  background: linear-gradient(#f09080, #c44a3a);
+}
+
+.kit-float .theme-swatch[data-lcd="amber"] {
+  background: linear-gradient(160deg, #2a2c30 40%, #121416);
+  box-shadow: inset 0 0 0 3px #ff9a3c55;
+}
+
+.kit-float .compact .theme-controls {
+  margin-top: 10px;
+  padding-top: 8px;
+  gap: 8px;
+}
+
+.kit-float .compact .theme-swatch {
+  width: 24px;
+  height: 24px;
+}
+
+.kit-float .theme-row-highlight #highlight-color {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 2px solid var(--kit-chrome-border);
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.kit-float .theme-row-highlight #highlight-color::-webkit-color-swatch-wrapper {
+  padding: 2px;
+}
+
+.kit-float .theme-row-highlight #highlight-color::-webkit-color-swatch {
+  border: none;
+  border-radius: 4px;
+}
+
+.kit-float .theme-reset-btn {
+  background: var(--kit-chrome-bg);
+  border: 1px solid var(--kit-chrome-border);
+  color: var(--kit-chrome-text);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.kit-float .theme-reset-btn:hover:not(:disabled),
+.kit-float .theme-reset-btn:focus-visible:not(:disabled) {
+  border-color: var(--kit-select);
+  color: var(--kit-select);
+  outline: none;
+}
+
+.kit-float .theme-reset-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.kit-float .glass-mode-btn[aria-pressed="true"] {
+  border-color: var(--kit-select) !important;
+  color: var(--kit-select) !important;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--kit-select) 40%, transparent);
+}
+
+.kit-float[data-body="silver"] .theme-reset-btn,
+.kit-float .panel[data-body="silver"] .theme-reset-btn {
+  color: #141210;
+  border-color: #3a3834;
+  background:
+    repeating-linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.22) 0 1px,
+      rgba(40, 35, 30, 0.08) 1px 2px,
+      transparent 2px 4px
+    ),
+    linear-gradient(145deg, #fbf9f5 0%, #c2bbb2 100%);
+}
+
+.kit-float .compact .theme-row-highlight #highlight-color {
+  width: 24px;
+  height: 24px;
+}
+
+.kit-float .compact .theme-reset-btn {
+  padding: 4px 8px;
+  font-size: 10px;
+}

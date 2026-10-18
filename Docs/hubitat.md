@@ -15,18 +15,20 @@ A TESmart unit is **not** a bank of independent relays. Exactly one input is act
 | Layer | What you get |
 | --- | --- |
 | **TESmart Manager** (app) | Guided setup, `/compat` version check, port names on the server, push-callback registration |
-| Parent device (`TESmart Controller`) | `MediaInputSource`, refresh polling, next / previous / peek, callback-driven updates |
+| Parent device (`TESmart Controller`) | `MediaInputSource` + `Notification`, refresh polling, next / previous / peek, banners, callback-driven updates |
 | Child switches (`TESmart Input`) | One dashboard tile per port; turning one **on** selects that input (radio group) |
 
 App and drivers use the Hubitat namespace **`wbevan_tesmart`**. If you previously installed under `tesmart`, uninstall the old app/devices and install fresh (or update via HPM and recreate the Manager device).
 
 ### Push notifications (callbacks)
 
-With a recent `tesmartctl listen --http`, **TESmart Manager** can register this hub as a named callback (`name` like `Hubitat <location>`). When the switch input changes, or when local input names are updated on the server, the listener POSTs JSON (`event`: `input_changed` or `names_changed`) to Hubitat so the controller and child labels update without waiting for the next poll. `GET /callbacks/health` on the server can probe the hub with `event: health_check` (acknowledged without changing devices). Turn this on under **Push notifications** in the Manager app (requires OAuth enabled for the app — HPM sets this when `oauth` is true in the package).
+With a recent `tesmartctl listen --http`, **TESmart Manager** can register this hub as a named callback (`name` like `Hubitat <location>`). When the switch input changes, or when local input names are updated on the server, the listener POSTs JSON (`event`: `input_changed` or `names_changed`) to Hubitat so the controller and child labels update without waiting for the next poll. The same channel receives `event: banner` when an LCD message is shown or cleared (`POST /banner` / `POST /api/banner` / `tesmartctl banner`); the controller updates `bannerText` / `bannerShowing` / `bannerMode`. `GET /callbacks/health` on the server can probe the hub with `event: health_check` (acknowledged without changing devices). Turn this on under **Push notifications** in the Manager app (requires OAuth enabled for the app — HPM sets this when `oauth` is true in the package).
+
+Browser kit/panel clients do **not** use this outbound POST path. They open `GET /api/events` (Server-Sent Events) for the same logical events. See [`listener.md`](listener.md#server-sent-events-kit--panel).
 
 ## Prerequisites
 
-On a host Hubitat can reach, run a recent enough `tesmartctl` (this Hubitat package checks `/compat` and requires **0.0.7.9+**):
+On a host Hubitat can reach, run a recent enough `tesmartctl` (this Hubitat package **1.6.0** checks `/compat` and requires **0.0.7.10+**):
 
 ```bash
 tesmartctl listen --http 0.0.0.0:8080
@@ -38,7 +40,7 @@ Confirm the server version:
 curl http://192.168.1.20:8080/version
 curl -X POST http://192.168.1.20:8080/compat \
   -H 'Content-Type: application/json' \
-  -d '{"min_server":"0.0.7.9","client":"hubitat"}'
+  -d '{"min_server":"0.0.7.10","client":"hubitat","client_version":"1.6.0"}'
 ```
 
 Optional local names (shown in Hubitat as `2 — Office`):
@@ -88,7 +90,7 @@ Packaging follows the [HPM developer documentation](https://hubitatpackagemanage
 
 1. **Apps** → **Add User App** → **TESmart Manager** (skipped if HPM already opened it)
 2. Read the intro (banner loads from GitHub).
-3. **Configure server host & port** — enter the machine running `tesmartctl`, run the connection test. Manager calls `POST /compat` first (needs **tesmartctl 0.0.7.9+**); an old server fails with an upgrade message.
+3. **Configure server host & port** — enter the machine running `tesmartctl`, run the connection test. Manager calls `POST /compat` first (needs **tesmartctl 0.0.7.10+**); an old server fails with an upgrade message. The Manager main screen shows Hubitat package **1.6.0**.
 4. **Edit port names** — **Refresh Names**, edit the fields, then **Done**. Hubitat writes them with `POST /names` to the tesmartctl server. You can still use `tesmartctl name set N Label` on the host; name changes also notify Hubitat when callbacks are enabled.
 5. Set the device label, leave **Create child switch per input** on if you want dashboard tiles.
 6. Leave **Push notifications** on so Manager registers a named callback with the server (OAuth access token).
@@ -107,6 +109,11 @@ After the next device **Refresh** (or a callback), children labeled `Input N` ar
 | Preferences → **Peek at input** / **Peek seconds** | Device-page peek; optional duration overrides the server default |
 | `setInputSource` / `peek` (Commands) | For Rule Machine / automations (string like `2` or `2 - New Mac`). Not a live named dropdown — Hubitat cannot rebuild command ENUM lists |
 | `nextInput` / `previousInput` | `GET /next` / `GET /previous` |
+| `setPeekFollow` | `GET /peek/off` · `/peek/once` · `/peek/always` (optional seconds for once/always) |
+| Preferences → **Peek follow mode** | Same as `setPeekFollow` from the device page |
+| `deviceNotification` (Notification) | Same as timed/sticky banner — pick this device in Rule Machine **Notify** / Notifications app |
+| `showBanner` / `showStickyBanner` | `POST /banner` timed or sticky LCD message (kit/panel) |
+| `bannerAction` | Device-page dropdown + Run: **dismiss** (hide, keep history), **reshow** (last message again), **clear** (erase message **and** history) |
 | `createChildInputs` / `deleteChildInputs` | manage child devices |
 
 | Attribute | Meaning |
@@ -117,6 +124,11 @@ After the next device **Refresh** (or a callback), children labeled `Input N` ar
 | `previousInput` | Prior port when known (from callbacks / switches) |
 | `activeName` | Local / override name when known |
 | `inputCount` | 8 or 16 |
+| `peekFollow` | `off` / `once` / `always` (from `/status` or `setPeekFollow`) |
+| `bannerText` | Last / current LCD message text |
+| `bannerShowing` | `true` / `false` |
+| `bannerMode` | `timed` / `sticky` / `none` |
+| `bannerRemaining` | Seconds left when timed and showing (else `0`) |
 | `healthStatus` | `online` / `offline` |
 | `lastChangeSource` | `command` / `unsolicited` (from callbacks when present) |
 | `lastRefresh` | Timestamp of last successful status apply |
@@ -141,6 +153,9 @@ Add child devices as Switch tiles. The lit tile is the active input.
 
 - Select a port: `setInputSource` with `3` or `3 — Office` (driver sends the port number)
 - Condition: attribute `activeInput`
+- Notify / Notifications app: choose the **TESmart Controller** as a notification device (LCD on kit/panel). Preferences control sticky vs timed seconds.
+- Banner: `showBanner` / `showStickyBanner`; then `bannerAction` with dismiss / reshow / clear
+- Peek follow: `setPeekFollow` with `once`, `always`, or `off`
 
 ## Server routes used
 
@@ -151,9 +166,11 @@ Add child devices as Switch tiles. The lit tile is the active input.
 | Select input | `GET /input/N` |
 | Next / previous | `GET /next`, `GET /previous` |
 | Peek | `GET /peek/N` |
+| Peek follow | `GET /peek/off`, `/peek/once`, `/peek/always` |
+| Banner | `POST /banner` (`text` / `sticky` / `dismiss` / `show` / `clear`) |
 | Load / save port names | `GET /names`, `POST /names` |
 | Register / remove push URL | `POST /callbacks`, `POST /callbacks/remove` |
-| Server → Hubitat push | `POST` to Manager `/tesmart-event` (`input_changed`, `names_changed`, `health_check`) |
+| Server → Hubitat push | `POST` to Manager `/tesmart-event` (`input_changed`, `names_changed`, `banner`, `health_check`) |
 
 Full route list: [`listener.md`](listener.md).
 

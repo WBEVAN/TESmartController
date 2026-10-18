@@ -107,6 +107,8 @@ JSON is the default. Add `format=text` to get plain text: a bare input number, o
 | `/set/3` | same as `/input?set=3` | `{"active_input": 3, "requested": 3}` |
 | `/status` | active input and saved LAN settings | see below (includes `"version"`) |
 | `/status?network=0` | active input only | `"network": null` plus `"version"` |
+| `/banner` | last LCD message + history for kit / panel / callbacks (also `tesmartctl banner`) | GET `banner` + `banner_history` (≤10, with `at` / `at_iso`); POST `{"text","seconds"}` or `{"sticky":true}`; POST `{"show":true}` / `{"dismiss":true}` / `{"clear":true}` |
+| `/events` | Server-Sent Events for browser clients (same payloads as callbacks) | long-lived `text/event-stream`; named events `hello`, `input_changed`, `names_changed`, `banner` |
 | `/version` | package name, version, feature tags | `{"name":"tesmartctl","version":"0.0.7.9","features":[…]}` |
 | `/compat` | GET or POST compatibility check | `{"min_server":"0.0.7.9","features":["callbacks"]}` → `{"compatible":true,…}` |
 | `/names` | GET local input names | `{"names": {"2": "Office"}}` |
@@ -144,6 +146,17 @@ curl -X POST http://127.0.0.1:8080/compat \
 ```
 
 `compatible` is false when the server is older than `min_server` or a requested feature tag is missing. Unknown HTTP routes return **404** with `"error": "not supported"` (and the path/method) instead of a bare “unknown route”.
+
+### Server-Sent Events (kit / panel)
+
+Browsers cannot register as outbound callback URLs. With `--panel`, the kit and control panel open `GET /api/events` (plain listener also exposes `GET /events`) and receive push frames as soon as the active input, local names, or LCD banner changes. Event bodies match the Hubitat callback JSON (`event`, `active_input`, `banner`, …); `banner` frames also include `banner_history` when available. Named SSE events: `hello` (on connect), `input_changed`, `names_changed`, `banner`. A `: keepalive` comment is sent about every 20 seconds. Feature tag: `sse`.
+
+```bash
+# watch frames (Ctrl-C to stop)
+curl -N http://127.0.0.1:8080/events
+```
+
+SSE talks to the **listener**, not the HDMI switch. While the switch is unreachable, kit/panel still keep the EventSource open and poll `/api/state` about every **2 seconds** so they reconnect quickly when the box comes back. When online with SSE healthy, that poll slows to about **30 seconds** as a safety net. Hubitat continues to use outbound `POST /callbacks` URLs; it does not use `/events`.
 
 ### Change callbacks
 
@@ -192,7 +205,31 @@ Name change (panel, Hubitat Manager, or `POST /names`):
 }
 ```
 
-`source` is `unsolicited` for switch-originated input reports and `command` when this listener changed the input or names. The same URL registered twice stays a single entry (a new `name` updates the label). Entries are stored as JSON objects in the env file (`TESMART_CALLBACKS`); older plain-URL lists still load. The POST timeout (`TESMART_CALLBACK_TIMEOUT`) also lives in the env file.
+LCD banner (`POST /banner`, `POST /api/banner`, or `tesmartctl banner "…"`; Hubitat updates banner attributes on this event):
+
+```json
+{
+  "event": "banner",
+  "banner": {
+    "id": 3,
+    "text": "Door unlocked",
+    "at": 1710000000.123,
+    "mode": "timed",
+    "seconds": 8,
+    "until": 1710000008.123,
+    "remaining": 8.0,
+    "showing": true
+  },
+  "source": "command",
+  "endpoint": "tcp://172.16.0.222:5000",
+  "input_count": 8,
+  "at": "2026-03-17T12:00:00Z"
+}
+```
+
+The last message is kept after it leaves the LCD (`showing: false`). `mode` is `timed` or `sticky`. `POST {"dismiss": true}` hides it for every client that follows the listener (kit, panel, Hubitat); `POST {"show": true}` puts it back; `POST {"clear": true}` erases it and history (`banner: null`, `banner_history: []`). History (up to 10, with `at` / `at_iso`) is stored in the listener env file, so after a restart kits still receive `banner` / `banner_history` and can show the message icons — the LCD does not auto-pop the last message until the client shows it or a new one is sent. `/api/state` includes the same fields.
+
+`source` is `unsolicited` for switch-originated input reports and `command` when this listener changed the input, names, or banner. The same URL registered twice stays a single entry (a new `name` updates the label). Entries are stored as JSON objects in the env file (`TESMART_CALLBACKS`); older plain-URL lists still load. The POST timeout (`TESMART_CALLBACK_TIMEOUT`) also lives in the env file.
 
 `GET` / `POST /callbacks/health` POSTs `{"event":"health_check","ok":true}` to every registered URL and returns per-client `ok` / `status` / `ms` (or `error`). Clients should answer with HTTP 2xx and ignore the body for state changes. `GET /callbacks` also includes a `last` object per entry when this process has delivered (or failed to deliver) an event or health probe since it started.
 

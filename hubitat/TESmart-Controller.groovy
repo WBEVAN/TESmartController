@@ -15,7 +15,7 @@ import groovy.transform.Field
 import groovy.json.JsonSlurper
 import groovy.json.JsonBuilder
 
-@Field static final String DRIVER_VERSION = "1.5.3"
+@Field static final String DRIVER_VERSION = "1.6.0"
 @Field static final String CHILD_NAMESPACE = "wbevan_tesmart"
 @Field static final String CHILD_TYPE = "TESmart Input"
 @Field static final String BUILTIN_CHILD_NAMESPACE = "hubitat"
@@ -37,6 +37,8 @@ metadata {
         capability "Sensor"
         capability "Refresh"
         capability "MediaInputSource"
+        // Lets Rule Machine / Notifications send text to the kit/panel LCD via deviceNotification.
+        capability "Notification"
 
         attribute "activeInput", "number"
         attribute "previousInput", "number"
@@ -47,6 +49,11 @@ metadata {
         attribute "healthStatus", "enum", ["online", "offline"]
         attribute "lastRefresh", "string"
         attribute "lastChangeSource", "string"
+        attribute "peekFollow", "enum", ["off", "once", "always"]
+        attribute "bannerText", "string"
+        attribute "bannerShowing", "enum", ["true", "false"]
+        attribute "bannerMode", "enum", ["timed", "sticky", "none"]
+        attribute "bannerRemaining", "number"
 
         // STRING (not ENUM): Hubitat freezes command ENUM lists at install time, so they
         // never pick up server names. Use Preferences → Switch/Peek for named dropdowns.
@@ -66,6 +73,33 @@ metadata {
             ],
             [name: "Seconds", type: "NUMBER", description: "Optional peek duration in seconds"]
         ]
+        command "setPeekFollow", [
+            [
+                name: "Mode*",
+                type: "ENUM",
+                constraints: ["off", "once", "always"],
+                description: "off = stick; once = next change peeks; always = every change peeks"
+            ],
+            [name: "Seconds", type: "NUMBER", description: "Optional peek duration for follow peeks (1–600)"]
+        ]
+        command "showBanner", [
+            [name: "Text*", type: "STRING", description: "LCD message on kit/panel (max ~160 chars)"],
+            [name: "Seconds", type: "NUMBER", description: "Timed display 1–60; blank = server default (8)"]
+        ]
+        command "showStickyBanner", [
+            [name: "Text*", type: "STRING", description: "Keep showing until dismiss (bannerAction)"]
+        ]
+        // One dropdown + Run on the device page (dismiss / reshow / clear).
+        command "bannerAction", [[
+            name: "Action*",
+            type: "ENUM",
+            constraints: [
+                "dismiss — hide, keep history",
+                "reshow — show last again",
+                "clear — erase message AND history"
+            ],
+            description: "Dismiss hides on kit/panel; reshow restores last; clear wipes message and all history"
+        ]]
         command "createChildInputs"
         command "deleteChildInputs"
         // configureFromApp / setNameOverrides are methods for TESmart Manager (not shown as commands)
@@ -82,6 +116,16 @@ metadata {
             options: liveInputOptions(), submitOnChange: true
         input name: "uiPeekSeconds", type: "number", title: "Peek seconds (optional)",
             description: "How long Peek lasts; blank uses the server default", range: "1..600"
+        input name: "uiPeekFollow", type: "enum", title: "Peek follow mode",
+            description: "Off = input changes stick; Once = next change peeks then sticks; Always = every change peeks until Off",
+            options: ["off": "Off (stick)", "once": "Once", "always": "Always"],
+            submitOnChange: true
+        input name: "notifySticky", type: "bool", title: "Notifications stay until dismissed",
+            description: "When on, Notification / deviceNotification uses a sticky LCD banner; when off, timed (see seconds below)",
+            defaultValue: false
+        input name: "notifySeconds", type: "number", title: "Notification seconds (timed)",
+            description: "How long Notification messages stay on the kit LCD when not sticky; blank = server default (8)",
+            range: "1..60"
         input name: "listenerHost", type: "text", title: "Server host / IP",
             description: "Host running ``tesmartctl listen --http`` (reachable from Hubitat)",
             required: true, defaultValue: "192.168.1.20"
@@ -154,6 +198,7 @@ void updated() {
     // selection is not lost, then clear so the control can be used again.
     String switchSel = settings.uiSwitchInput?.toString()?.trim()
     String peekSel = settings.uiPeekInput?.toString()?.trim()
+    String peekFollowSel = settings.uiPeekFollow?.toString()?.trim()
     BigDecimal peekSecs = settings.uiPeekSeconds as BigDecimal
     if (switchSel) {
         clearUiEnum("uiSwitchInput")
@@ -162,6 +207,10 @@ void updated() {
     if (peekSel) {
         clearUiEnum("uiPeekInput")
         peek(peekSel, peekSecs)
+    }
+    if (peekFollowSel) {
+        clearUiEnum("uiPeekFollow")
+        setPeekFollow(peekFollowSel, peekSecs)
     }
     initialize()
 }
@@ -241,6 +290,101 @@ void peek(BigDecimal input, BigDecimal seconds = null) {
     peek(input?.toPlainString(), seconds)
 }
 
+/**
+ * Arm peek-follow on the listener: ``off``, ``once``, or ``always``.
+ * Optional seconds overrides the duration used for those follow peeks.
+ */
+void setPeekFollow(String mode, BigDecimal seconds = null) {
+    String normalized = (mode ?: "").trim().toLowerCase()
+    if (!(normalized in ["off", "once", "always"])) {
+        logWarn "setPeekFollow: mode must be off, once, or always (got '${mode}')"
+        return
+    }
+    String path = "/peek/${normalized}"
+    if (seconds != null && normalized != "off") {
+        path += "?seconds=${seconds.intValue()}"
+    }
+    httpGetAsync(path, "handlePeekFollowResponse", [action: "peekFollow", mode: normalized])
+}
+
+/**
+ * Hubitat Notification capability — used by Rule Machine “Notify”, Notifications
+ * app, etc. Shows the text on the kit/panel LCD (same store as showBanner).
+ */
+void deviceNotification(String text) {
+    String message = text?.trim()
+    if (!message) {
+        logWarn "deviceNotification: empty message"
+        return
+    }
+    if (notifySticky) {
+        showStickyBanner(message)
+        return
+    }
+    BigDecimal seconds = settings.notifySeconds as BigDecimal
+    showBanner(message, seconds)
+}
+
+/** Timed LCD banner on kit/panel (needs ``tesmartctl listen --http``). */
+void showBanner(String text, BigDecimal seconds = null) {
+    String message = text?.trim()
+    if (!message) {
+        logWarn "showBanner: text is required"
+        return
+    }
+    Map body = [text: message]
+    if (seconds != null) {
+        body.seconds = seconds.intValue()
+    }
+    httpPostAsync("/banner", body, "handleBannerResponse", [action: "showBanner"])
+}
+
+/** Sticky LCD banner until dismiss (bannerAction → dismiss, or clear). */
+void showStickyBanner(String text) {
+    String message = text?.trim()
+    if (!message) {
+        logWarn "showStickyBanner: text is required"
+        return
+    }
+    httpPostAsync("/banner", [text: message, sticky: true], "handleBannerResponse", [action: "showStickyBanner"])
+}
+
+/**
+ * Device-page dropdown: dismiss / reshow / clear.
+ * Also accepts short tokens: ``dismiss``, ``reshow``, ``clear`` (Rule Machine).
+ */
+void bannerAction(String action) {
+    String token = (action ?: "").trim().toLowerCase()
+    if (token.startsWith("dismiss")) {
+        dismissBanner()
+        return
+    }
+    if (token.startsWith("reshow") || token.startsWith("show")) {
+        reshowBanner()
+        return
+    }
+    if (token.startsWith("clear")) {
+        clearBanner()
+        return
+    }
+    logWarn "bannerAction: choose dismiss, reshow, or clear (got '${action}')"
+}
+
+/** Hide LCD message; keep last message and history. */
+void dismissBanner() {
+    httpPostAsync("/banner", [dismiss: true], "handleBannerResponse", [action: "dismissBanner"])
+}
+
+/** Put the last banner back on the LCD (if one exists). */
+void reshowBanner() {
+    httpPostAsync("/banner", [show: true], "handleBannerResponse", [action: "reshowBanner"])
+}
+
+/** Erase the LCD message and the entire banner history on the listener. */
+void clearBanner() {
+    httpPostAsync("/banner", [clear: true], "handleBannerResponse", [action: "clearBanner"])
+}
+
 void deleteChildInputs() {
     getChildDevices()?.each { child ->
         logInfo "removing child ${child.deviceNetworkId}"
@@ -307,6 +451,30 @@ private void httpGetAsync(String path, String callback, Map data = [:]) {
     }
 }
 
+private void httpPostAsync(String path, Map body, String callback, Map data = [:]) {
+    String base = listenerBaseUrl()
+    if (!base) {
+        logWarn "server host is not configured"
+        sendEvent(name: "healthStatus", value: "offline")
+        return
+    }
+    String payload = new JsonBuilder(body ?: [:]).toString()
+    Map params = [
+        uri                : "${base}${path}",
+        contentType        : "application/json",
+        requestContentType : "application/json",
+        body               : payload,
+        timeout            : 20
+    ]
+    logDebug "POST ${params.uri} ${payload}"
+    try {
+        asynchttpPost(callback, params, data)
+    } catch (Exception e) {
+        logWarn "HTTP POST failed: ${e.message}"
+        sendEvent(name: "healthStatus", value: "offline")
+    }
+}
+
 void handleStatusResponse(response, Map data = [:]) {
     if (response.hasError()) {
         logWarn "status error: ${response.getErrorMessage()}"
@@ -342,10 +510,64 @@ void handlePeekResponse(response, Map data = [:]) {
     runIn(2, "refresh")
 }
 
+void handlePeekFollowResponse(response, Map data = [:]) {
+    if (response.hasError()) {
+        logWarn "peek follow error: ${response.getErrorMessage()}"
+        sendEvent(name: "healthStatus", value: "offline")
+        return
+    }
+    Integer status = response.getStatus()
+    if (status != 200) {
+        logWarn "peek follow HTTP ${status}: ${response.getErrorData() ?: response.getData()}"
+        sendEvent(name: "healthStatus", value: "offline")
+        return
+    }
+    def json = response.json
+    if (json == null) {
+        try {
+            json = new JsonSlurper().parseText(response.getData() as String)
+        } catch (ignored) {
+            logWarn "peek follow: could not parse JSON body"
+            return
+        }
+    }
+    sendEvent(name: "healthStatus", value: "online")
+    applyPeekFollow(json instanceof Map ? (json as Map) : [:], data?.mode?.toString())
+    logInfo "peek follow → ${device.currentValue('peekFollow')}"
+}
+
+void handleBannerResponse(response, Map data = [:]) {
+    if (response.hasError()) {
+        logWarn "banner error: ${response.getErrorMessage()}"
+        sendEvent(name: "healthStatus", value: "offline")
+        return
+    }
+    Integer status = response.getStatus()
+    if (status != 200) {
+        logWarn "banner HTTP ${status}: ${response.getErrorData() ?: response.getData()}"
+        sendEvent(name: "healthStatus", value: "offline")
+        return
+    }
+    def json = response.json
+    if (json == null) {
+        try {
+            json = new JsonSlurper().parseText(response.getData() as String)
+        } catch (ignored) {
+            logWarn "banner: could not parse JSON body"
+            return
+        }
+    }
+    sendEvent(name: "healthStatus", value: "online")
+    if (json instanceof Map) {
+        applyBannerState((json as Map).banner)
+    }
+    logDebug "banner action=${data?.action} showing=${device.currentValue('bannerShowing')} text=${device.currentValue('bannerText')}"
+}
+
 /**
  * Called by TESmart Manager when tesmartctl POSTs a callback
- * (``input_changed`` or ``names_changed``).
- * ``jsonText`` is the callback body (previous, active_input, names, source, …).
+ * (``input_changed``, ``names_changed``, or ``banner``).
+ * ``jsonText`` is the callback body (previous, active_input, names, banner, source, …).
  */
 void handleInputChanged(String jsonText) {
     if (!jsonText?.trim()) {
@@ -368,12 +590,17 @@ void handleInputChanged(String jsonText) {
         logDebug "health_check callback ignored on device"
         return
     }
+    if (json.source) {
+        sendEvent(name: "lastChangeSource", value: json.source.toString())
+    }
+    if (eventKind == "banner") {
+        applyBannerState(json.banner)
+        logInfo "banner via callback: showing=${device.currentValue('bannerShowing')} text=${device.currentValue('bannerText')}"
+        return
+    }
     Integer previous = (json.previous ?: json.previous_input ?: json.previousInput) as Integer
     if (previous != null) {
         sendEvent(name: "previousInput", value: previous)
-    }
-    if (json.source) {
-        sendEvent(name: "lastChangeSource", value: json.source.toString())
     }
     applyStatus(json, [action: "callback", event: eventKind])
     if (eventKind == "names_changed") {
@@ -427,11 +654,75 @@ private void applyStatus(Map json, Map data = [:]) {
     }
     sendEvent(name: "lastRefresh", value: new Date().format("yyyy-MM-dd HH:mm:ss", location.timeZone))
 
+    // Banner + peek-follow travel on GET /status (and /api/state); keep Hubitat in sync.
+    if (json.containsKey("banner")) {
+        applyBannerState(json.banner)
+    }
+    applyPeekFollow(json, null)
+
     if (createChildren) {
         syncChildren(active)
     }
 
     logDebug "applyStatus active=${active} name=${activeName} count=${count} names=${names} action=${data?.action}"
+}
+
+/** Apply LCD banner attributes from a status/callback ``banner`` object (or null when cleared). */
+private void applyBannerState(Object bannerObj) {
+    if (bannerObj == null) {
+        sendEvent(name: "bannerText", value: "")
+        sendEvent(name: "bannerShowing", value: "false")
+        sendEvent(name: "bannerMode", value: "none")
+        sendEvent(name: "bannerRemaining", value: 0)
+        return
+    }
+    if (!(bannerObj instanceof Map)) {
+        logWarn "applyBannerState: expected a map or null"
+        return
+    }
+    Map banner = bannerObj as Map
+    String text = (banner.text ?: "").toString()
+    boolean showing = banner.showing == true || banner.showing?.toString()?.toLowerCase() == "true"
+    String mode = (banner.mode ?: (showing ? "timed" : "none")).toString()
+    if (!(mode in ["timed", "sticky"])) {
+        mode = showing ? "timed" : "none"
+    }
+    Integer remaining = null
+    if (banner.remaining != null) {
+        try {
+            remaining = banner.remaining as Integer
+        } catch (ignored) {
+            remaining = null
+        }
+    }
+    sendEvent(name: "bannerText", value: text)
+    sendEvent(name: "bannerShowing", value: showing ? "true" : "false")
+    sendEvent(name: "bannerMode", value: showing ? mode : (text ? mode : "none"))
+    if (remaining != null) {
+        sendEvent(name: "bannerRemaining", value: remaining)
+    } else if (!showing) {
+        sendEvent(name: "bannerRemaining", value: 0)
+    }
+}
+
+/** Read peek-follow from ``peek.follow``, top-level ``peek_follow``, or an explicit mode. */
+private void applyPeekFollow(Map json, String fallbackMode) {
+    String mode = null
+    if (json?.peek instanceof Map && (json.peek as Map).follow != null) {
+        mode = (json.peek as Map).follow.toString()
+    } else if (json?.peek_follow != null) {
+        mode = json.peek_follow.toString()
+    } else if (fallbackMode) {
+        mode = fallbackMode
+    }
+    if (!mode) {
+        return
+    }
+    mode = mode.trim().toLowerCase()
+    if (!(mode in ["off", "once", "always"])) {
+        return
+    }
+    sendEvent(name: "peekFollow", value: mode)
 }
 
 /**

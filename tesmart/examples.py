@@ -121,6 +121,18 @@ EXAMPLES: dict[str, list[tuple[str, str]]] = {
         ("tesmartctl name set 2 Office", "label input 2"),
         ('tesmartctl name set 1 "Living room"', "labels can contain spaces"),
     ],
+    "banner": [
+        ('tesmartctl banner "Door unlocked"', "show on the kit/panel LCD for 8 seconds (needs listen --http)"),
+        ("tesmartctl banner Meeting in 5 --seconds 12", "timed message; words join into one line"),
+        ('tesmartctl banner "Stay on camera" --sticky', "keep showing until dismissed"),
+        ("tesmartctl banner", "print the last message"),
+        ("tesmartctl banner --history", "list up to 10 recent messages"),
+        ("tesmartctl banner --show", "put the last message back on the LCD"),
+        ("tesmartctl banner --dismiss", "hide it; keep history"),
+        ("tesmartctl banner --clear", "erase last message and history"),
+        ("tesmartctl banner --listen 7272 Hello", "talk to a listener on another port"),
+        ("tesmartctl --json banner Hello", "same, as JSON"),
+    ],
     "raw": [
         ("tesmartctl raw AA BB 03 10 00 EE", "query active input; reply AA BB 03 11 <n-1> EE"),
         ("tesmartctl raw AA BB 03 01 03 EE", "switch to input 3"),
@@ -149,6 +161,10 @@ EXAMPLES: dict[str, list[tuple[str, str]]] = {
         ("curl http://127.0.0.1:8080/peek/off", "plain input changes stick again"),
         ("curl http://127.0.0.1:8080/status", "input, names and LAN settings"),
         ("curl 'http://127.0.0.1:8080/input/3?format=text'", "plain `3` instead of JSON"),
+        (
+            "curl -X POST http://127.0.0.1:8080/banner -H 'Content-Type: application/json' -d '{\"text\":\"Door unlocked\",\"seconds\":8}'",
+            "LCD banner message (also: tesmartctl banner …)",
+        ),
         ("tesmartctl listen --http 0.0.0.0:8080", "HTTP on every interface; other devices use this computer's address (no authentication)"),
         ("tesmartctl listen --http 8080 --panel", "also serve /panel and the floating /kit UI"),
         ("curl http://127.0.0.1:8080/api/state", "panel API: everything the panel shows, as JSON"),
@@ -164,6 +180,7 @@ EXAMPLES: dict[str, list[tuple[str, str]]] = {
         ),
         ("tesmartctl kit --prefer webview", "force frameless pywebview"),
         ("tesmartctl kit --prefer chromium", "Chrome/Edge --app (still has OS title bar on macOS)"),
+        ("tesmartctl kit --fresh", "ignore the remembered position, size, on-top and peek mode for this launch"),
     ],
 }
 
@@ -174,6 +191,7 @@ GLOBAL_EXAMPLES: list[tuple[str, str]] = [
     ("tesmartctl name set 2 Office", "label input 2 locally"),
     ("tesmartctl config set host 192.168.1.50", "save the switch address"),
     ("tesmartctl listen --http 8080", "control via http://127.0.0.1:8080/input/3"),
+    ('tesmartctl banner "Door unlocked"', "LCD message on kit/panel (needs listen --http)"),
     ("tesmartctl <command> --help", "flags and more examples for one command"),
     ("tesmartctl examples", "every example in one place"),
 ]
@@ -204,7 +222,7 @@ def all_examples_text() -> str:
     sections = []
     for command in (
         "status", "input", "rotate", "next", "previous", "peek", "cycle", "buzzer", "led", "autodetect",
-        "net", "config", "name", "raw", "monitor", "listen", "kit",
+        "net", "config", "name", "banner", "raw", "monitor", "listen", "kit",
     ):
         sections.append(f"{command}\n{format_examples(EXAMPLES[command])}")
     return "\n\n".join(sections)

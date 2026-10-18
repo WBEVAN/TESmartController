@@ -12,7 +12,7 @@ tesmartctl listen --http 8080 --panel
 
 ### Floating UI kit (`/kit`)
 
-The floating kit is the primary day-to-day surface: HDMI-style deck, Setup door for peek/cycle, Compact mode, and a frameless desktop window via `tesmartctl kit`. It talks to the same `/api` routes as `/panel`.
+The floating kit is the primary day-to-day surface: HDMI-style deck, Setup door for peek/cycle, Compact mode, and a frameless desktop window via `tesmartctl kit`. It talks to the same `/api` routes as `/panel`, and both subscribe to `GET /api/events` (Server-Sent Events) for live input, name, and banner updates. A slower `/api/state` poll remains as a fallback; while the HDMI switch is offline the poll runs about every 2 seconds so the UI reconnects quickly.
 
 ![Floating kit](images/kit.png)
 
@@ -22,7 +22,40 @@ tesmartctl listen --http 0.0.0.0:8080 --panel
 tesmartctl kit --listen 8080          # frameless on this machine → http://127.0.0.1:8080/kit?app=1
 ```
 
-**Pop out** on the kit page (or **Floating kit** on `/panel`) calls `POST /api/kit-window` and opens the frameless window on the **listener host**. Preferred backend is `pywebview` — no OS title bar. Fallback is Chromium/Chrome/Edge `--app` (no address bar; macOS still keeps a title bar). Drag the kit header (grip) to move. **Pin** sets always-on-top in the webview.
+**Pop out** on the kit page (or **Floating kit** on `/panel`) calls `POST /api/kit-window` and opens the frameless window on the **listener host**. Preferred backend is `pywebview` — no OS title bar, and the window is transparent so only the rounded device shows (macOS draws the shadow around its shape). The kit window itself is cross-platform. On macOS only, Dock branding uses a small optional `TESmart Kit.app` helper (`tesmart/kit_macos.py`, under `~/.config/tesmartctl/`) because a bare Python process cannot replace the document icon — Linux/Windows keep the normal `python -m tesmart.kit_window` launch.
+
+#### Static asset cache
+
+`/static/...` responses are cached by the kit window (and browsers) for a week (`Cache-Control: public, max-age=604800, immutable`). Every static URL is stamped with `?v=<tesmartctl version>` from the HTML shell, so a server upgrade changes the URL and forces a re-download. `/kit` and `/panel` HTML stay `no-cache` so the new token is always seen. `tesmartctl kit --fresh` (or `?fresh=1`) clears the native HTTP cache and uses a one-shot token so assets reload even when the package version is unchanged. API routes remain `no-store`. Fallback is Chromium/Chrome/Edge `--app` (no address bar; macOS still keeps a title bar). Drag the kit header (grip) to move. The header **power** control closes the frameless window (it does not power the switch). **Always on top** lives under Setup. A first launch opens in **Compact**; after that the kit reopens the way you left it (see *Remembered kit settings* below). The monitor button shows the current size; click it to cycle **Compact → Mini → Full** (Mini is LCD with Up/Down input buttons beside it). Changing size closes Setup. Resize floors follow the view ladder: Full cannot go below Compact’s snap size, Compact cannot go below Mini, and Mini keeps its own snap as the floor. Switching view moves the limit with it. Drag any edge bigger and the device's border grows to meet it — the rounded panel always touches all four sides of the window, so there is never a transparent gap between the device and the edge you dragged. You can widen the window freely: the deck fills the width, input keys keep a fixed size, and when there is room they sit on a single row. On multi-monitor setups (including a portrait display) the window stays clamped to the screen it is on when Compact/Mini/Expand snaps the size.
+
+#### Remembered kit settings
+
+The kit remembers, per machine:
+
+| Setting | Restored on next launch |
+|---|---|
+| Window position | Top-left corner, if that spot is still on a connected display |
+| Always on top | On or off |
+| View size | Compact, Mini, or Full |
+| Peek-follow | **Always** is re-armed if the listener has it off; **Once** is one-shot and not remembered |
+| Body colour | Charcoal black (default) or metallic silver |
+| LCD colour | Green (default), blue, red, or dark with orange phosphor |
+| Highlight colour | Optional custom `#RRGGBB`; **Default** in Setup restores the LCD match |
+| LCD glass | **Matrix** (default mesh), **Phosphor** (mesh + colour bleed in glyphs), or **Off** |
+
+The active input key keeps the metal face artwork and shows an inset ring plus numeral and monitor glyph in the highlight colour (LCD match by default, or a custom colour from Setup). Setup toggles and theme swatches use that same colour. On the silver body, chrome and input keys are raised brushed metal with dark ink so they stay readable on the fascia. LCD **Glass** in Setup chooses the look: **Matrix** is a visible pixel grill over solid type; **Phosphor** adds a soft LCD-colour glow on the text; **Off** is plain glass. Glyphs are never punched into dots (that went unreadable when the window was large).
+
+The peek duration is already stored by the listener in its env file, so it is shared by every client.
+
+The frameless window keeps these in `~/.config/tesmartctl/kit.json` (pywebview clears browser storage between launches). Browser tabs, popups, and Chromium `--app` windows use the browser’s `localStorage`.
+
+If the kit opens somewhere odd or in a bad state, start it with saved settings ignored:
+
+```bash
+tesmartctl kit --fresh                                 # or: tesmartctl kit 'http://…/kit?app=1' --fresh
+```
+
+`--fresh` opens with defaults (Compact, under the pointer, not on top, no peek re-arm). Anything you change in that session is saved over the old settings. In a browser, add `fresh=1` to the URL (`/kit?fresh=1`) for the same effect. Deleting `kit.json` resets it permanently.
 
 #### Launch from another machine
 
@@ -65,6 +98,7 @@ Replace `192.168.1.20:8080` with the listener’s address. There is no authentic
 | Section | What it does | Where it is stored |
 | --- | --- | --- |
 | Inputs | One button per input. The active input is highlighted and named. | The switch |
+| LCD message | Dedicated **LCD message** block on `/panel`: type a line and **Send** (timed seconds or **Sticky**). **Show last**, **Dismiss**, and **Clear history** call the listener so the floating kit updates too. Recent messages (up to 10; the 11th drops the oldest) appear under the compose row — click one to send it again. Same from the CLI: `tesmartctl banner "…"`. History is persisted in the env file. **Dismiss** (panel / Hubitat / CLI) sets `showing: false` on the listener — kits hide that broadcast; the text stays in history. The kit message icon can still show/hide locally while the server still says showing; a server dismiss or reshow overrides that. History picks on the kit stay local to that kit. After a UI upgrade, open `/panel?fresh=1` or `/kit?fresh=1` once so the browser drops a stale cached JS. | This listener (`POST /api/banner` / `tesmartctl banner`, persisted). Panel Show / Dismiss / Clear sync via the API. |
 | Previous / Next | Step through the saved cycle | The switch, using the local cycle list |
 | Peek | With Peek on, an input button shows that input for the number of seconds beside it and then returns. The header shows a countdown and **Back now**. Changing the seconds saves the default. | This listener times it; the duration is in the env file |
 | Auto cycle | Steps to the next cycle input on the saved interval while Auto cycle is switched on. Stops when the tab is hidden or Auto cycle is switched off. | This browser tab only |
@@ -79,7 +113,7 @@ Names, cycle, and the peek duration have no Save button. They involve no switch 
 
 Peek is not a cycle: one flip there, one flip back. Clicking another input while a peek is running moves the peek to that input and restarts the countdown; the return point stays the original input. If the input is changed by anything else during the peek (front panel, remote, another client), the peek does not snap back over that choice. The auto cycle pauses while a peek is running.
 
-**Peek** beside the duration is this page only: while it is on, the input buttons on this page peek. **Once**, **Always**, and **Off** are the listener. **Once** makes the next plain input change from any client (this page, `/input/3`, another site's button) peek, then later changes stick. **Always** keeps doing that until **Off**. The armed mode is remembered in this listener process and is not written to the env file. The page highlights the mode that is armed.
+**Peek** beside the duration is this page only: while it is on, the input buttons on this page peek. **Once**, **Always**, and **Off** are the listener. **Once** makes the next plain input change from any client (this page, `/input/3`, another site's button) peek, then later changes stick. **Always** keeps doing that until **Off**. The armed mode is remembered in this listener process and is not written to the env file. The page highlights the mode that is armed. On the floating kit, click the LCD **PEEK** label (countdown column) to cycle **Off → Once → Always**; Setup still has the three separate buttons.
 
 ## Changing the address
 
@@ -101,7 +135,8 @@ The page talks to JSON routes under `/api`. `GET /api` lists them. Errors are `{
 | `GET /api/state` | | Active input, names, cycle, LAN settings, `last_sent`, and `version` |
 | `GET /api/version` | | Package version and feature tags |
 | `GET` / `POST /api/compat` | `{"min_server":"0.0.7.9","features":["callbacks"]}` | Whether this server meets the client’s requirements |
-| `GET /api/state?network=0` | | Same, without the four LAN queries. The page polls this. |
+| `GET /api/state?network=0` | | Same, without the four LAN queries. First load, and a fallback poll (~30s online with SSE; ~2s while the switch is unreachable). |
+| `GET /api/events` | | Server-Sent Events stream (`hello`, `input_changed`, `names_changed`, `banner`). Kit and panel subscribe here for live updates. Same payloads as Hubitat callbacks; `banner` includes `banner_history`. |
 | `POST /api/input` | `{"input": 3}` or `{"input": "Office"}` | `active_input` after the switch reports it |
 | `POST /api/next`, `POST /api/previous` | | Next or previous input in the saved cycle |
 | `POST /api/peek` | `{"input": 3, "seconds": 5}` | Switches now and returns at once. `/api/state` carries `peek.active` with `previous`, `peeked`, `seconds`, `remaining` until the listener has returned. |
@@ -122,6 +157,12 @@ The page talks to JSON routes under `/api`. `GET /api` lists them. Errors are `{
 | `GET` / `POST /api/callbacks/health` | | Probe each client with a `health_check` event; returns `healthy` / `unhealthy` / `results` |
 | `DELETE /api/callbacks` | `{"url": "…"}` or `{"name": "…"}` | Unregister |
 | `POST /api/callbacks/remove` | `{"url": "…"}` or `{"name": "…"}` | Same as DELETE (for clients that cannot send DELETE) |
+| `GET /api/banner` | | `banner` envelope (or null) plus `banner_history` (up to 10, newest first; each has `at` / `at_iso`) |
+| `POST /api/banner` | `{"text": "Door unlocked", "seconds": 8}` | Timed message in the name slot; max 160 chars, 1–60 s (default 8). Kept as last message after it hides. |
+| `POST /api/banner` | `{"text": "Door unlocked", "sticky": true}` | Sticky message until dismissed (kit: press active input again, or message icon / Dismiss) |
+| `POST /api/banner` | `{"show": true}` | Put the last message back on the LCD for kit / panel / SSE clients |
+| `POST /api/banner` | `{"dismiss": true}` | Hide the current message (kept in history) |
+| `POST /api/banner` | `{"clear": true}` | Erase the last message and history |
 | `POST /api/cycle` | `{"inputs": [1, 3, 5], "mode": "manual", "seconds": 15}` | An empty `inputs` list means every input |
 | `POST /api/kit-window` | `{"prefer": "auto"}` optional `width`/`height`/`url` | Opens `/kit` without browser chrome on the listener host (`chromium-app` or `webview`) |
 

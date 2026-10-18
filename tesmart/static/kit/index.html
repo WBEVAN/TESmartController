@@ -6,17 +6,26 @@
   <title>TESmart · floating kit</title>
   <link rel="stylesheet" href="/static/kit/styles.css">
   <link rel="stylesheet" href="/static/kit/float.css">
+  <link rel="stylesheet" href="/static/kit/themes.css">
+  <script>
+    /* Hide browser-only chrome before first paint when launched as kit/app. */
+    (() => {
+      const q = new URLSearchParams(location.search);
+      if (q.has("app") || q.has("popup")) {
+        document.documentElement.dataset.kitShell = q.has("app") ? "app" : "popup";
+      }
+    })();
+  </script>
 </head>
-<body class="kit-float">
+  <body class="kit-float" data-body="black" data-lcd="green" data-glass="matrix">
   <div class="float-chrome" id="chrome">
     <button type="button" id="btn-popout" class="chrome-btn" title="Open a frameless window on the machine running tesmartctl">Pop out</button>
-    <button type="button" id="btn-pin" class="chrome-btn" aria-pressed="false" title="Keep window on top when supported">Pin</button>
     <a class="chrome-link" href="/panel" title="Full Bootstrap control panel">Full panel</a>
   </div>
 
-  <main class="panel" id="deck">
+  <main class="panel compact" id="deck" data-mode="compact" data-body="black" data-lcd="green" data-glass="matrix">
     <header class="title" id="drag">
-      <span class="drag-handle drag-region pywebview-drag-region" id="drag-handle" title="Drag to move">
+      <span class="drag-handle drag-region" id="drag-handle" title="Drag to move">
         <img class="icon" src="/static/kit/svg/icon-grip.svg" alt="">
         <strong>HDMI SWITCHER</strong>
         <span class="led" id="led" data-state="offline" title="Controller link">
@@ -24,27 +33,50 @@
           <span id="led-label">offline</span>
         </span>
       </span>
-      <button id="compact" class="view-toggle" aria-pressed="false" aria-label="Toggle compact view">
+      <button type="button" id="view-mode" class="view-toggle" aria-label="View: Compact. Click to change size." title="Click to cycle Compact → Mini → Full" data-mode="compact">
         <img class="action-icon" src="/static/kit/svg/icon-monitor.svg" alt="">
-        <span>Compact</span>
+        <span id="view-mode-label">Compact</span>
       </button>
-      <button type="button" id="btn-close" class="view-toggle app-only" aria-label="Close window" title="Close">
-        <img class="action-icon" src="/static/kit/svg/icon-close.svg" alt="">
+      <button type="button" id="btn-power" class="view-toggle app-only power-btn" aria-label="Power off" title="Power off">
+        <img class="action-icon" src="/static/kit/svg/icon-power.svg" alt="">
       </button>
     </header>
 
     <section class="lcd">
       <div class="lcd-copy" aria-live="polite">
-        <h1 id="name"></h1>
+        <h1 id="name"><span id="name-track" class="name-track"></span></h1>
         <p id="status"></p>
-        <p id="detail"></p>
+        <div class="lcd-meta">
+          <p id="detail"></p>
+          <div class="lcd-message-actions">
+            <button type="button" id="btn-message-list" class="lcd-message-btn" hidden
+                    aria-label="Message history" title="Browse last messages on this kit">
+              <img class="action-icon" src="/static/kit/svg/icon-message-list.svg" alt="">
+            </button>
+            <button type="button" id="btn-message" class="lcd-message-btn" hidden
+                    aria-label="Show last message on this kit" title="Show last message on this kit">
+              <img class="action-icon" src="/static/kit/svg/icon-message.svg" alt="">
+            </button>
+          </div>
+        </div>
       </div>
       <div class="countdown" role="timer" aria-label="Estimated Peek seconds remaining">
-        <span>PEEK</span>
+        <button type="button" id="lcd-peek-mode" class="lcd-peek-mode"
+                aria-label="Peek mode: Off. Click to cycle Off, Once, Always."
+                title="Click to cycle peek: Off → Once → Always">PEEK</button>
         <strong id="digits">--</strong>
         <span>SEC · EST.</span>
       </div>
     </section>
+
+    <nav class="mini-nav" id="mini-nav" aria-label="Previous and next input" hidden>
+      <button type="button" id="mini-prev" aria-label="Previous input" title="Previous input">
+        <img class="action-icon" src="/static/kit/svg/icon-up.svg" alt="">
+      </button>
+      <button type="button" id="mini-next" aria-label="Next input" title="Next input">
+        <img class="action-icon" src="/static/kit/svg/icon-down.svg" alt="">
+      </button>
+    </nav>
 
     <div id="grid" class="grid" aria-label="HDMI inputs"></div>
 
@@ -69,13 +101,13 @@
             <img class="action-icon" src="/static/kit/svg/icon-next.svg" alt="">
           </button>
           <span><img class="action-icon" src="/static/kit/svg/icon-peek.svg" alt=""> Peek</span>
-          <button data-mode="off" aria-pressed="true">
+          <button class="peek-mode-btn" data-mode="off" aria-pressed="true">
             <img class="action-icon" src="/static/kit/svg/icon-close.svg" alt=""> Off
           </button>
-          <button data-mode="once" aria-pressed="false">
+          <button class="peek-mode-btn" data-mode="once" aria-pressed="false">
             <img class="action-icon" src="/static/kit/svg/icon-peek.svg" alt=""> Once
           </button>
-          <button data-mode="always" aria-pressed="false">
+          <button class="peek-mode-btn" data-mode="always" aria-pressed="false">
             <img class="action-icon" src="/static/kit/svg/icon-cycle.svg" alt=""> Always
           </button>
           <label>
@@ -94,12 +126,45 @@
             <input id="cycle-seconds" type="number" min="2" max="3600" value="15" aria-label="Cycle interval in seconds">
             sec
           </label>
-          <label class="cycle-inputs-field">
+          <button type="button" id="cycle-inputs-btn" class="cycle-inputs-btn" title="Choose which inputs the cycle walks">
             <img class="action-icon" src="/static/kit/svg/icon-settings.svg" alt="">
-            Inputs
-            <input id="cycle-inputs" type="text" placeholder="All inputs" aria-label="Comma separated cycle inputs">
-          </label>
+            <span>Inputs</span>
+            <strong id="cycle-inputs-summary">All</strong>
+          </button>
           <span id="cycle-error" role="status"></span>
+        </div>
+
+        <div class="window-controls app-only">
+          <button type="button" id="btn-on-top" aria-pressed="false" title="Keep this window above others">
+            <img class="action-icon" src="/static/kit/svg/icon-pin.svg" alt="">
+            Always on top
+          </button>
+        </div>
+
+        <div class="theme-controls" aria-label="Appearance">
+          <div class="theme-row" role="group" aria-label="Body colour">
+            <span>Body</span>
+            <button type="button" class="theme-swatch" data-body="black" aria-pressed="true" title="Charcoal black" aria-label="Charcoal black body"></button>
+            <button type="button" class="theme-swatch" data-body="silver" aria-pressed="false" title="Metallic silver" aria-label="Metallic silver body"></button>
+          </div>
+          <div class="theme-row" role="group" aria-label="LCD colour">
+            <span>LCD</span>
+            <button type="button" class="theme-swatch" data-lcd="green" aria-pressed="true" title="Green" aria-label="Green LCD"></button>
+            <button type="button" class="theme-swatch" data-lcd="blue" aria-pressed="false" title="Blue" aria-label="Blue LCD"></button>
+            <button type="button" class="theme-swatch" data-lcd="red" aria-pressed="false" title="Red" aria-label="Red LCD"></button>
+            <button type="button" class="theme-swatch" data-lcd="amber" aria-pressed="false" title="Dark with orange" aria-label="Dark orange LCD"></button>
+          </div>
+          <div class="theme-row theme-row-highlight" role="group" aria-label="Highlight colour">
+            <span>Highlight</span>
+            <input type="color" id="highlight-color" value="#a8c45c" title="Custom highlight colour" aria-label="Custom highlight colour">
+            <button type="button" id="highlight-default" class="theme-reset-btn" title="Use the highlight that matches the LCD">Default</button>
+          </div>
+          <div class="theme-row" role="group" aria-label="LCD glass">
+            <span>Glass</span>
+            <button type="button" class="theme-reset-btn glass-mode-btn" data-glass="matrix" aria-pressed="true" title="Visible pixel grill; solid readable type">Matrix</button>
+            <button type="button" class="theme-reset-btn glass-mode-btn" data-glass="phosphor" aria-pressed="false" title="Same grill plus soft LCD glow on the text">Phosphor</button>
+            <button type="button" class="theme-reset-btn glass-mode-btn" data-glass="off" aria-pressed="false" title="Plain LCD, no mesh">Off</button>
+          </div>
         </div>
 
         <p class="small">Right-click an input to rename it. Drag the title bar to move this window.</p>
@@ -125,13 +190,53 @@
         </div>
       </div>
     </div>
+
+    <div id="cycle-dialog" class="kit-dialog" hidden>
+      <div class="kit-dialog-card kit-dialog-card-wide" role="dialog" aria-modal="true" aria-labelledby="cycle-dialog-title">
+        <header class="kit-dialog-head">
+          <img class="action-icon" src="/static/kit/svg/icon-cycle.svg" alt="">
+          <strong id="cycle-dialog-title">Cycle inputs</strong>
+        </header>
+        <p class="kit-dialog-hint">Choose which inputs Previous, Next, and Start cycle walk. Leave all selected for every input.</p>
+        <div id="cycle-picker" class="cycle-picker" role="group" aria-label="Cycle input list"></div>
+        <div id="cycle-picker-nav" class="cycle-picker-nav" hidden>
+          <button type="button" id="cycle-pick-prev" class="kit-dialog-btn">Prev</button>
+          <span id="cycle-pick-page" class="cycle-picker-page">1 / 1</span>
+          <button type="button" id="cycle-pick-next" class="kit-dialog-btn">Next</button>
+        </div>
+        <div class="kit-dialog-actions">
+          <button type="button" id="cycle-pick-all" class="kit-dialog-btn ghost">All</button>
+          <button type="button" id="cycle-pick-none" class="kit-dialog-btn ghost">None</button>
+          <span class="kit-dialog-spacer"></span>
+          <button type="button" id="cycle-pick-cancel" class="kit-dialog-btn">Cancel</button>
+          <button type="button" id="cycle-pick-save" class="kit-dialog-btn primary">Save</button>
+        </div>
+      </div>
+    </div>
   </main>
+
+  <!-- Outside the panel so Mini can pop it over the whole kit window. -->
+  <div id="message-history-dialog" class="kit-dialog kit-dialog-popout" hidden>
+    <div class="kit-dialog-card kit-dialog-card-wide" role="dialog" aria-modal="true" aria-labelledby="message-history-title">
+      <header class="kit-dialog-head">
+        <img class="action-icon" src="/static/kit/svg/icon-message-list.svg" alt="">
+        <strong id="message-history-title">Message history</strong>
+      </header>
+      <p class="kit-dialog-hint">Last 10 messages received, pick one to display</p>
+      <div id="message-history-list" class="message-history-list" role="listbox" aria-label="Recent LCD messages"></div>
+      <div class="kit-dialog-actions">
+        <span class="kit-dialog-spacer"></span>
+        <button type="button" id="message-history-close" class="kit-dialog-btn">Close</button>
+      </div>
+    </div>
+  </div>
 
   <p class="note float-note">
     Alternative to <a href="/panel">/panel</a> — same listener APIs.
     <span id="endpoint" class="mono"></span>
   </p>
 
+  <script src="/static/kit/kit-prefs.js"></script>
   <script src="/static/kit/kit.js"></script>
 </body>
 </html>

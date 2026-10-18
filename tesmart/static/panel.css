@@ -41,6 +41,29 @@
   width: 5.5rem;
 }
 
+.banner-panel .banner-compose {
+  max-width: 100%;
+}
+
+.banner-compose .banner-seconds {
+  max-width: 4.25rem;
+}
+
+.banner-compose .banner-sticky-wrap {
+  gap: 0.15rem;
+  user-select: none;
+}
+
+.banner-history {
+  max-height: 11rem;
+  overflow-y: auto;
+}
+
+.banner-history .list-group-item {
+  border-left: 0;
+  border-right: 0;
+}
+
 #peek-status:not(.d-none) {
   display: inline-flex;
 }

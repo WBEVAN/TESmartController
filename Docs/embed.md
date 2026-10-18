@@ -14,7 +14,7 @@ tesmartctl listen --http 0.0.0.0:8080
 
 and the address of the computer running `tesmartctl`, for example `http://192.168.1.20:8080`. There is no login. Keep the port on a network you trust. Full route detail is in [`listener.md`](listener.md).
 
-`--panel` is required only for the iframe of the whole panel, further down. Input, next, previous, and peek work without it.
+`--panel` is required only for the iframe of the whole panel, further down. Input, next, previous, and peek work without it. For a live-updating custom page (active input / banners without polling), open `EventSource` on `GET /events` (or `/api/events` when `--panel` is on); see the SSE section in [`listener.md`](listener.md#server-sent-events-kit--panel).
 
 ## A button is a link
 

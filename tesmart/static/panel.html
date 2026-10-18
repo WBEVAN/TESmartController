@@ -42,6 +42,35 @@
           <span class="small text-body-secondary">Active: <strong id="active-label">—</strong></span>
         </div>
         <div class="card-body">
+          <div class="banner-panel border rounded p-3 mb-3" id="banner-panel">
+            <div class="d-flex flex-wrap justify-content-between align-items-baseline gap-2 mb-2">
+              <span class="fw-semibold">LCD message</span>
+              <span class="small text-body-secondary">Appears on the floating kit and here · keeps the last 10</span>
+            </div>
+            <div id="banner-status" class="alert alert-info py-2 px-3 d-none mb-2" role="status">
+              <div class="d-flex flex-wrap align-items-center gap-2">
+                <span class="badge text-bg-info">LCD</span>
+                <strong id="banner-label" class="text-break"></strong>
+                <span id="banner-remaining" class="small text-body-secondary"></span>
+              </div>
+            </div>
+            <div class="input-group banner-compose mb-2" title="Show a message on kit and panel LCDs">
+              <input type="text" class="form-control" id="banner-text" maxlength="160" placeholder="Type a message, then Send" aria-label="LCD message text" autocomplete="off">
+              <input type="number" class="form-control banner-seconds" id="banner-seconds" min="1" max="60" value="8" aria-label="Message duration in seconds">
+              <span class="input-group-text">s</span>
+              <div class="input-group-text banner-sticky-wrap" title="Stay on the LCD until dismissed">
+                <input class="form-check-input mt-0" type="checkbox" id="banner-sticky" aria-label="Keep until dismissed">
+                <label class="form-check-label small ms-1" for="banner-sticky">Sticky</label>
+              </div>
+              <button type="button" class="btn btn-primary" id="banner-send">Send</button>
+            </div>
+            <div class="d-flex flex-wrap gap-2 mb-2">
+              <button type="button" id="banner-show" class="btn btn-outline-primary btn-sm">Show last</button>
+              <button type="button" id="banner-dismiss" class="btn btn-outline-secondary btn-sm">Dismiss</button>
+              <button type="button" id="banner-clear" class="btn btn-outline-danger btn-sm" title="Erase last message and history on the listener">Clear history</button>
+            </div>
+            <ul id="banner-history" class="list-group list-group-flush banner-history" aria-label="Recent LCD messages"></ul>
+          </div>
           <div id="inputs" class="input-grid" role="group" aria-label="Select input"></div>
         </div>
         <div class="card-footer d-flex flex-wrap align-items-center gap-2">

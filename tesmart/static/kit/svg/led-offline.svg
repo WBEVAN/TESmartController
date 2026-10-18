@@ -1,1 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20"><defs><linearGradient id="metal" x2="0" y2="1"><stop stop-color="#42474d"/><stop offset=".48" stop-color="#25292e"/><stop offset="1" stop-color="#16191d"/></linearGradient><linearGradient id="lcd" x2="0" y2="1"><stop stop-color="#bbdc63"/><stop offset="1" stop-color="#91b74a"/></linearGradient></defs><circle cx="10" cy="10" r="8" fill="#727980" stroke="#111" stroke-width="2"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
+  <!-- Unlit lamp in a bezel, with a slash so offline is obvious (not a blank grey blob). -->
+  <circle cx="10" cy="10" r="8" fill="#2a3036" stroke="#111" stroke-width="2"/>
+  <circle cx="10" cy="10" r="4.5" fill="none" stroke="#6a737a" stroke-width="1.5"/>
+  <path d="M5.2 14.8 14.8 5.2" fill="none" stroke="#c5ced4" stroke-width="2" stroke-linecap="round"/>
+</svg>

@@ -1,4 +1,4 @@
-# TESmart HDMI Switch & KVM Controller — REST API, Web UI and CLI
+# TESmart HDMI Switch & KVM Controller — REST API, Web UI, Hubitat and CLI
 
 ![tesmartctl — your TESmart switch, your controls](Docs/images/readme-banner.png)
 
@@ -72,12 +72,14 @@ application capable of making an HTTP request.
 | Address | Change the switch's IP, port, gateway, and mask, with two warnings and a read-back. Applied only after a power cycle |
 | Listen | Keep one connection open: a line protocol on stdin or TCP, or HTTP URLs for Stream Deck, Companion, Home Assistant, and similar |
 | Panel / kit | Optional browser UIs with `--panel`: floating `/kit` (frameless via `tesmartctl kit`) and full `/panel` with API explorer |
+| Banner | Brief LCD message on kit/panel via `tesmartctl banner` or `POST /banner` (needs `listen --http`) |
 
 The switch cannot say which HDMI inputs have a signal. A cycle is the list you configure, stored on this computer, not in the switch. Local input names are stored the same way.
 
 | Document | What it covers |
 | --- | --- |
 | This file | Install, configuration, every command |
+| [`Docs/wiki/`](Docs/wiki/Home.md) | GitHub Wiki draft — setup → kit → Hubitat → panel |
 | [`Docs/protocol.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/protocol.md) | Byte protocol the switch speaks |
 | [`Docs/listener.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/listener.md) | Long-running line protocol and HTTP URLs |
 | [`Docs/panel.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/panel.md) | Floating kit (`/kit`) and full panel (`/panel`), including remote launch |
@@ -189,7 +191,7 @@ sensor:
 
 Here `192.168.1.20` stands for the computer running the listener. Every response says which input the switch actually reports (`active_input`), so a controller can show the real state rather than assuming the switch obeyed. See [Listener](#listener) for every route.
 
-Hubitat uses the same listener. Install via Hubitat Package Manager ([`hubitat/repository.json`](https://raw.githubusercontent.com/WBEVAN/TESmartController/main/hubitat/repository.json)) or import the app and drivers from [`hubitat/`](https://github.com/WBEVAN/TESmartController/tree/main/hubitat). **TESmart Manager** walks through host/port, optional port names, and creates the controller; it polls `/status?network=0`. The parent is a `MediaInputSource` (one active input of 8 or 16). Child switches give you one dashboard tile per port. Details: [`Docs/hubitat.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/hubitat.md).
+Hubitat uses the same listener. Install via Hubitat Package Manager ([`hubitat/repository.json`](https://raw.githubusercontent.com/WBEVAN/TESmartController/main/hubitat/repository.json)) or import the app and drivers from [`hubitat/`](https://github.com/WBEVAN/TESmartController/tree/main/hubitat). **TESmart Manager** walks through host/port, optional port names, and creates the controller; it polls `/status?network=0` and can register push callbacks (separate from browser SSE). The parent is a `MediaInputSource` (one active input of 8 or 16). Child switches give you one dashboard tile per port. Details: [`Docs/hubitat.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/hubitat.md).
 
 ## Connection
 
@@ -217,6 +219,18 @@ tesmartctl name set 1 "Living room"
 tesmartctl name list
 tesmartctl name unset 1
 tesmartctl input Office          # select by the local name
+```
+
+LCD banner messages need a running `tesmartctl listen --http` (add `--panel` for kit/panel). They are not sent to the switch; kits and the browser panel show them.
+
+```bash
+tesmartctl banner "Door unlocked"           # timed, 8 seconds
+tesmartctl banner Meeting in 5 --seconds 12
+tesmartctl banner "Stay on camera" --sticky # until dismissed
+tesmartctl banner                           # last message
+tesmartctl banner --history
+tesmartctl banner --dismiss
+tesmartctl banner --clear
 ```
 
 The env file is plain `KEY=VALUE` lines (`TESMART_HOST=192.168.1.50`) and can be edited by hand. `--serial /dev/tty.usbserial-xxx` uses RS232 at 9600 8N1 instead of LAN. `--inputs 16` is for a 16×1. `--timeout 1.5` is how long a reply is awaited. `--json` prints JSON from the one-shot commands.
@@ -359,7 +373,7 @@ tesmartctl listen --http 0.0.0.0:8080 --panel
 
 `--bind` and `--http` cannot be combined. Run two processes if you want both. A port number alone binds `127.0.0.1`, so only this computer can connect. `0.0.0.0` accepts every network interface. Other devices then use the address of the computer running `tesmartctl`, for example `http://192.168.1.20:8080/input/3`. There is no authentication, so only do this on a network you trust.
 
-`--panel` is off unless you add it. It serves the floating HDMI kit at `/kit` and the full Bootstrap panel at `/panel` (buzzer, display timeout, auto-detect, LAN address, API explorer). Detail — including how to open the kit from another machine — is in [`Docs/panel.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/panel.md).
+`--panel` is off unless you add it. It serves the floating HDMI kit at `/kit` and the full Bootstrap panel at `/panel` (buzzer, display timeout, auto-detect, LAN address, API explorer). Both UIs subscribe to `GET /api/events` (Server-Sent Events) so input, name, and banner changes appear immediately; a slower `/api/state` poll remains as a fallback. Detail — including how to open the kit from another machine — is in [`Docs/panel.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/panel.md).
 
 ```bash
 pip install 'tesmartctl[kit]'
@@ -369,6 +383,8 @@ tesmartctl kit 'http://192.168.1.20:8080/kit?app=1'              # frameless her
 ```
 
 ![Floating kit](https://raw.githubusercontent.com/WBEVAN/TESmartController/main/Docs/images/kit.png)
+
+The kit is the compact switcher: input tiles, LCD banners (including message history), clickable PEEK (Off → Once → Always), Cycle Inputs, and body/LCD/glass themes. On macOS, `tesmartctl kit` is frameless; `tesmartctl kit --fresh` ignores saved window prefs once. Guided wiki pages: [`Docs/wiki/`](Docs/wiki/Home.md).
 
 ![Demo: input switching, Peek, and API explorer](Docs/images/demo.gif)
 
@@ -406,6 +422,8 @@ http://127.0.0.1:8080/input                  {"active_input": 2}
 http://127.0.0.1:8080/status                 input plus saved IP, port, gateway, mask
 http://127.0.0.1:8080/status?network=0       input only, skips the LAN queries
 http://127.0.0.1:8080/names                  local input names (GET); POST JSON to set
+http://127.0.0.1:8080/banner                 last LCD message (GET); POST JSON to set / dismiss / clear
+http://127.0.0.1:8080/events                 Server-Sent Events stream (kit/panel use /api/events)
 http://127.0.0.1:8080/status?format=text     same fields as plain lines
 http://127.0.0.1:8080/rotate                 next input; {"previous": 2, "active_input": 3}
 http://127.0.0.1:8080/rotate?only=1,2,4     next input within that list
@@ -453,9 +471,11 @@ with TesmartSwitch(TcpTransport("192.168.1.50")) as sw:
 | `tesmart/listener.py` | Stdin and raw-TCP command listener |
 | `tesmart/web.py` | HTTP routes |
 | `tesmart/panel.py` | `/panel` and its `/api` routes, only with `--panel` |
+| `tesmart/events.py` | Server-Sent Events hub (`/events`, `/api/events`) for kit/panel |
 | `tesmart/static/` | Panel HTML, CSS, and JS |
 | `tesmart/cli.py` | `tesmartctl` argument parsing and output |
 | `tesmart/examples.py` | Worked examples shown by `--help` and `tesmartctl examples` |
+| `Docs/wiki/` | GitHub Wiki draft (setup → kit → Hubitat → panel) |
 | `Docs/protocol.md` | Wire protocol |
 | `Docs/listener.md` | Line protocol and HTTP routes |
 | `Docs/panel.md` | Floating kit and full control panel |

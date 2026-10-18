@@ -207,6 +207,8 @@ class NetworkWizard {
 
 class Panel {
   static POLL_MS = 5000;
+  static POLL_SSE_MS = 30000;
+  static POLL_OFFLINE_MS = 2000;
 
   constructor(api, toaster) {
     this.api = api;
@@ -217,6 +219,9 @@ class Panel {
     this.cycleTimer = null;
     this.peekTimer = null;
     this.peekRefresh = null;
+    this.bannerTimer = null;
+    this.eventSource = null;
+    this.sse = false;
 
     this.el = {
       endpoint: document.getElementById("endpoint"),
@@ -232,6 +237,17 @@ class Panel {
       peekStatus: document.getElementById("peek-status"),
       peekText: document.getElementById("peek-text"),
       peekBack: document.getElementById("btn-peek-back"),
+      bannerStatus: document.getElementById("banner-status"),
+      bannerLabel: document.getElementById("banner-label"),
+      bannerRemaining: document.getElementById("banner-remaining"),
+      bannerShow: document.getElementById("banner-show"),
+      bannerDismiss: document.getElementById("banner-dismiss"),
+      bannerClear: document.getElementById("banner-clear"),
+      bannerHistory: document.getElementById("banner-history"),
+      bannerText: document.getElementById("banner-text"),
+      bannerSeconds: document.getElementById("banner-seconds"),
+      bannerSticky: document.getElementById("banner-sticky"),
+      bannerSend: document.getElementById("banner-send"),
       namesForm: document.getElementById("names-form"),
       namesSaved: document.getElementById("names-saved"),
       cycleForm: document.getElementById("cycle-form"),
@@ -260,6 +276,7 @@ class Panel {
   async start() {
     this.#wire();
     await this.refresh(true);
+    this.#startEvents();
     this.#schedulePoll();
   }
 
@@ -273,6 +290,30 @@ class Panel {
     this.el.autoCycle.addEventListener("change", () => this.#applyAutoCycle());
     this.el.peekBack.addEventListener("click", () => this.cancelPeek());
     this.el.peekSeconds.addEventListener("change", () => this.savePeekSeconds());
+    this.el.bannerSend.addEventListener("click", () => this.sendBanner());
+    this.el.bannerShow.addEventListener("click", () => this.reshowBanner());
+    this.el.bannerDismiss.addEventListener("click", () => this.dismissBanner());
+    this.el.bannerClear.addEventListener("click", () => this.clearBannerHistory());
+    this.el.bannerHistory.addEventListener("click", (event) => {
+      const item = event.target.closest("[data-banner-text]");
+      if (!item) return;
+      this.el.bannerText.value = item.dataset.bannerText || "";
+      this.el.bannerSticky.checked = item.dataset.bannerMode === "sticky";
+      this.#syncBannerCompose();
+      const seconds = Number(item.dataset.bannerSeconds);
+      if (Number.isFinite(seconds) && seconds >= 1) {
+        this.el.bannerSeconds.value = String(seconds);
+      }
+      this.sendBanner();
+    });
+    this.el.bannerSticky.addEventListener("change", () => this.#syncBannerCompose());
+    this.el.bannerText.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        this.sendBanner();
+      }
+    });
+    this.#syncBannerCompose();
     document.querySelectorAll("[data-follow]").forEach((button) => {
       button.addEventListener("click", () => this.setFollow(button.dataset.follow));
     });
@@ -310,9 +351,16 @@ class Panel {
 
   #schedulePoll() {
     this.#stopPoll();
+    if (document.hidden) return;
+    const linkDown = this.el.link && this.el.link.dataset.state === "down";
+    const ms = linkDown
+      ? Panel.POLL_OFFLINE_MS
+      : this.sse
+        ? Panel.POLL_SSE_MS
+        : Panel.POLL_MS;
     this.pollTimer = setInterval(() => {
       if (!this.busy) this.refresh(false);
-    }, Panel.POLL_MS);
+    }, ms);
   }
 
   #stopPoll() {
@@ -320,27 +368,91 @@ class Panel {
     this.pollTimer = null;
   }
 
+  #startEvents() {
+    if (typeof EventSource === "undefined") return;
+    if (this.eventSource) {
+      try {
+        this.eventSource.close();
+      } catch (_) {
+        /* ignore */
+      }
+      this.eventSource = null;
+    }
+    const es = new EventSource("/api/events");
+    this.eventSource = es;
+    const onNamed = (ev) => {
+      try {
+        this.#applyPushEvent(JSON.parse(ev.data));
+      } catch (_) {
+        /* ignore malformed frames */
+      }
+    };
+    ["hello", "input_changed", "names_changed", "banner"].forEach((name) => {
+      es.addEventListener(name, onNamed);
+    });
+    es.onerror = () => {
+      if (this.sse) {
+        this.sse = false;
+        this.#schedulePoll();
+      }
+    };
+  }
+
+  #applyPushEvent(data) {
+    if (!data || !data.event) return;
+    const kind = String(data.event);
+    if (kind === "hello") {
+      this.sse = true;
+      this.#schedulePoll();
+      return;
+    }
+    if (!this.state) this.state = {};
+    if (kind === "input_changed") {
+      if (typeof data.active_input === "number") this.state.active_input = data.active_input;
+      if (data.names && typeof data.names === "object") this.state.names = data.names;
+      this.#setLink("ok");
+      this.render();
+      return;
+    }
+    if (kind === "names_changed") {
+      if (data.names && typeof data.names === "object") this.state.names = data.names;
+      this.render();
+      return;
+    }
+    if (kind === "banner") {
+      const previousBanner = this.state.banner;
+      this.state.banner = this.#mergeBanner(previousBanner, data.banner);
+      if (Array.isArray(data.banner_history)) {
+        this.state.banner_history = data.banner_history;
+      }
+      this.render();
+    }
+  }
+
   // --- talking to the listener --------------------------------------------
 
-  async #call(work, { silent = false, onError = null } = {}) {
-    if (this.busy) {
+  async #call(work, { silent = false, onError = null, local = false } = {}) {
+    // local: listener-only routes (e.g. LCD banner) must not wait behind switch I/O.
+    if (!local && this.busy) {
       if (!silent) this.toaster.info("Still waiting for the switch…");
       if (onError) onError(new ApiError("still waiting for the switch", 0));
       return undefined;
     }
-    this.busy = true;
-    this.#setLink("busy");
+    if (!local) {
+      this.busy = true;
+      this.#setLink("busy");
+    }
     try {
       const result = await work();
-      this.#setLink("ok");
+      if (!local) this.#setLink("ok");
       return result;
     } catch (error) {
-      this.#setLink(error.status === 0 || error.status === 502 ? "down" : "ok");
+      if (!local) this.#setLink(error.status === 0 || error.status === 502 ? "down" : "ok");
       if (onError) onError(error);
       else if (!silent) this.toaster.error(error.message);
       return undefined;
     } finally {
-      this.busy = false;
+      if (!local) this.busy = false;
     }
   }
 
@@ -351,11 +463,56 @@ class Panel {
     );
     if (!state) return;
     const network = state.network || (this.state && this.state.network);
+    const previousBanner = this.state && this.state.banner;
     this.state = { ...state, network };
+    this.state.banner = this.#mergeBanner(previousBanner, state.banner);
+    if (Array.isArray(state.banner_history)) {
+      this.state.banner_history = state.banner_history;
+    }
     this.render();
   }
 
+  #mergeBanner(previous, raw) {
+    if (!raw || !raw.text) return null;
+    const isNew = !previous || previous.id !== raw.id;
+    // Follow the listener so Send / Show / Dismiss stay in sync with the kit.
+    if (isNew) return { ...raw, showing: Boolean(raw.showing) };
+    const showing = Boolean(raw.showing);
+    return {
+      ...raw,
+      showing,
+      remaining:
+        showing && previous.showing && previous.mode === "timed" && previous.remaining != null
+          ? previous.remaining
+          : raw.remaining,
+    };
+  }
+
+  #applyBannerResult(result) {
+    if (!result) return;
+    this.state.banner = result.banner || null;
+    if (Array.isArray(result.banner_history)) {
+      this.state.banner_history = result.banner_history;
+    } else if (result.banner == null && result.cleared) {
+      this.state.banner_history = [];
+    }
+    this.renderBanner();
+    this.renderBannerHistory();
+    this.renderInputs();
+    this.#armBannerTick();
+  }
+
   async selectInput(number) {
+    const banner = this.state && this.state.banner;
+    if (
+      banner &&
+      banner.showing &&
+      banner.mode === "sticky" &&
+      Number(this.state.active_input) === Number(number)
+    ) {
+      this.dismissBanner();
+      return;
+    }
     if (this.el.peekMode.checked) {
       await this.peek(number);
       return;
@@ -387,6 +544,143 @@ class Panel {
     this.state.peek = { ...(this.state.peek || {}), active: null };
     this.renderPeek();
     this.#refreshSoon(2500);
+  }
+
+  #syncBannerCompose() {
+    const sticky = Boolean(this.el.bannerSticky.checked);
+    this.el.bannerSeconds.disabled = sticky;
+  }
+
+  async sendBanner() {
+    const text = (this.el.bannerText.value || "").trim();
+    const sticky = Boolean(this.el.bannerSticky.checked);
+    const seconds = Math.round(Number(this.el.bannerSeconds.value));
+    if (!text) {
+      this.toaster.error("Enter a message to show on the LCD.");
+      return;
+    }
+    const body = sticky ? { text, sticky: true } : { text, seconds };
+    if (!sticky && (!Number.isFinite(seconds) || seconds < 1 || seconds > 60)) {
+      this.toaster.error("Duration must be a whole number of seconds from 1 to 60.");
+      return;
+    }
+    const result = await this.#call(() => this.api.post("/api/banner", body), { local: true });
+    if (!result) return;
+    this.el.bannerText.value = "";
+    this.#applyBannerResult(result);
+    this.toaster.success(sticky ? "Sticky LCD message sent to kit & panel." : "LCD message sent to kit & panel.");
+  }
+
+  async reshowBanner() {
+    if (!this.state || !this.state.banner || !this.state.banner.text) {
+      this.toaster.error("No last message to show.");
+      return;
+    }
+    const result = await this.#call(() => this.api.post("/api/banner", { show: true }), { local: true });
+    if (!result) return;
+    this.#applyBannerResult(result);
+    this.toaster.success("Last LCD message shown on kit & panel.");
+  }
+
+  async dismissBanner() {
+    if (!this.state || !this.state.banner) return;
+    const result = await this.#call(() => this.api.post("/api/banner", { dismiss: true }), { local: true });
+    if (!result) return;
+    this.#applyBannerResult(result);
+    this.toaster.success("LCD message dismissed.");
+  }
+
+  async clearBannerHistory() {
+    const result = await this.#call(() => this.api.post("/api/banner", { clear: true }), { local: true });
+    if (!result) return;
+    this.#applyBannerResult(result);
+    this.toaster.success("LCD message and history cleared.");
+  }
+
+  renderBanner() {
+    const banner = this.state && this.state.banner;
+    const has = Boolean(banner && banner.text);
+    this.el.bannerStatus.classList.toggle("d-none", !has);
+    this.el.bannerShow.disabled = !has;
+    this.el.bannerDismiss.disabled = !(has && banner.showing);
+    if (!has) {
+      if (this.bannerTimer) {
+        clearTimeout(this.bannerTimer);
+        this.bannerTimer = null;
+      }
+      return;
+    }
+    this.el.bannerLabel.textContent = banner.text;
+    const showing = Boolean(banner.showing);
+    if (banner.mode === "sticky") {
+      this.el.bannerRemaining.textContent = showing
+        ? "Sticky · until dismissed"
+        : "Last message · hidden";
+    } else if (showing && Number(banner.remaining) > 0) {
+      this.el.bannerRemaining.textContent = `${Math.max(1, Math.ceil(Number(banner.remaining)))} s left`;
+    } else {
+      this.el.bannerRemaining.textContent = "Last message · hidden";
+    }
+    this.el.bannerStatus.classList.toggle("alert-info", showing);
+    this.el.bannerStatus.classList.toggle("alert-secondary", !showing);
+    this.#armBannerTick();
+  }
+
+  renderBannerHistory() {
+    const list = this.el.bannerHistory;
+    const history = (this.state && this.state.banner_history) || [];
+    list.replaceChildren();
+    if (!history.length) {
+      const empty = document.createElement("li");
+      empty.className = "list-group-item text-body-secondary px-0";
+      empty.textContent = "No messages yet — Send one above.";
+      list.appendChild(empty);
+      return;
+    }
+    history.forEach((entry) => {
+      if (!entry || !entry.text) return;
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = "list-group-item list-group-item-action px-0 d-flex justify-content-between gap-2";
+      item.dataset.bannerText = entry.text;
+      item.dataset.bannerMode = entry.mode || "timed";
+      if (entry.seconds != null) item.dataset.bannerSeconds = String(entry.seconds);
+      const label = document.createElement("span");
+      label.className = "text-truncate";
+      label.textContent = entry.text;
+      const meta = document.createElement("span");
+      meta.className = "text-body-secondary text-nowrap small";
+      meta.textContent = entry.mode === "sticky" ? "sticky" : `${entry.seconds || 8}s`;
+      item.append(label, meta);
+      item.title = "Send again to kit & panel";
+      list.appendChild(item);
+    });
+  }
+
+  #armBannerTick() {
+    if (this.bannerTimer) clearTimeout(this.bannerTimer);
+    const banner = this.state && this.state.banner;
+    if (!banner || !banner.showing || banner.mode === "sticky") return;
+    if (!(Number(banner.remaining) > 0)) {
+      this.state.banner = { ...banner, showing: false, remaining: null };
+      this.renderBanner();
+      this.renderInputs();
+      return;
+    }
+    const id = banner.id;
+    this.bannerTimer = setTimeout(() => {
+      this.bannerTimer = null;
+      const current = this.state && this.state.banner;
+      if (!current || current.id !== id || !current.showing) return;
+      const next = Math.max(0, Number(current.remaining) - 1);
+      this.state.banner =
+        next <= 0
+          ? { ...current, showing: false, remaining: null }
+          : { ...current, remaining: next };
+      this.renderBanner();
+      this.renderInputs();
+      this.#armBannerTick();
+    }, 1000);
   }
 
   async savePeekSeconds() {
@@ -594,6 +888,8 @@ class Panel {
     this.el.endpoint.textContent = this.state.endpoint || "";
     this.renderInputs();
     this.renderPeek();
+    this.renderBanner();
+    this.renderBannerHistory();
     this.renderFollow();
     this.renderSettings();
     this.renderNames();
@@ -607,8 +903,15 @@ class Panel {
 
   renderInputs() {
     const active = this.state.active_input;
-    const label = this.state.active_name ? `${active} · ${this.state.active_name}` : `${active}`;
+    const banner = this.state.banner;
+    const showing = Boolean(banner && banner.text && banner.showing);
+    const label = showing
+      ? banner.text
+      : this.state.active_name
+        ? `${active} · ${this.state.active_name}`
+        : `${active}`;
     this.el.activeLabel.textContent = label;
+    this.el.activeLabel.classList.toggle("text-info", showing);
 
     const inputs = this.state.inputs || [];
     if (this.el.inputs.childElementCount !== inputs.length) {
@@ -799,18 +1102,23 @@ class Panel {
 
   #setLink(mode) {
     const link = this.el.link;
+    const prev = link.dataset.state || "";
     link.classList.remove("text-bg-secondary", "text-bg-success", "text-bg-danger", "is-busy");
     const text = link.childNodes[link.childNodes.length - 1];
     if (mode === "busy") {
       link.classList.add("text-bg-success", "is-busy");
       text.textContent = " talking";
+      // Keep prior up/down for poll cadence; busy is transient.
     } else if (mode === "down") {
+      link.dataset.state = "down";
       link.classList.add("text-bg-danger");
       text.textContent = " unreachable";
     } else {
+      link.dataset.state = "ok";
       link.classList.add("text-bg-success");
       text.textContent = " connected";
     }
+    if (mode !== "busy" && prev !== link.dataset.state) this.#schedulePoll();
   }
 }
 

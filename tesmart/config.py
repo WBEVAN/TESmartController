@@ -40,6 +40,10 @@ DEFAULT_PEEK_SECONDS = 5
 # The KVM cannot report these back; we remember them so other clients can read them.
 LAST_SENT_KEY = "TESMART_LAST_SENT"
 LAST_SENT_KEYS = ("buzzer", "led_timeout", "auto_detect")
+# Last LCD banner messages (newest first). Survives listener restart so kits can
+# show the message / history icons again without waiting for a new send.
+BANNER_HISTORY_KEY = "TESMART_BANNER_HISTORY"
+BANNER_HISTORY_MAX = 10
 
 # setting name -> (env var, built-in default)
 SETTINGS: dict[str, tuple[str, str | None]] = {
@@ -350,6 +354,80 @@ def update_last_sent(updates: dict[str, Any], env_file: str | None = None) -> di
         values.pop(LAST_SENT_KEY, None)
     write_env_file(path, values)
     return current
+
+
+def read_banner_history(env_file: str | None = None) -> list[dict[str, Any]]:
+    """Persisted LCD banner history (newest first), or an empty list."""
+    raw = read_env_file(env_file_path(env_file)).get(BANNER_HISTORY_KEY, "").strip()
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(parsed, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for item in parsed[:BANNER_HISTORY_MAX]:
+        if not isinstance(item, dict):
+            continue
+        text = str(item.get("text") or "").strip()
+        if not text:
+            continue
+        try:
+            entry_id = int(item.get("id") or 0)
+        except (TypeError, ValueError):
+            entry_id = 0
+        mode = "sticky" if str(item.get("mode") or "") == "sticky" else "timed"
+        seconds = item.get("seconds")
+        try:
+            seconds_i = None if seconds is None else int(seconds)
+        except (TypeError, ValueError):
+            seconds_i = None
+        try:
+            at = float(item.get("at") or 0)
+        except (TypeError, ValueError):
+            at = 0.0
+        out.append(
+            {
+                "id": entry_id,
+                "text": text[:160],
+                "at": at,
+                "at_iso": item.get("at_iso"),
+                "mode": mode,
+                "seconds": seconds_i if mode == "timed" else None,
+            }
+        )
+    return out
+
+
+def write_banner_history(history: list[dict[str, Any]], env_file: str | None = None) -> Path:
+    """Persist up to ``BANNER_HISTORY_MAX`` banner entries (newest first)."""
+    path = env_file_path(env_file)
+    values = read_env_file(path)
+    cleaned: list[dict[str, Any]] = []
+    for item in history[:BANNER_HISTORY_MAX]:
+        if not isinstance(item, dict):
+            continue
+        text = str(item.get("text") or "").strip()
+        if not text:
+            continue
+        cleaned.append(
+            {
+                "id": int(item.get("id") or 0),
+                "text": text[:160],
+                "at": float(item.get("at") or 0),
+                "at_iso": item.get("at_iso"),
+                "mode": "sticky" if item.get("mode") == "sticky" else "timed",
+                "seconds": item.get("seconds"),
+            }
+        )
+    if cleaned:
+        values[BANNER_HISTORY_KEY] = json.dumps(cleaned)
+    else:
+        values.pop(BANNER_HISTORY_KEY, None)
+    write_env_file(path, values)
+    return path
 
 
 def rotate_info(env_file: str | None = None, *, input_count: int = DEFAULT_INPUTS) -> dict:

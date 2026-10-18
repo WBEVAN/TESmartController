@@ -24,9 +24,12 @@ import json
 from http import HTTPStatus
 from importlib import resources
 from typing import TYPE_CHECKING, Any
+import re
+import time
 from urllib.parse import parse_qs, urlsplit
 
 from . import callbacks, config, kit_window, notices, version as pkg_version
+from .events import stream_sse
 from .peek import apply_follow
 from .protocol import LedTimeout
 from .switch import SwitchError, next_input, previous_input
@@ -54,6 +57,11 @@ API_CATALOG: list[dict[str, Any]] = [
     {"method": "GET", "path": "/api/compat", "summary": "compatibility check via query (?min_server=&features=)"},
     {"method": "POST", "path": "/api/compat", "summary": "compatibility check", "sample": {"min_server": "0.0.7.9", "client": "hubitat", "features": ["callbacks"]}},
     {"method": "GET", "path": "/api/state?network=0", "summary": "same, without the four LAN queries"},
+    {
+        "method": "GET",
+        "path": "/api/events",
+        "summary": "Server-Sent Events stream (input_changed, names_changed, banner); kit and panel subscribe here",
+    },
     {"method": "POST", "path": "/api/input", "summary": "select an input by number or local name", "sample": {"input": 3}},
     {"method": "POST", "path": "/api/next", "summary": "next input in the saved cycle", "sample": {}},
     {"method": "POST", "path": "/api/previous", "summary": "previous input in the saved cycle", "sample": {}},
@@ -77,6 +85,17 @@ API_CATALOG: list[dict[str, Any]] = [
         "blocked": True,
     },
     {"method": "POST", "path": "/api/names", "summary": "set local names; an empty string removes one", "sample": {"names": {"1": "Office", "2": ""}}},
+    {
+        "method": "GET",
+        "path": "/api/banner",
+        "summary": "last LCD message envelope plus banner_history (up to 10, newest first)",
+    },
+    {
+        "method": "POST",
+        "path": "/api/banner",
+        "summary": "send LCD message (timed seconds or sticky); {\"show\":true} reshows last; {\"dismiss\":true} hides; {\"clear\":true} erases history too",
+        "sample": {"text": "Door unlocked", "seconds": 8},
+    },
     {"method": "POST", "path": "/api/cycle", "summary": "save the cycle list, mode, and interval", "sample": {"inputs": [1, 2, 4], "mode": "manual", "seconds": 15}},
     {"method": "GET", "path": "/api/callbacks", "summary": "list callbacks (url, optional name, last delivery) and POST timeout"},
     {"method": "POST", "path": "/api/callbacks", "summary": "register a callback URL with optional name", "sample": {"url": "http://192.168.1.5/hook", "name": "Hubitat"}},
@@ -151,6 +170,74 @@ def _static_body(name: str) -> bytes:
         raise PanelError("not found", HTTPStatus.NOT_FOUND) from exc
 
 
+def _asset_cache_token(query: str) -> str:
+    """Version token baked into ``/static/...`` URLs so clients re-fetch after upgrades.
+
+    ``?fresh=1`` adds a one-shot nonce so a reload bypasses a stale disk cache
+    without waiting for the package version to change.
+    """
+    token = pkg_version.package_version()
+    qs = parse_qs(query or "", keep_blank_values=True)
+    if "fresh" in qs:
+        token = f"{token}-f{int(time.time())}"
+    return token
+
+
+def _with_static_cache_bust(html: str, token: str) -> str:
+    """Append ``?v=<token>`` (or ``&v=``) to every ``/static/...`` href/src."""
+
+    def _bust(match: re.Match[str]) -> str:
+        attr, url = match.group(1), match.group(2)
+        sep = "&" if "?" in url else "?"
+        return f'{attr}="{url}{sep}v={token}"'
+
+    return re.sub(r'\b(href|src)="(/static/[^"]+)"', _bust, html)
+
+
+def _kit_html(query: str) -> bytes:
+    """Serve ``/kit`` with shell classes already on ``<body>`` for ``?app=1`` / ``?popup=1``.
+
+    ``tesmartctl kit`` must never flash Pop out / Full panel. Relying only on a
+    late JS class flip regressed that; stamp the classes into the HTML instead.
+    Static asset URLs are version-stamped so the client can cache them until the
+    server version changes (or ``?fresh=1``).
+    """
+    html = _static_body("kit/index.html").decode("utf-8")
+    qs = parse_qs(query or "", keep_blank_values=True)
+    classes = ["kit-float"]
+    shell = None
+    if "app" in qs:
+        classes.extend(["is-app", "is-popup"])
+        shell = "app"
+    elif "popup" in qs:
+        classes.append("is-popup")
+        shell = "popup"
+    if shell == "app" and "transparent" in qs:
+        # Only the native pywebview window is truly see-through; Chromium
+        # --app would paint the cleared page white.
+        classes.append("is-transparent")
+    # Keep any existing data-* on <body> (themes); only replace the class list.
+    html = re.sub(
+        r"<body\s+class=\"kit-float\"([^>]*)>",
+        f'<body class="{" ".join(classes)}"\\1>',
+        html,
+        count=1,
+    )
+    token = _asset_cache_token(query)
+    head_bits = [
+        f"document.documentElement.dataset.kitVersion={token!r};",
+    ]
+    if shell:
+        head_bits.append(f"document.documentElement.dataset.kitShell={shell!r};")
+    html = html.replace(
+        "<head>",
+        f"<head><script>{''.join(head_bits)}</script>",
+        1,
+    )
+    html = _with_static_cache_bust(html, token)
+    return html.encode("utf-8")
+
+
 def _content_type(name: str) -> str:
     lower = name.lower()
     for suffix, content_type in STATIC_TYPES.items():
@@ -179,6 +266,9 @@ def build_state(handler: "_Handler", include_network: bool) -> dict[str, Any]:
         {"number": number, "name": names.get(number)} for number in range(1, switch.input_count + 1)
     ]
     status["callbacks"] = callbacks.list_callbacks(server.env_file).get("callbacks", [])
+    banner_payload = server.banner.payload()
+    status["banner"] = banner_payload["banner"]
+    status["banner_history"] = banner_payload["banner_history"]
     return status
 
 
@@ -445,18 +535,44 @@ def handle(handler: "_Handler", method: str, path: str) -> bool:
         if segments[0] == "panel":
             if len(segments) != 1:
                 raise PanelError("not supported", HTTPStatus.NOT_FOUND)
-            _send_bytes(handler, HTTPStatus.OK, _static_body("panel.html"), STATIC_TYPES[".html"])
+            # HTML stays uncached so asset ?v= tokens update after an upgrade.
+            # Honor ?fresh=1 the same way /kit does, so a reload bypasses stale
+            # immutable panel.js/css after UI changes without a version bump.
+            body = _with_static_cache_bust(
+                _static_body("panel.html").decode("utf-8"),
+                _asset_cache_token(parts.query),
+            ).encode("utf-8")
+            _send_bytes(handler, HTTPStatus.OK, body, STATIC_TYPES[".html"], cache="html")
             return True
         if segments[0] == "kit":
             if len(segments) != 1:
                 raise PanelError("not supported", HTTPStatus.NOT_FOUND)
-            _send_bytes(handler, HTTPStatus.OK, _static_body("kit/index.html"), STATIC_TYPES[".html"])
+            _send_bytes(
+                handler,
+                HTTPStatus.OK,
+                _kit_html(parts.query),
+                STATIC_TYPES[".html"],
+                cache="html",
+            )
             return True
         if segments[0] == "static":
             if len(segments) < 2:
                 raise PanelError("not supported", HTTPStatus.NOT_FOUND)
             name = "/".join(segments[1:])
-            _send_bytes(handler, HTTPStatus.OK, _static_body(name), _content_type(name))
+            body = _static_body(name)
+            _send_bytes(
+                handler,
+                HTTPStatus.OK,
+                body,
+                _content_type(name),
+                cache="static",
+                etag=f'"{pkg_version.package_version()}-{len(body)}"',
+            )
+            return True
+        if segments[0] == "api" and len(segments) >= 2 and segments[1].lower() == "events":
+            if method.upper() != "GET":
+                raise PanelError("use GET /api/events for the Server-Sent Events stream", HTTPStatus.METHOD_NOT_ALLOWED)
+            stream_sse(handler, handler.server.events)
             return True
         _send_json(handler, HTTPStatus.OK, _api(handler, method, segments[1:], parts.query))
     except PanelError as exc:
@@ -493,6 +609,8 @@ def _api(handler: "_Handler", method: str, segments: list[str], query_text: str)
         return _action_network_get(handler)
     if name == "callbacks":
         return _action_callbacks(handler, method, segments[1:])
+    if name == "banner":
+        return _action_banner(handler, method)
 
     writable = {
         "input", "next", "previous", "peek", "peek-default", "peek-follow",
@@ -519,6 +637,63 @@ def _api(handler: "_Handler", method: str, segments: list[str], query_text: str)
         "kit-window": lambda: _action_kit_window(handler, body),
     }
     return actions[name]()
+
+
+def _banner_response(board: Any, **extra: Any) -> dict[str, Any]:
+    payload = board.payload()
+    payload.update(extra)
+    return payload
+
+
+def _notify_banner(hub: Any, board: Any, *, cleared: bool = False) -> None:
+    if hub is None:
+        return
+    if cleared:
+        hub.note_banner(None, source="command", history=[])
+        return
+    snap = board.payload()
+    hub.note_banner(
+        snap.get("banner"),
+        source="command",
+        history=list(snap.get("banner_history") or []),
+    )
+
+
+def _action_banner(handler: "_Handler", method: str) -> dict[str, Any]:
+    """Show, dismiss, reshow, or read the LCD banner shared by kit and panel."""
+    board = handler.server.banner
+    hub = getattr(handler.server, "callbacks", None)
+    method = method.upper()
+    if method == "GET":
+        return _banner_response(board)
+    if method == "DELETE":
+        previous = board.dismiss()
+        _notify_banner(hub, board)
+        return _banner_response(board, dismissed=previous)
+    if method != "POST":
+        raise PanelError("use GET, POST, or DELETE /api/banner", HTTPStatus.METHOD_NOT_ALLOWED)
+    body = _read_json(handler)
+    if body.get("clear") is True:
+        previous = board.clear()
+        _notify_banner(hub, board, cleared=True)
+        return {"banner": None, "banner_history": [], "cleared": previous}
+    if body.get("dismiss") is True:
+        previous = board.dismiss()
+        _notify_banner(hub, board)
+        return _banner_response(board, dismissed=previous)
+    if body.get("show") is True:
+        try:
+            board.reshow()
+        except ValueError as exc:
+            raise PanelError(str(exc)) from exc
+        _notify_banner(hub, board)
+        return _banner_response(board)
+    try:
+        board.show(body.get("text"), body.get("seconds"), sticky=body.get("sticky"))
+    except ValueError as exc:
+        raise PanelError(str(exc)) from exc
+    _notify_banner(hub, board)
+    return _banner_response(board)
 
 
 def _action_kit_window(handler: "_Handler", body: dict[str, Any]) -> dict[str, Any]:
@@ -639,12 +814,29 @@ def _action_callbacks(handler: "_Handler", method: str, rest: list[str]) -> dict
 # --- responses ---------------------------------------------------------------
 
 
-def _send_bytes(handler: "_Handler", status: HTTPStatus, body: bytes, content_type: str) -> None:
+def _send_bytes(
+    handler: "_Handler",
+    status: HTTPStatus,
+    body: bytes,
+    content_type: str,
+    *,
+    cache: str = "none",
+    etag: str | None = None,
+) -> None:
     handler.send_response(status)
     handler.send_header("Content-Type", content_type)
     handler.send_header("Content-Length", str(len(body)))
-    # Static files included: a stale panel.js after an upgrade is worse than a few extra kilobytes.
-    handler.send_header("Cache-Control", "no-store")
+    if cache == "static":
+        # Assets are addressed with ?v=<package version> (and a fresh nonce).
+        # Safe to keep for a week; a version bump changes the URL.
+        handler.send_header("Cache-Control", "public, max-age=604800, immutable")
+        if etag:
+            handler.send_header("ETag", etag)
+    elif cache == "html":
+        # Always revalidate the shell so new asset tokens are picked up.
+        handler.send_header("Cache-Control", "no-cache")
+    else:
+        handler.send_header("Cache-Control", "no-store")
     handler.end_headers()
     handler.wfile.write(body)
 

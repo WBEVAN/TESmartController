@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="face" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4a5158"/>
+      <stop offset="0.45" stop-color="#2a3036"/>
+      <stop offset="1" stop-color="#15191d"/>
+    </linearGradient>
+    <linearGradient id="lcd" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#c5e46e"/>
+      <stop offset="1" stop-color="#8fb84a"/>
+    </linearGradient>
+    <linearGradient id="bezel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8a939c"/>
+      <stop offset="1" stop-color="#3a424a"/>
+    </linearGradient>
+  </defs>
+  <!-- Rounded device body -->
+  <rect x="32" y="32" width="448" height="448" rx="96" fill="url(#face)" stroke="url(#bezel)" stroke-width="16"/>
+  <rect x="56" y="56" width="400" height="400" rx="80" fill="none" stroke="#1b1f23" stroke-width="10"/>
+  <!-- LCD panel -->
+  <rect x="96" y="128" width="320" height="168" rx="28" fill="#12160f" stroke="#68725c" stroke-width="6"/>
+  <rect x="112" y="144" width="288" height="136" rx="18" fill="url(#lcd)"/>
+  <!-- Selected input keys -->
+  <g fill="#1a2026" stroke="#66717a" stroke-width="6">
+    <rect x="112" y="328" width="64" height="48" rx="12"/>
+    <rect x="192" y="328" width="64" height="48" rx="12"/>
+    <rect x="272" y="328" width="64" height="48" rx="12"/>
+    <rect x="352" y="328" width="64" height="48" rx="12"/>
+  </g>
+  <!-- Active key accent -->
+  <rect x="192" y="328" width="64" height="48" rx="12" fill="none" stroke="#35dafa" stroke-width="8"/>
+  <!-- Status LED -->
+  <circle cx="400" cy="100" r="18" fill="#8edc59" stroke="#111" stroke-width="6"/>
+</svg>

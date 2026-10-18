@@ -26,6 +26,7 @@ Routes (GET or POST)
 ``/names``                   local input names (GET list; POST JSON to set)
 ``/version``                 package name, version, and feature tags
 ``/compat``                  GET/POST compatibility check (min server version + features)
+``/events``                  Server-Sent Events stream for browser clients
 ``/callbacks``               GET list; POST {\"url\": \"...\", \"name\": \"...\"} register; DELETE remove;
                              POST {\"timeout\": 10} set wait; GET|POST /callbacks/health probe clients
 ``/panel``, ``/kit``, ``/api/...``  browser UIs; only with ``--panel`` (see :mod:`tesmart.panel`)
@@ -42,6 +43,8 @@ from typing import NamedTuple
 from urllib.parse import parse_qs, urlsplit
 
 from . import callbacks, config, panel, version as pkg_version
+from .banner import BannerBoard
+from .events import EventHub, stream_sse
 from .peek import PeekFollow, Peeker, apply_follow
 from .switch import SwitchError, TesmartSwitch, next_input, parse_input_list, previous_input
 from .transport import TransportError
@@ -69,6 +72,8 @@ ROUTES = {
     "/peek/always": "every plain input change peeks until /peek/off",
     "/peek/off": "plain input changes stick again",
     "/names": "GET local input names; POST {\"names\": {\"2\": \"Office\", \"3\": \"\"}} to set or clear",
+    "/banner": "GET last LCD message; POST {\"text\",\"seconds\"|\"sticky\":true}; POST {\"show\":true}|{\"dismiss\":true}|{\"clear\":true}",
+    "/events": "Server-Sent Events stream (input_changed, names_changed, banner); kit/panel use /api/events",
     "/callbacks": "GET list; POST {\"url\",\"name\"} register; POST {\"timeout\":10}; GET|POST /health probe; DELETE remove",
     "/panel": "browser control panel (only when started with --panel)",
     "/kit": "alternate floating HDMI UI kit (Pop out = chrome-less window on listener host)",
@@ -132,6 +137,14 @@ def _parse_request(path: str) -> WebRequest:
         if len(segments) != 1:
             raise LookupError(parts.path)
         return WebRequest("names", None, as_text, include_network)
+    if head == "banner":
+        if len(segments) != 1:
+            raise LookupError(parts.path)
+        return WebRequest("banner", None, as_text, include_network)
+    if head == "events":
+        if len(segments) != 1:
+            raise LookupError(parts.path)
+        return WebRequest("events", None, as_text, include_network)
     if head == "callbacks":
         if len(segments) == 1:
             return WebRequest("callbacks", None, as_text, include_network)
@@ -334,6 +347,28 @@ class _Handler(BaseHTTPRequestHandler):
                 text = "\n".join(lines) if lines else "(none)"
             self._send(HTTPStatus.OK, payload, request.as_text, text)
             return
+        if request.verb == "banner":
+            try:
+                payload = self._banner(self.command)
+            except ValueError as exc:
+                self._send(HTTPStatus.BAD_REQUEST, {"error": str(exc)}, request.as_text)
+                return
+            text = None
+            if request.as_text:
+                banner = payload.get("banner")
+                text = "(none)" if not banner else f"{banner.get('text')} ({banner.get('remaining')}s)"
+            self._send(HTTPStatus.OK, payload, request.as_text, text)
+            return
+        if request.verb == "events":
+            if self.command.upper() != "GET":
+                self._send(
+                    HTTPStatus.METHOD_NOT_ALLOWED,
+                    {"error": "use GET /events for the Server-Sent Events stream"},
+                    False,
+                )
+                return
+            stream_sse(self, self.server.events)
+            return
 
         try:
             if request.verb == "peek":
@@ -360,6 +395,9 @@ class _Handler(BaseHTTPRequestHandler):
             payload["peek"]["follow"] = self.server.peek_follow.status()["mode"]
             # Remembered write-only settings (buzzer / LED / auto-detect) from this host.
             payload["last_sent"] = dict(self.server.last_sent)
+            banner_payload = self.server.banner.payload()
+            payload["banner"] = banner_payload["banner"]
+            payload["banner_history"] = banner_payload["banner_history"]
         if request.verb in {"set", "rotate", "previous", "peek"}:
             self._note_callback_change(payload, request.verb)
         text = _status_text(payload) if request.verb == "status" else None
@@ -431,6 +469,53 @@ class _Handler(BaseHTTPRequestHandler):
             client=str(client) if client is not None else None,
             client_version=str(client_version) if client_version is not None else None,
         )
+
+    def _banner(self, method: str) -> dict:
+        """Show, dismiss, reshow, or read the LCD banner (in-memory for this process)."""
+        board = self.server.banner
+        hub = getattr(self.server, "callbacks", None)
+        method = method.upper()
+
+        def _pack(**extra: object) -> dict:
+            payload = board.payload()
+            payload.update(extra)
+            return payload
+
+        def _notify() -> None:
+            if hub is None:
+                return
+            snap = board.payload()
+            hub.note_banner(
+                snap.get("banner"),
+                source="command",
+                history=list(snap.get("banner_history") or []),
+            )
+
+        if method == "GET":
+            return _pack()
+        if method == "DELETE":
+            previous = board.dismiss()
+            _notify()
+            return _pack(dismissed=previous)
+        if method not in {"POST", "PUT"}:
+            raise ValueError("use GET to read the banner or POST to set/dismiss it")
+        body = self._read_json_body()
+        if body.get("clear") is True:
+            previous = board.clear()
+            if hub is not None:
+                hub.note_banner(None, source="command", history=[])
+            return {"banner": None, "banner_history": [], "cleared": previous}
+        if body.get("dismiss") is True:
+            previous = board.dismiss()
+            _notify()
+            return _pack(dismissed=previous)
+        if body.get("show") is True:
+            board.reshow()
+            _notify()
+            return _pack()
+        board.show(body.get("text"), body.get("seconds"), sticky=body.get("sticky"))
+        _notify()
+        return _pack()
 
     def _names(self, method: str) -> dict:
         """List or update local input names stored in the listener env file."""
@@ -639,7 +724,14 @@ class WebServer(ThreadingHTTPServer):
         self.peeker = Peeker(switch, self.lock)
         # Armed by /peek/once or /peek/always. The next plain input change peeks.
         self.peek_follow = PeekFollow()
-        self.callbacks = callbacks.CallbackHub(switch, self.lock, env_file)
+        # Browser kit/panel subscribe via GET /events or /api/events (SSE).
+        self.events = EventHub()
+        self.callbacks = callbacks.CallbackHub(switch, self.lock, env_file, events=self.events)
+        # LCD banner + history (restored from env file so kit icons return on startup).
+        self.banner = BannerBoard(
+            history=config.read_banner_history(env_file),
+            persist=lambda entries: config.write_banner_history(entries, env_file),
+        )
 
 
 def serve_http(
@@ -667,6 +759,8 @@ def serve_http(
     print(f"  http://{bound_host}:{bound_port}/version      {pkg_version.package_version()}", file=sys.stderr)
     print(f"  http://{bound_host}:{bound_port}/compat       client/server compatibility check", file=sys.stderr)
     print(f"  http://{bound_host}:{bound_port}/names        local input names (GET / POST)", file=sys.stderr)
+    print(f"  http://{bound_host}:{bound_port}/banner       brief LCD message (GET / POST)", file=sys.stderr)
+    print(f"  http://{bound_host}:{bound_port}/events       Server-Sent Events (kit/panel push)", file=sys.stderr)
     print(f"  http://{bound_host}:{bound_port}/callbacks    change notifications (GET / POST / DELETE)", file=sys.stderr)
     print(f"  http://{bound_host}:{bound_port}/rotate       next input", file=sys.stderr)
     print(f"  http://{bound_host}:{bound_port}/input?set=3  switch", file=sys.stderr)
@@ -689,6 +783,7 @@ def serve_http(
     except KeyboardInterrupt:
         print(file=sys.stderr)
     finally:
+        server.events.close_all()
         server.callbacks.stop()
         server.server_close()
     return 0

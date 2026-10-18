@@ -26,6 +26,7 @@ from urllib.parse import urlsplit
 from . import config
 
 if TYPE_CHECKING:
+    from .events import EventHub
     from .switch import TesmartSwitch
 
 CALLBACKS_KEY = "TESMART_CALLBACKS"
@@ -367,6 +368,27 @@ def build_health_event() -> dict[str, Any]:
     }
 
 
+def build_banner_event(
+    banner: dict[str, Any] | None,
+    *,
+    source: str,
+    switch: TesmartSwitch,
+    history: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Payload when an LCD banner is shown or cleared (Hubitat TESmart Controller)."""
+    payload: dict[str, Any] = {
+        "event": "banner",
+        "banner": banner,
+        "source": source,
+        "endpoint": switch.endpoint,
+        "input_count": switch.input_count,
+        "at": _stamp(),
+    }
+    if history is not None:
+        payload["banner_history"] = history
+    return payload
+
+
 def _post_one(url: str, body: bytes, *, timeout: float, event: str | None) -> dict[str, Any]:
     started = time.monotonic()
     try:
@@ -469,12 +491,20 @@ def format_callbacks_text(payload: dict[str, Any]) -> str:
 
 
 class CallbackHub:
-    """Watches the switch for input reports and notifies registered URLs."""
+    """Watches the switch for input reports and notifies registered URLs and SSE."""
 
-    def __init__(self, switch: TesmartSwitch, lock: threading.Lock, env_file: str | None = None):
+    def __init__(
+        self,
+        switch: TesmartSwitch,
+        lock: threading.Lock,
+        env_file: str | None = None,
+        *,
+        events: EventHub | None = None,
+    ):
         self.switch = switch
         self.lock = lock
         self.env_file = env_file
+        self.events = events
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._last_active: int | None = None
@@ -508,11 +538,8 @@ class CallbackHub:
         *,
         source: str = "command",
     ) -> None:
-        """Notify registered URLs that local input names changed."""
+        """Notify SSE subscribers and registered URLs that local input names changed."""
         if previous_names == names:
-            return
-        urls = read_callback_urls(self.env_file)
-        if not urls:
             return
         with self._state_lock:
             active = self._last_active
@@ -526,7 +553,33 @@ class CallbackHub:
         )
         if not payload.get("changed"):
             return
+        self._fanout(payload)
+
+    def note_banner(
+        self,
+        banner: dict[str, Any] | None,
+        *,
+        source: str = "command",
+        history: list[dict[str, Any]] | None = None,
+    ) -> None:
+        """Notify SSE subscribers and registered URLs that an LCD banner changed."""
+        payload = build_banner_event(
+            banner,
+            source=source,
+            switch=self.switch,
+            history=history,
+        )
+        self._fanout(payload)
+
+    def _fanout(self, payload: dict[str, Any]) -> None:
+        """Push to browser SSE first, then Hubitat-style callback URLs if any."""
+        if self.events is not None:
+            self.events.publish(payload)
+        urls = read_callback_urls(self.env_file)
+        if not urls:
+            return
         timeout = read_timeout(self.env_file)
+        # Do not hold the switch lock while waiting on remote HTTP clients.
         threading.Thread(
             target=post_event,
             args=(urls, payload),
@@ -555,9 +608,6 @@ class CallbackHub:
                 return
             prev = previous if previous is not None else self._last_active
             self._last_active = active
-        urls = read_callback_urls(self.env_file)
-        if not urls:
-            return
         payload = build_event(
             previous=prev,
             active=active,
@@ -565,12 +615,4 @@ class CallbackHub:
             switch=self.switch,
             env_file=self.env_file,
         )
-        timeout = read_timeout(self.env_file)
-        # Do not hold the switch lock while waiting on remote HTTP clients.
-        threading.Thread(
-            target=post_event,
-            args=(urls, payload),
-            kwargs={"timeout": timeout},
-            name="tesmartctl-callback-post",
-            daemon=True,
-        ).start()
+        self._fanout(payload)

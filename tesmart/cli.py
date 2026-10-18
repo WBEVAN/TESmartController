@@ -13,9 +13,15 @@ import argparse
 import json
 import sys
 import time
+import urllib.error
+import urllib.request
 from typing import Any
 
 from . import config, notices
+from .banner import DEFAULT_SECONDS as BANNER_DEFAULT_SECONDS
+from .banner import MAX_SECONDS as BANNER_MAX_SECONDS
+from .banner import MAX_TEXT as BANNER_MAX_TEXT
+from .banner import MIN_SECONDS as BANNER_MIN_SECONDS
 from .examples import GLOBAL_EXAMPLES, all_examples_text, epilog_for, format_examples
 from .listener import parse_bind, serve_stdio, serve_tcp
 from .peek import Peeker
@@ -228,6 +234,63 @@ def build_parser() -> argparse.ArgumentParser:
     p_name_set.add_argument("label", nargs="+", help="display name; not sent to the switch")
     name_sub.add_parser("unset", help="remove a local input name").add_argument("number", type=int)
 
+    p_banner = _add(
+        sub,
+        "banner",
+        "show a brief LCD message via a running listen --http (kit / panel)",
+    )
+    p_banner.add_argument(
+        "text",
+        nargs="*",
+        help="message to show (omit to read the last message); quote phrases with spaces",
+    )
+    p_banner.add_argument(
+        "--seconds", "-s",
+        type=int,
+        default=None,
+        metavar="N",
+        help=f"how long to show it ({BANNER_MIN_SECONDS}-{BANNER_MAX_SECONDS}; default {BANNER_DEFAULT_SECONDS})",
+    )
+    p_banner.add_argument(
+        "--sticky",
+        action="store_true",
+        help="keep showing until dismissed (ignores --seconds)",
+    )
+    banner_action = p_banner.add_mutually_exclusive_group()
+    banner_action.add_argument(
+        "--show",
+        action="store_true",
+        help="put the last message back on the LCD (no new text)",
+    )
+    banner_action.add_argument(
+        "--dismiss",
+        action="store_true",
+        help="hide the LCD message; keep history",
+    )
+    banner_action.add_argument(
+        "--clear",
+        action="store_true",
+        help="erase the last message and history",
+    )
+    banner_action.add_argument(
+        "--history",
+        action="store_true",
+        help="list up to 10 recent messages (newest first)",
+    )
+    p_banner.add_argument(
+        "--listen",
+        type=int,
+        default=8080,
+        metavar="PORT",
+        help="listener HTTP port (default 8080)",
+    )
+    p_banner.add_argument(
+        "--url",
+        default=None,
+        metavar="URL",
+        help="listener base URL, e.g. http://127.0.0.1:8080 (overrides --listen)",
+    )
+
     p_raw = _add(sub, "raw", "send arbitrary hex bytes and print the reply")
     p_raw.add_argument("hex", nargs="+", help='bytes, e.g. "AA BB 03 10 00 EE"')
     p_raw.add_argument("--listen", type=float, default=None, help="seconds to collect replies")
@@ -284,8 +347,21 @@ def build_parser() -> argparse.ArgumentParser:
         default="auto",
         help="window backend: Chromium --app, pywebview, or auto (default)",
     )
+    p_kit.add_argument(
+        "--ports",
+        type=int,
+        default=None,
+        metavar="N",
+        help="force N input buttons for layout preview (e.g. 16); does not change the switch",
+    )
     p_kit.add_argument("--width", type=int, default=None, help="window width (default fits the kit deck)")
     p_kit.add_argument("--height", type=int, default=None, help="window height (default fits the kit deck)")
+    p_kit.add_argument(
+        "--fresh",
+        action="store_true",
+        help="ignore remembered position, Always on top, view size and peek mode for this launch "
+        "(use if the kit opens oddly; new changes are saved over the old ones)",
+    )
 
     return parser
 
@@ -673,11 +749,26 @@ def cmd_listen(switch: TesmartSwitch, args: argparse.Namespace) -> int:
 
 def cmd_kit(args: argparse.Namespace) -> int:
     """Open /kit without browser chrome. Does not need a switch connection."""
+    from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
     from . import kit_window
 
     url = (args.url or "").strip() or f"http://127.0.0.1:{args.listen}/kit?app=1"
     if not url.startswith(("http://", "https://")):
         raise SystemExit("kit URL must be an absolute http(s) address")
+    if "app=1" not in url and "app=" not in url:
+        sep = "&" if "?" in url else "?"
+        url = f"{url}{sep}app=1"
+    if args.ports is not None and (args.ports < 8 or args.ports > 32):
+        raise SystemExit("--ports must be between 8 and 32")
+    if args.ports is not None or args.fresh:
+        parts = urlsplit(url)
+        query = dict(parse_qsl(parts.query, keep_blank_values=True))
+        if args.ports is not None:
+            query["ports"] = str(args.ports)
+        if args.fresh:
+            query["fresh"] = "1"
+        url = urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
     width = args.width if args.width is not None else kit_window.DEFAULT_WIDTH
     height = args.height if args.height is not None else kit_window.DEFAULT_HEIGHT
     try:
@@ -688,15 +779,151 @@ def cmd_kit(args: argparse.Namespace) -> int:
             height=height,
             prefer=args.prefer,
             block=True,
+            fresh=args.fresh,
         )
     except kit_window.KitWindowError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
-    emit(
-        args,
-        result,
-        f"Opened {result['url']} via {result['backend']} ({result['browser']})",
-    )
+    except KeyboardInterrupt:
+        # Quit the Dock kit window (macOS) so Ctrl-C does not leave it orphaned.
+        if sys.platform == "darwin":
+            try:
+                from . import kit_macos
+
+                kit_macos.quit_kit_app()
+            except (OSError, ImportError):
+                pass
+        print(file=sys.stderr)
+        return 0
+    # Stay quiet on success — the window is the feedback. Still emit JSON when asked.
+    if getattr(args, "json", False):
+        emit(args, result, "")
+    return 0
+
+
+def _banner_base_url(args: argparse.Namespace) -> str:
+    raw = (args.url or "").strip()
+    if raw:
+        if not raw.startswith(("http://", "https://")):
+            raise SystemExit("banner --url must be an absolute http(s) address")
+        return raw.rstrip("/")
+    return f"http://127.0.0.1:{args.listen}"
+
+
+def _banner_request(base: str, method: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    """GET/POST the listener ``/banner`` route (works without ``--panel``)."""
+    url = f"{base}/banner"
+    data = None
+    headers = {"Accept": "application/json"}
+    if body is not None:
+        data = json.dumps(body).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    request = urllib.request.Request(url, data=data, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(request, timeout=5.0) as response:
+            raw = response.read().decode("utf-8")
+    except urllib.error.HTTPError as exc:
+        detail = ""
+        try:
+            payload = json.loads(exc.read().decode("utf-8"))
+            detail = str(payload.get("error") or payload)
+        except (json.JSONDecodeError, UnicodeDecodeError, TypeError, AttributeError):
+            detail = str(exc.reason or "")
+        raise SystemExit(f"listener returned HTTP {exc.code}" + (f": {detail}" if detail else "")) from exc
+    except urllib.error.URLError as exc:
+        raise SystemExit(
+            f"cannot reach {url} ({exc.reason}). "
+            "Start `tesmartctl listen --http PORT` (add --panel for kit/panel)."
+        ) from exc
+    try:
+        payload = json.loads(raw) if raw.strip() else {}
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"listener returned non-JSON from {url}") from exc
+    if not isinstance(payload, dict):
+        raise SystemExit(f"listener returned unexpected payload from {url}")
+    return payload
+
+
+def _render_banner(banner: dict[str, Any] | None) -> str:
+    if not banner:
+        return "No LCD message"
+    text = banner.get("text") or ""
+    mode = banner.get("mode") or "timed"
+    showing = banner.get("showing")
+    if mode == "sticky":
+        state = "showing" if showing else "hidden"
+        return f"Banner: {text!r} (sticky, {state})"
+    remaining = banner.get("remaining")
+    if showing and remaining is not None:
+        return f"Banner: {text!r} (timed, {remaining}s left)"
+    seconds = banner.get("seconds")
+    if showing:
+        return f"Banner: {text!r} (timed, {seconds}s)"
+    return f"Banner: {text!r} (timed, hidden; was {seconds}s)"
+
+
+def _render_banner_history(history: list[Any]) -> str:
+    if not history:
+        return "No message history"
+    lines: list[str] = []
+    for item in history:
+        if not isinstance(item, dict):
+            continue
+        when = item.get("at_iso") or ""
+        mode = item.get("mode") or "timed"
+        text = item.get("text") or ""
+        if mode == "sticky":
+            lines.append(f"{when}  sticky  {text}")
+        else:
+            seconds = item.get("seconds")
+            lines.append(f"{when}  {seconds}s  {text}")
+    return "\n".join(lines) if lines else "No message history"
+
+
+def cmd_banner(args: argparse.Namespace) -> int:
+    """Talks to a running ``listen --http``; does not need a switch connection."""
+    text = " ".join(args.text).strip() if args.text else ""
+    action_count = sum(bool(flag) for flag in (args.show, args.dismiss, args.clear, args.history))
+    if text and action_count:
+        raise SystemExit("pass a message, or one of --show / --dismiss / --clear / --history, not both")
+    if args.sticky and args.seconds is not None:
+        raise SystemExit("use --sticky or --seconds, not both")
+    if args.seconds is not None and (args.seconds < BANNER_MIN_SECONDS or args.seconds > BANNER_MAX_SECONDS):
+        raise SystemExit(f"--seconds must be between {BANNER_MIN_SECONDS} and {BANNER_MAX_SECONDS}")
+    if text and len(text) > BANNER_MAX_TEXT:
+        raise SystemExit(f"text must be at most {BANNER_MAX_TEXT} characters")
+
+    base = _banner_base_url(args)
+    if args.history:
+        payload = _banner_request(base, "GET")
+        history = payload.get("banner_history") or []
+        emit(args, payload, _render_banner_history(history if isinstance(history, list) else []))
+        return 0
+    if args.clear:
+        payload = _banner_request(base, "POST", {"clear": True})
+        emit(args, payload, "Cleared LCD message and history")
+        return 0
+    if args.dismiss:
+        payload = _banner_request(base, "POST", {"dismiss": True})
+        emit(args, payload, "Dismissed LCD message")
+        return 0
+    if args.show:
+        payload = _banner_request(base, "POST", {"show": True})
+        emit(args, payload, _render_banner(payload.get("banner")))
+        return 0
+    if text:
+        body: dict[str, Any] = {"text": text}
+        if args.sticky:
+            body["sticky"] = True
+        elif args.seconds is not None:
+            body["seconds"] = args.seconds
+        payload = _banner_request(base, "POST", body)
+        emit(args, payload, _render_banner(payload.get("banner")))
+        return 0
+    if args.sticky or args.seconds is not None:
+        raise SystemExit("pass a message with --seconds / --sticky, or omit flags to read the last message")
+    payload = _banner_request(base, "GET")
+    emit(args, payload, _render_banner(payload.get("banner")))
     return 0
 
 
@@ -772,6 +999,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_config(args)
         if args.command == "name":
             return cmd_name(args)
+        if args.command == "banner":
+            return cmd_banner(args)
         if args.command == "kit":
             return cmd_kit(args)
         if args.command == "cycle" and args.cycle_command != "run":

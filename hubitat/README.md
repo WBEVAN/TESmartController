@@ -10,7 +10,7 @@ Files follow the [Hubitat Package Manager developer documentation](https://hubit
 | [`TESmart-Controller.groovy`](TESmart-Controller.groovy) | Parent driver (`MediaInputSource`) |
 | [`TESmart-Input.groovy`](TESmart-Input.groovy) | Child input driver |
 
-Current package version is in `packageManifest.json` (also mirrored on `repository.json`). Full end-user setup, commands, and callbacks: [`Docs/hubitat.md`](../Docs/hubitat.md).
+Current package version is in `packageManifest.json` (also mirrored on `repository.json`). Full end-user setup, commands, and callbacks: [`Docs/hubitat.md`](../Docs/hubitat.md). Browser kit/panel live updates use Server-Sent Events (`/api/events`), not these Hubitat callback URLs — see [`Docs/listener.md`](../Docs/listener.md).
 
 ## Install with HPM
 
@@ -29,7 +29,8 @@ If Uninstall already lists a package named **`null`**, uninstall that entry firs
 
 This Hubitat package expects a recent **`tesmartctl listen --http`** on a host the hub can reach.
 
-- Minimum server: **0.0.7.9+** (Manager checks `POST /compat` on connection test)
+- Minimum server: **0.0.7.10+** (Manager checks `POST /compat` on connection test)
+- Hubitat package version: **1.6.0** (shown on the Manager main screen)
 - Namespace: **`wbevan_tesmart`**
 - Push notifications need OAuth on the Manager app (set via `"oauth": true` in the manifest)
 

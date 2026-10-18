@@ -18,11 +18,11 @@ import groovy.transform.Field
 @Field static final String DOCS_URL = "https://github.com/WBEVAN/TESmartController/blob/main/Docs/hubitat.md"
 @Field static final String LISTENER_DOCS = "https://github.com/WBEVAN/TESmartController/blob/main/Docs/listener.md"
 /** Hubitat package version (keep in sync with packageManifest.json). */
-@Field static final String PACKAGE_VERSION = "1.5.3"
+@Field static final String PACKAGE_VERSION = "1.6.0"
 /** Oldest tesmartctl this package is tested against (must expose /compat). */
-@Field static final String MIN_SERVER_VERSION = "0.0.7.9"
+@Field static final String MIN_SERVER_VERSION = "0.0.7.10"
 @Field static final List REQUIRED_SERVER_FEATURES = [
-    "compat", "callbacks", "callbacks.name", "callbacks.health", "names_changed", "last_sent"
+    "compat", "callbacks", "callbacks.name", "callbacks.health", "names_changed", "last_sent", "banner"
 ]
 
 definition(
@@ -60,25 +60,27 @@ def mainPage() {
             paragraph imgHtml(IMG_BANNER, "tesmartctl")
             paragraph "<b>Control a TESmart 8-port or 16-port HDMI/KVM switch</b> from Hubitat through the tesmartctl REST server."
             paragraph "Exactly one input is active at a time. This app creates a <b>TESmart Controller</b> device (MediaInputSource) and optional child switches for your dashboard."
+            paragraph "Hubitat package <b>${PACKAGE_VERSION}</b> · requires <b>tesmartctl ${MIN_SERVER_VERSION}+</b>"
         }
         section("1. Prerequisites") {
             paragraph """Before continuing, on a machine Hubitat can reach run:
 <pre style="white-space:pre-wrap">tesmartctl listen --http 0.0.0.0:8080</pre>
 Bind to <code>0.0.0.0</code> (or your LAN IP). There is no authentication — use a trusted network.
+Requires <b>tesmartctl ${MIN_SERVER_VERSION}+</b>.
 <a href="${LISTENER_DOCS}" target="_blank">HTTP server docs on GitHub</a>"""
         }
         section("2. Connection") {
             String connTitle = "Configure server host & port"
             if (state.connectionOk) {
                 String ver = atomicState.lastServerVersion ? "tesmartctl ${atomicState.lastServerVersion}" : "tested"
-                connTitle = "Connection — OK (${ver}${atomicState.lastActive != null ? ", input ${atomicState.lastActive}" : ""})"
+                connTitle = "Connection — OK (Hubitat ${PACKAGE_VERSION} · ${ver}${atomicState.lastActive != null ? ", input ${atomicState.lastActive}" : ""})"
             } else if (atomicState.compatOk == false) {
                 connTitle = "Connection — server version too old"
             }
             href(
                 name: "toConnection",
                 title: connTitle,
-                description: "Host, port, port count, refresh interval · requires tesmartctl ${MIN_SERVER_VERSION}+",
+                description: "Hubitat package ${PACKAGE_VERSION} · host, port, port count, refresh · requires tesmartctl ${MIN_SERVER_VERSION}+",
                 page: "connectionPage"
             )
         }

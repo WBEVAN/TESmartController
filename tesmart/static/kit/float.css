@@ -15,12 +15,13 @@ body.kit-float {
   box-sizing: border-box;
   min-height: 100%;
   min-height: 100dvh;
-  padding: 12px;
-  /* Checkerboard only when not popped out, so the deck reads as floating. */
-  background:
-    linear-gradient(45deg, #1a1f25 25%, transparent 25%) 0 0 / 24px 24px,
-    linear-gradient(-45deg, #1a1f25 25%, transparent 25%) 0 0 / 24px 24px,
-    #10151b;
+  padding: 16px 12px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: safe center;
+  /* Solid stage — checkerboard made tall portrait windows look broken. */
+  background: #10151b;
 }
 
 body.kit-float.is-popup {
@@ -30,8 +31,9 @@ body.kit-float.is-popup {
   height: 100dvh;
   overflow: hidden;
   display: flex;
-  align-items: flex-start;
-  justify-content: center;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
 }
 
 .float-chrome {
@@ -39,13 +41,18 @@ body.kit-float.is-popup {
   gap: 8px;
   align-items: center;
   width: 100%;
-  max-width: 720px;
+  max-width: min(100%, 720px);
   margin: 0 auto 10px;
 }
 
-body.kit-float.is-popup .float-chrome #btn-popout,
-body.kit-float.is-app .float-chrome {
-  display: none;
+/* App / popup / CLI kit: never show Pop out / Full panel / footer note. */
+html[data-kit-shell] .float-chrome,
+html[data-kit-shell] .float-note,
+body.kit-float.is-app .float-chrome,
+body.kit-float.is-popup .float-chrome,
+body.kit-float.is-app .float-note,
+body.kit-float.is-popup .float-note {
+  display: none !important;
 }
 
 body.kit-float.is-app {
@@ -55,14 +62,20 @@ body.kit-float.is-app {
   height: 100%;
   height: 100dvh;
   display: flex;
-  align-items: flex-start;
-  justify-content: center;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
 }
 
-body.kit-float.is-app .float-note,
-body.kit-float.is-popup .float-note {
-  display: none;
+/* Transparent native window: only the rounded device is drawn. The outer
+   drop shadow would be clipped square at the window edge, so macOS draws
+   the shadow around the visible shape instead. */
+html:has(body.kit-float.is-transparent),
+body.kit-float.is-transparent {
+  background: transparent;
 }
+
+/* Bevel / inset colours come from themes.css (--kit-face-*). */
 
 /* Hardware-style setup door covering peek / cycle controls. */
 .kit-float .service-bay {
@@ -178,31 +191,142 @@ body.kit-float.is-popup .float-note {
   letter-spacing: 1px;
 }
 
-.kit-float .cycle-inputs-field {
+/* 16-input preview: slightly tighter keys; column count follows auto-fit. */
+body.kit-float.preview-16 .grid {
+  gap: 8px;
+}
+
+body.kit-float.preview-16 .input {
+  font-size: 20px;
+  padding-top: 40px;
+}
+
+body.kit-float.preview-16 .panel.compact .input {
+  font-size: 14px;
+  padding-top: 22px;
+  height: 44px;
+}
+
+.kit-float .input.preview-only {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* View size is a cycle — LCD highlight colour on hover / keyboard focus. */
+.kit-float .view-toggle:hover,
+.kit-float .view-toggle:focus-visible {
+  border-color: var(--kit-select, #35dafa);
+  color: var(--kit-select, #35dafa);
+  outline: none;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--kit-select, #35dafa) 45%, transparent);
+}
+
+.kit-float .cycle-inputs-btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  flex: 1 1 180px;
-  min-width: 140px;
+  background: var(--kit-chrome-bg, #1a2026);
+  color: var(--kit-chrome-text, #e7edf1);
+  border: 1px solid var(--kit-chrome-border, #66717a);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
 }
 
-.kit-float .cycle-inputs-field input[type="text"] {
-  flex: 1 1 auto;
-  min-width: 0;
-  width: auto;
+.kit-float .cycle-inputs-btn strong {
+  color: var(--kit-select, #35dafa);
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+.kit-float .cycle-inputs-btn:hover {
+  border-color: var(--kit-chrome-hover, #b5c3cc);
 }
 
 .kit-float #cycle-error:empty {
   display: none;
 }
 
-/* Close control only in frameless / app windows (no OS traffic lights). */
+.kit-float .kit-dialog-card-wide {
+  width: min(100%, 420px);
+}
+
+.kit-float .cycle-picker {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.kit-float .cycle-picker button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 64px;
+  padding: 8px 4px;
+  background: color-mix(in srgb, var(--kit-chrome-bg, #12171c) 70%, #000);
+  color: color-mix(in srgb, var(--kit-chrome-text, #e7edf1) 55%, transparent);
+  border: 1px solid color-mix(in srgb, var(--kit-chrome-border, #66717a) 45%, transparent);
+  border-radius: 10px;
+  font-size: 16px;
+  opacity: 0.72;
+}
+
+.kit-float .cycle-picker button .pick-name {
+  font-size: 10px;
+  letter-spacing: 0;
+  color: inherit;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Selected = highlight ring + full ink (unselected stay muted). */
+.kit-float .cycle-picker button[aria-pressed="true"] {
+  opacity: 1;
+  color: var(--kit-select, #35dafa);
+  border-color: var(--kit-select, #35dafa);
+  background: color-mix(in srgb, var(--kit-select, #35dafa) 16%, var(--kit-chrome-bg, #12171c));
+  box-shadow:
+    inset 0 0 0 2px var(--kit-select, #35dafa),
+    0 0 0 1px color-mix(in srgb, var(--kit-select, #35dafa) 35%, transparent);
+}
+
+.kit-float .cycle-picker button[aria-pressed="true"] .pick-name {
+  color: color-mix(in srgb, var(--kit-select, #35dafa) 80%, #fff);
+}
+
+.kit-float .panel.compact .cycle-picker {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.kit-float .panel.compact .cycle-picker button {
+  min-height: 52px;
+  font-size: 14px;
+}
+
+/* Power-off control only in frameless / app windows (no OS traffic lights). */
 .kit-float .app-only {
   display: none;
 }
 
 body.kit-float.is-app .app-only {
   display: inline-flex;
+}
+
+.kit-float .power-btn:hover,
+.kit-float .power-btn:focus-visible {
+  border-color: #f08080;
+  color: #f08080;
+}
+
+.kit-float .power-btn:hover .action-icon,
+.kit-float .power-btn:focus-visible .action-icon {
+  filter: brightness(1.15) sepia(1) saturate(4) hue-rotate(-40deg);
 }
 
 .kit-float .drag-handle {
@@ -245,26 +369,495 @@ body.kit-float.is-app .app-only {
 }
 
 /*
- * Natural deck geometry. App/popup windows scale this with CSS zoom so
- * Compact/Expand and manual resize never overlap controls.
+ * Deck geometry. Browser /kit stays capped at the design width.
+ * Frameless / popup windows fill the OS window so the deck can grow;
+ * input buttons keep a fixed track size and wrap onto one row when
+ * there is room (see .grid below).
  */
+.kit-float {
+  --kit-btn: 156px;
+  --kit-gap: 12px;
+}
+
 .kit-float .panel {
-  width: 720px;
+  width: min(100%, 720px);
   max-width: 720px;
   margin: 0 auto;
   user-select: none;
   box-sizing: border-box;
   transform-origin: top center;
+  /* Do not clip fluid keys — border-radius + overflow was eating the grid
+     on narrow/portrait viewports when tracks were fixed at 156px. */
+  overflow: visible;
 }
 
 .kit-float .panel.compact {
-  width: 380px;
+  --kit-btn: 78px;
+  --kit-gap: 7px;
+  width: min(100%, 380px);
   max-width: 380px;
 }
 
+.kit-float .panel.mini {
+  --mini-lcd-h: 96px;
+  width: min(100%, 340px);
+  max-width: 340px;
+  padding: 12px;
+  border-radius: 18px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 40px;
+  grid-template-rows: auto var(--mini-lcd-h);
+  grid-template-areas:
+    "title title"
+    "lcd nav";
+  column-gap: 8px;
+  row-gap: 0;
+  align-items: stretch;
+  /* Default stretch would grow the title row and leave a hole above the LCD
+     whenever the window is taller than the content. */
+  align-content: start;
+}
+
+.kit-float .panel.mini .title {
+  grid-area: title;
+  margin-bottom: 10px;
+  gap: 6px;
+}
+
+.kit-float .panel.mini .lcd {
+  grid-area: lcd;
+}
+
+.kit-float .panel.mini .mini-nav {
+  grid-area: nav;
+}
+
+.kit-float .panel.mini .drag-handle {
+  gap: 6px;
+  min-height: 32px;
+}
+
+.kit-float .panel.mini .drag-handle .icon {
+  width: 18px;
+}
+
+.kit-float .panel.mini .title strong {
+  font-size: 12px;
+  letter-spacing: 1.5px;
+}
+
+/* Mini: status dot only — no ONLINE / offline text (header is tight). */
+.kit-float .panel.mini #led-label {
+  display: none;
+}
+
+.kit-float .panel.mini .led {
+  margin-right: 4px;
+  gap: 0;
+}
+
+.kit-float .panel.mini .led img {
+  width: 12px;
+  height: 12px;
+}
+
+.kit-float .panel.mini .view-toggle {
+  padding: 5px 8px;
+  font-size: 11px;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.kit-float .panel.mini .view-toggle .action-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.kit-float .panel.mini .lcd {
+  height: var(--mini-lcd-h);
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border-width: 7px;
+  border-radius: 12px;
+  grid-template-columns: minmax(0, 1fr) 56px;
+  gap: 8px;
+}
+
+/* Last-message control lives under the copy so the marquee never covers it. */
+.kit-float .lcd-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.kit-float .lcd-meta #detail {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+}
+
+.kit-float .lcd-message-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+.kit-float .lcd-message-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: color-mix(in srgb, currentColor 45%, transparent);
+  cursor: pointer;
+}
+
+.kit-float .lcd-message-btn .action-icon {
+  width: 22px;
+  height: 22px;
+}
+
+.kit-float .lcd-message-btn.is-active {
+  color: currentColor;
+  filter: drop-shadow(0 0 3px color-mix(in srgb, currentColor 55%, transparent));
+}
+
+.kit-float .lcd-message-btn:hover,
+.kit-float .lcd-message-btn:focus-visible {
+  color: currentColor;
+  outline: none;
+}
+
+.kit-float .panel.mini .lcd-message-btn {
+  width: 24px;
+  height: 24px;
+}
+
+.kit-float .panel.mini .lcd-message-btn .action-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.kit-float .panel.compact .lcd-message-btn {
+  width: 24px;
+  height: 24px;
+}
+
+.kit-float .panel.compact .lcd-message-btn .action-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.kit-float .message-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: min(52vh, 360px);
+  overflow: auto;
+  margin: 0 0 4px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.kit-float .message-history-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #5a636b;
+  border-radius: 10px;
+  background: #1a1f24;
+  color: #e7edf1;
+  text-align: left;
+  cursor: pointer;
+}
+
+.kit-float .message-history-item:hover,
+.kit-float .message-history-item:focus-visible {
+  border-color: #8a949c;
+  outline: none;
+}
+
+.kit-float .message-history-item.is-active {
+  border-color: var(--kit-select, #a8c45c);
+  box-shadow: inset 0 0 0 1px var(--kit-select, #a8c45c);
+}
+
+.kit-float .message-history-text {
+  font-size: 14px;
+  line-height: 1.35;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+
+.kit-float .message-history-meta {
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: #9aa3ab;
+}
+
+/* Banner in the name slot: seamless icon + text loop (no jump-back). */
+.kit-float .lcd-copy h1#name {
+  display: block;
+  overflow: hidden;
+}
+
+.kit-float .lcd-copy h1#name .name-track {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  vertical-align: top;
+  white-space: nowrap;
+  will-change: transform;
+}
+
+.kit-float .lcd-copy h1#name .name-plain {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: top;
+}
+
+.kit-float .lcd-copy h1#name .name-unit {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45em;
+  flex-shrink: 0;
+}
+
+.kit-float .lcd-copy h1#name.is-scrolling .name-unit {
+  padding-right: 2.5em;
+}
+
+.kit-float .lcd-copy h1#name .name-unit-icon {
+  display: inline-block;
+  width: 1.15em;
+  height: 1.15em;
+  flex-shrink: 0;
+  background-color: currentColor;
+  -webkit-mask-image: url(/static/kit/svg/icon-message.svg);
+  mask-image: url(/static/kit/svg/icon-message.svg);
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+}
+
+.kit-float .lcd-copy h1#name.is-banner {
+  text-overflow: clip;
+}
+
+.kit-float .lcd-copy h1#name.is-banner.is-scrolling {
+  mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+}
+
+.kit-float .lcd-copy h1#name.is-banner.is-scrolling .name-track {
+  max-width: none;
+  animation: kit-lcd-marquee var(--lcd-scroll-duration, 10s) linear infinite;
+}
+
+@keyframes kit-lcd-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(calc(-1 * var(--lcd-scroll-distance, 0px)));
+  }
+}
+
+.kit-float .panel.mini .lcd h1 {
+  font-size: 17px;
+  margin: 0 0 5px;
+}
+
+.kit-float .panel.mini .lcd p {
+  font-size: 10px;
+  line-height: 12px;
+  min-height: 12px;
+  margin: 3px 0;
+}
+
+.kit-float .panel.mini .countdown {
+  height: 68px;
+  width: 56px;
+}
+
+.kit-float .panel.mini .countdown strong {
+  font-size: 30px;
+}
+
+.kit-float .panel.mini .countdown span,
+.kit-float .panel.mini .countdown .lcd-peek-mode {
+  font-size: 8px;
+}
+
+/* LCD “PEEK” label cycles Off → Once → Always (same as Setup). */
+.kit-float .countdown .lcd-peek-mode {
+  appearance: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: 1px;
+  line-height: inherit;
+  text-transform: uppercase;
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.kit-float .panel.compact .countdown .lcd-peek-mode {
+  font-size: 7px;
+  letter-spacing: 0;
+}
+
+.kit-float .countdown .lcd-peek-mode:hover:not(:disabled),
+.kit-float .countdown .lcd-peek-mode:focus-visible:not(:disabled) {
+  text-decoration: underline;
+  outline: none;
+}
+
+.kit-float .countdown .lcd-peek-mode:focus-visible:not(:disabled) {
+  box-shadow: 0 0 0 1px color-mix(in srgb, currentColor 55%, transparent);
+}
+
+.kit-float .countdown .lcd-peek-mode:disabled {
+  cursor: default;
+  opacity: 0.85;
+}
+
+.kit-float .panel.mini .grid,
+.kit-float .panel.mini .service-bay {
+  display: none !important;
+}
+
+.kit-float .mini-nav {
+  display: none;
+}
+
+.kit-float .panel.mini .mini-nav {
+  display: grid;
+  grid-template-rows: 1fr 1fr;
+  gap: 8px;
+  margin: 0;
+  height: var(--mini-lcd-h);
+  max-height: var(--mini-lcd-h);
+  align-self: start;
+  min-height: 0;
+  box-sizing: border-box;
+}
+
+.kit-float .mini-nav[hidden] {
+  display: none !important;
+}
+
+.kit-float .panel.mini .mini-nav button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  height: auto;
+  width: 100%;
+  background: #1a2026;
+  color: #e7edf1;
+  border: 1px solid #66717a;
+  border-radius: 10px;
+  padding: 0;
+}
+
+.kit-float .panel.mini .mini-nav .action-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.kit-float .panel.mini .mini-nav button:hover,
+.kit-float .panel.mini .mini-nav button:focus-visible {
+  border-color: var(--kit-select, #35dafa);
+  color: var(--kit-select, #35dafa);
+  outline: none;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--kit-select, #35dafa) 45%, transparent);
+}
+
+/* The device always fills the window on every side. If the user drags an
+   edge past the content's natural size, the device border grows to meet it
+   (blank chrome inside, never a transparent gap outside the device). */
 body.kit-float.is-app .panel,
 body.kit-float.is-popup .panel {
   margin: 0;
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  min-height: 100%;
+}
+
+body.kit-float.is-app .panel.compact,
+body.kit-float.is-popup .panel.compact,
+body.kit-float.is-app .panel.mini,
+body.kit-float.is-popup .panel.mini {
+  width: 100%;
+  max-width: none;
+}
+
+/* Mini packs to its content; empty chrome below if the user grows the window. */
+body.kit-float.is-app .panel.mini,
+body.kit-float.is-popup .panel.mini {
+  align-content: start;
+}
+
+/*
+ * Input keys always fit the panel. Default: 4 fluid columns (portrait-safe).
+ * When the deck is wide enough, kit.js switches to fixed tracks / one row
+ * so keys keep their preferred size instead of stretching forever.
+ */
+.kit-float .grid {
+  display: grid;
+  gap: var(--kit-gap);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  justify-content: stretch;
+  align-content: start;
+  width: 100%;
+  min-width: 0;
+}
+
+.kit-float .input {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  justify-self: stretch;
+}
+
+.kit-float .grid[data-layout="fixed"] {
+  justify-content: space-between;
+}
+
+.kit-float .grid[data-layout="fixed"] .input {
+  width: var(--kit-btn);
+  max-width: var(--kit-btn);
+}
+
+body.kit-float.preview-16 {
+  --kit-btn: 148px;
+}
+
+body.kit-float.preview-16 .panel.compact {
+  --kit-btn: 72px;
 }
 
 .kit-float .title {
@@ -299,6 +892,7 @@ body.kit-float.is-popup .panel {
   height: 14px;
 }
 
+.kit-float .led[data-state="offline"] { color: #aebbc5; }
 .kit-float .led[data-state="connected"] { color: #9cce66; }
 .kit-float .led[data-state="busy"] { color: #ffc45c; }
 .kit-float .led[data-state="error"] { color: #f08080; }
@@ -332,6 +926,101 @@ body.kit-float.is-popup .float-note {
   border-radius: inherit;
 }
 
+/* Message history: cover the whole kit window (needed for Mini). */
+.kit-float .kit-dialog-popout {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  padding: 10px;
+  border-radius: 0;
+  background: color-mix(in srgb, var(--kit-face-bot, #12161a) 78%, #000);
+  box-sizing: border-box;
+}
+
+.kit-float .kit-dialog-popout .kit-dialog-card {
+  /* Definite height so the list flex child can scroll instead of collapsing. */
+  width: min(100%, 420px);
+  height: 100%;
+  max-height: 100%;
+  margin: 0;
+  padding: 14px 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow: hidden;
+  box-sizing: border-box;
+  background: linear-gradient(
+    160deg,
+    var(--kit-face-top, #3a4047),
+    var(--kit-face-mid, #1c2126) 55%,
+    var(--kit-face-bot, #12161a)
+  );
+  border: 1px solid var(--kit-face-border, #798189);
+  color: var(--kit-face-text, #e7edf1);
+  box-shadow:
+    inset 0 0 0 3px color-mix(in srgb, var(--kit-face-bot, #12161a) 80%, #000),
+    0 18px 40px #000a;
+}
+
+.kit-float .kit-dialog-popout .kit-dialog-head,
+.kit-float .kit-dialog-popout .kit-dialog-hint,
+.kit-float .kit-dialog-popout .kit-dialog-actions {
+  flex: 0 0 auto;
+}
+
+.kit-float .kit-dialog-popout .message-history-list {
+  flex: 1 1 0;
+  min-height: 0;
+  max-height: none;
+  overflow: auto;
+  margin: 8px 0 10px;
+}
+
+.kit-float .kit-dialog-popout .message-history-item {
+  background: color-mix(in srgb, var(--kit-chrome-bg, #1a1f24) 88%, var(--kit-face-bot, #000));
+  border-color: color-mix(in srgb, var(--kit-chrome-border, #5a636b) 55%, transparent);
+  color: inherit;
+}
+
+.kit-float .kit-dialog-popout .message-history-item:hover,
+.kit-float .kit-dialog-popout .message-history-item:focus-visible {
+  border-color: var(--kit-chrome-hover, #8a949c);
+}
+
+.kit-float .kit-dialog-popout .message-history-item.is-active {
+  border-color: var(--kit-select-glow, var(--kit-select, #a8c45c));
+  box-shadow: inset 0 0 0 1px var(--kit-select-glow, var(--kit-select, #a8c45c));
+}
+
+.kit-float .kit-dialog-popout .message-history-meta {
+  color: var(--kit-face-muted, #9aa3ab);
+}
+
+.kit-float .kit-dialog-popout .kit-dialog-btn {
+  border-color: var(--kit-chrome-border, #66717a);
+  color: inherit;
+  background: color-mix(in srgb, var(--kit-chrome-bg, #1a2026) 80%, transparent);
+}
+
+/* While the OS window is expanded for history, use the full popout room. */
+body.kit-float.is-history-popout .kit-dialog-popout {
+  padding: 14px;
+}
+
+body.kit-float.is-history-popout .kit-dialog-popout .kit-dialog-card {
+  width: min(100%, 440px);
+  max-width: 440px;
+  padding: 16px 16px 12px;
+  border-radius: 16px;
+}
+
+body.kit-float.is-history-popout .kit-dialog-popout .message-history-text {
+  -webkit-line-clamp: 3;
+}
+
 .kit-float .kit-dialog[hidden] {
   display: none !important;
 }
@@ -358,6 +1047,12 @@ body.kit-float.is-popup .float-note {
   text-transform: uppercase;
   font-size: 13px;
   margin-bottom: 6px;
+}
+
+.kit-float .kit-dialog-head .action-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
 }
 
 .kit-float .kit-dialog-hint {
@@ -439,18 +1134,83 @@ body.kit-float.is-popup .float-note {
   padding: 14px;
 }
 
-/* Fix relative SVG urls inside the kit styles when served from /static/kit/ */
+.kit-float .window-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.kit-float .window-controls button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #1a2026;
+  color: #e7edf1;
+  border: 1px solid #66717a;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+.kit-float .window-controls button[aria-pressed="true"] {
+  border-color: var(--kit-select, #35dafa);
+  color: var(--kit-select, #35dafa);
+}
+
+.kit-float .window-controls button:hover {
+  border-color: #b5c3cc;
+}
+
+/*
+ * Input keys: metal face SVG + monitor glyph via ::before (currentColor) so
+ * selected / peek rings tint the icon with the numeral.
+ */
 .kit-float .input {
-  background-image: url(/static/kit/svg/button-idle.svg);
+  position: relative;
+  background-image: url(/static/kit/svg/button-face-idle.svg);
+  color: #e7edf1;
 }
-.kit-float .input:hover { background-image: url(/static/kit/svg/button-hover.svg); }
-.kit-float .input:active { background-image: url(/static/kit/svg/button-pressed.svg); }
-.kit-float .input.selected { background-image: url(/static/kit/svg/button-selected.svg); }
-.kit-float .input.peeking { background-image: url(/static/kit/svg/button-peek.svg); }
+.kit-float .input::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 14%;
+  width: 28%;
+  max-width: 36px;
+  aspect-ratio: 1;
+  transform: translateX(-50%);
+  background-color: currentColor;
+  -webkit-mask: url(/static/kit/svg/icon-monitor.svg) center / contain no-repeat;
+  mask: url(/static/kit/svg/icon-monitor.svg) center / contain no-repeat;
+  pointer-events: none;
+  opacity: 0.92;
+}
+.kit-float .input:hover { background-image: url(/static/kit/svg/button-face-hover.svg); }
+.kit-float .input:active { background-image: url(/static/kit/svg/button-face-pressed.svg); }
+.kit-float .input.selected,
+.kit-float .compact .input.selected {
+  background-image: url(/static/kit/svg/button-face-idle.svg);
+  color: var(--kit-select, #35dafa);
+  border: 0;
+  box-shadow: inset 0 0 0 3px var(--kit-select, #35dafa);
+  filter: none;
+}
+.kit-float .input.peeking,
+.kit-float .compact .input.peeking {
+  background-image: url(/static/kit/svg/button-face-idle.svg);
+  color: #ffc45c;
+  border: 0;
+  box-shadow: inset 0 0 0 3px #ffc45c;
+  filter: none;
+}
 .kit-float .compact .input {
-  background-image: url(/static/kit/svg/button-idle.svg);
+  background-image: url(/static/kit/svg/button-face-idle.svg);
 }
-.kit-float .compact .input:hover { background-image: url(/static/kit/svg/button-hover.svg); }
-.kit-float .compact .input:active { background-image: url(/static/kit/svg/button-pressed.svg); }
-.kit-float .compact .input.selected { background-image: url(/static/kit/svg/button-selected.svg); }
-.kit-float .compact .input.peeking { background-image: url(/static/kit/svg/button-peek.svg); }
+.kit-float .compact .input::before {
+  top: 10%;
+  width: 26%;
+  max-width: 22px;
+}
+.kit-float .compact .input:hover { background-image: url(/static/kit/svg/button-face-hover.svg); }
+.kit-float .compact .input:active { background-image: url(/static/kit/svg/button-face-pressed.svg); }
