@@ -81,7 +81,7 @@ a:hover {
   letter-spacing: -0.03em;
   line-height: 1.15;
   color: var(--paper);
-  max-width: 14ch;
+  max-width: 18ch;
 }
 
 .lede {
