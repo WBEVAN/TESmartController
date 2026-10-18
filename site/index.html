@@ -20,7 +20,7 @@
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Syne:wght@600;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="site.css?v=4" />
+    <link rel="stylesheet" href="site.css?v=5" />
   </head>
   <body>
     <header class="hero">
@@ -64,7 +64,7 @@ tesmartctl listen --http --panel</code></pre>
             id="kit-frame"
             class="kit-frame"
             title="Interactive tesmartctl floating kit demo"
-            src="kit-demo.html?v=4"
+            src="kit-demo.html?v=5"
           ></iframe>
         </div>
         <p class="preview-note">
@@ -79,9 +79,27 @@ tesmartctl listen --http --panel</code></pre>
         <p class="section-lede">
           One listener owns the switch session and fans out to every client you already use.
         </p>
-        <figure class="arch-figure">
-          <img src="architecture.svg" width="920" height="320" alt="Network diagram: TESmart HDMI/KVM over TCP or RS232 to tesmartctl, then to kit, panel, Hubitat, and other HTTP clients" />
-        </figure>
+        <div class="arch-flow" role="img" aria-label="TESmart HDMI or KVM over TCP or RS232 to tesmartctl listen, then to kit, panel, Hubitat, and other HTTP clients">
+          <article class="arch-node arch-switch">
+            <h3>TESmart HDMI / KVM</h3>
+            <p>Switch hardware</p>
+            <p class="arch-meta">TCP · RS232</p>
+          </article>
+          <div class="arch-arrow" aria-hidden="true"><span>protocol</span></div>
+          <article class="arch-node arch-server">
+            <h3>tesmartctl</h3>
+            <p>listen --http --panel</p>
+            <p class="arch-meta">/api · /events · /banner</p>
+            <p class="arch-meta">callbacks → Hubitat</p>
+          </article>
+          <div class="arch-arrow arch-arrow-fan" aria-hidden="true"><span>HTTP</span></div>
+          <div class="arch-consumers">
+            <article class="arch-node">Floating kit <code>/kit</code></article>
+            <article class="arch-node">Control panel <code>/panel</code></article>
+            <article class="arch-node">Hubitat package</article>
+            <article class="arch-node">Stream Deck · Companion · curl</article>
+          </div>
+        </div>
       </section>
 
       <section class="links">
@@ -140,6 +158,6 @@ tesmartctl listen --http --panel</code></pre>
         <a href="https://github.com/WBEVAN/TESmartController/blob/main/LICENSE">MIT License</a>
       </p>
     </footer>
-    <script src="site.js?v=4"></script>
+    <script src="site.js?v=5"></script>
   </body>
 </html>
