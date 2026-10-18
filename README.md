@@ -80,7 +80,7 @@ The switch cannot say which HDMI inputs have a signal. A cycle is the list you c
 | --- | --- |
 | This file | Install, configuration, every command |
 | [Project site](https://wbevan.github.io/TESmartController/) | GitHub Pages landing (install + doc links) |
-| [`Docs/wiki/`](Docs/wiki/Home.md) | Wiki draft in-repo — setup → kit → Hubitat → panel |
+| [Wiki](https://github.com/WBEVAN/TESmartController/wiki) | Setup → kit → Hubitat → panel (source: `Docs/wiki/`) |
 | [`Docs/protocol.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/protocol.md) | Byte protocol the switch speaks |
 | [`Docs/listener.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/listener.md) | Long-running line protocol and HTTP URLs |
 | [`Docs/panel.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/panel.md) | Floating kit (`/kit`) and full panel (`/panel`), including remote launch |
@@ -385,7 +385,7 @@ tesmartctl kit 'http://192.168.1.20:8080/kit?app=1'              # frameless her
 
 ![Floating kit](https://raw.githubusercontent.com/WBEVAN/TESmartController/main/Docs/images/kit.png)
 
-The kit is the compact switcher: input tiles, LCD banners (including message history), clickable PEEK (Off → Once → Always), Cycle Inputs, and body/LCD/glass themes. On macOS, `tesmartctl kit` is frameless; `tesmartctl kit --fresh` ignores saved window prefs once. Guided wiki pages: [`Docs/wiki/`](Docs/wiki/Home.md).
+The kit is the compact switcher: input tiles, LCD banners (including message history), clickable PEEK (Off → Once → Always), Cycle Inputs, and body/LCD/glass themes. On macOS, `tesmartctl kit` is frameless; `tesmartctl kit --fresh` ignores saved window prefs once. Guided wiki: [TESmartController/wiki](https://github.com/WBEVAN/TESmartController/wiki).
 
 ![Demo: input switching, Peek, and API explorer](Docs/images/demo.gif)
 
@@ -476,7 +476,7 @@ with TesmartSwitch(TcpTransport("192.168.1.50")) as sw:
 | `tesmart/static/` | Panel HTML, CSS, and JS |
 | `tesmart/cli.py` | `tesmartctl` argument parsing and output |
 | `tesmart/examples.py` | Worked examples shown by `--help` and `tesmartctl examples` |
-| `Docs/wiki/` | GitHub Wiki draft (setup → kit → Hubitat → panel) |
+| `Docs/wiki/` | Source for the [GitHub Wiki](https://github.com/WBEVAN/TESmartController/wiki) |
 | `Docs/protocol.md` | Wire protocol |
 | `Docs/listener.md` | Line protocol and HTTP routes |
 | `Docs/panel.md` | Floating kit and full control panel |
