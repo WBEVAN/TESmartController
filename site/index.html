@@ -20,13 +20,11 @@
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Syne:wght@600;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="site.css?v=2" />
+    <link rel="stylesheet" href="site.css?v=3" />
   </head>
   <body>
     <header class="hero">
-      <div class="hero-bg" aria-hidden="true"></div>
-      <div class="hero-scrim" aria-hidden="true"></div>
-      <div class="hero-content">
+      <div class="hero-copy">
         <p class="brand">tesmartctl</p>
         <h1>Your TESmart switch, your controls</h1>
         <p class="lede">
@@ -38,58 +36,44 @@
           <a class="btn ghost" href="https://github.com/WBEVAN/TESmartController">GitHub</a>
           <a class="btn ghost" href="https://github.com/WBEVAN/TESmartController/blob/main/Docs/hubitat.md">Hubitat</a>
         </div>
-      </div>
-    </header>
-
-    <main>
-      <section class="strip" aria-label="Quick start">
-        <pre class="install"><code>pip install -U tesmartctl
+        <pre class="install hero-install"><code>pip install -U tesmartctl
 tesmartctl listen --http --panel</code></pre>
-      </section>
+      </div>
 
-      <section class="preview" aria-labelledby="preview-title">
-        <h2 id="preview-title">Floating kit preview</h2>
-        <p class="section-lede">
-          Live demo of the HDMI switcher UI — try sizes, black or silver body, and
-          Hubitat-style LCD banners (no switch required).
-        </p>
-
+      <div class="hero-demo" aria-labelledby="preview-title">
+        <p class="demo-kicker" id="preview-title">Live floating kit</p>
         <div class="preview-controls" role="toolbar" aria-label="Kit demo controls">
           <div class="control-group" role="group" aria-label="Size">
-            <span class="control-label">Size</span>
             <button type="button" class="chip is-active" data-kit-view="compact" aria-pressed="true">Compact</button>
             <button type="button" class="chip" data-kit-view="mini" aria-pressed="false">Mini</button>
             <button type="button" class="chip" data-kit-view="full" aria-pressed="false">Full</button>
           </div>
           <div class="control-group" role="group" aria-label="Body colour">
-            <span class="control-label">Body</span>
             <button type="button" class="chip is-active" data-kit-body="black" aria-pressed="true">Black</button>
             <button type="button" class="chip" data-kit-body="silver" aria-pressed="false">Silver</button>
           </div>
           <div class="control-group" role="group" aria-label="Hubitat banners">
-            <span class="control-label">Hubitat</span>
             <button type="button" class="chip" data-kit-banner="door">Door unlocked</button>
             <button type="button" class="chip" data-kit-banner="meeting">Meeting in 5</button>
             <button type="button" class="chip" data-kit-banner="sticky">Sticky</button>
             <button type="button" class="chip ghost" data-kit-banner="dismiss">Dismiss</button>
           </div>
         </div>
-
         <div class="kit-stage" id="kit-stage" data-view="compact">
           <iframe
             id="kit-frame"
             class="kit-frame"
             title="Interactive tesmartctl floating kit demo"
-            src="kit-demo.html?v=2"
-            loading="lazy"
+            src="kit-demo.html?v=3"
           ></iframe>
         </div>
         <p class="preview-note">
-          Same look as <code>tesmartctl kit</code> / <code>/kit</code>. On a real listener, banners also arrive
-          from Hubitat Notify and <code>tesmartctl banner</code> over Server-Sent Events.
+          Interactive demo — same UI as <code>tesmartctl kit</code>. Try size, colour, and Hubitat-style banners.
         </p>
-      </section>
+      </div>
+    </header>
 
+    <main>
       <section class="architecture" aria-labelledby="arch-heading">
         <h2 id="arch-heading">How it connects</h2>
         <p class="section-lede">
@@ -156,6 +140,6 @@ tesmartctl listen --http --panel</code></pre>
         <a href="https://github.com/WBEVAN/TESmartController/blob/main/LICENSE">MIT License</a>
       </p>
     </footer>
-    <script src="site.js?v=2"></script>
+    <script src="site.js?v=3"></script>
   </body>
 </html>
