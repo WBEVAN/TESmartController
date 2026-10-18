@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en" data-kit-shell="demo">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>tesmartctl kit demo</title>
+    <link rel="stylesheet" href="kit/styles.css" />
+    <link rel="stylesheet" href="kit/float.css" />
+    <link rel="stylesheet" href="kit/themes.css" />
+    <link rel="stylesheet" href="kit-demo.css" />
+  </head>
+  <body class="kit-float is-popup" data-body="black" data-lcd="green" data-glass="matrix">
+    <main class="panel compact" id="deck" data-mode="compact" data-body="black" data-lcd="green" data-glass="matrix">
+      <header class="title" id="drag">
+        <span class="drag-handle drag-region">
+          <img class="icon" src="kit/svg/icon-grip.svg" alt="" />
+          <strong>HDMI SWITCHER</strong>
+          <span class="led" id="led" data-state="connected" title="Demo link">
+            <img id="led-img" src="kit/svg/led-connected.svg" alt="" />
+            <span id="led-label">online</span>
+          </span>
+        </span>
+        <button type="button" id="view-mode" class="view-toggle" aria-label="View: Compact" data-mode="compact">
+          <img class="action-icon" src="kit/svg/icon-monitor.svg" alt="" />
+          <span id="view-mode-label">Compact</span>
+        </button>
+      </header>
+
+      <section class="lcd">
+        <div class="lcd-copy" aria-live="polite">
+          <h1 id="name"><span id="name-track" class="name-track"></span></h1>
+          <p id="status"></p>
+          <div class="lcd-meta">
+            <p id="detail"></p>
+            <div class="lcd-message-actions">
+              <button type="button" id="btn-message" class="lcd-message-btn" hidden aria-label="Toggle message">
+                <img class="action-icon" src="kit/svg/icon-message.svg" alt="" />
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="countdown" role="timer" aria-label="Peek countdown">
+          <button type="button" id="lcd-peek-mode" class="lcd-peek-mode" aria-label="Peek mode">PEEK</button>
+          <strong id="digits">--</strong>
+          <span>SEC · EST.</span>
+        </div>
+      </section>
+
+      <nav class="mini-nav" id="mini-nav" aria-label="Previous and next input" hidden>
+        <button type="button" id="mini-prev" aria-label="Previous input">
+          <img class="action-icon" src="kit/svg/icon-up.svg" alt="" />
+        </button>
+        <button type="button" id="mini-next" aria-label="Next input">
+          <img class="action-icon" src="kit/svg/icon-down.svg" alt="" />
+        </button>
+      </nav>
+
+      <div id="grid" class="grid" aria-label="HDMI inputs"></div>
+
+      <section class="service-bay" id="service-bay" data-open="false">
+        <button type="button" class="service-door" id="service-door" aria-expanded="false" aria-controls="service-bay-inner" title="Setup">
+          <span class="door-hinge" aria-hidden="true"></span>
+          <span class="door-face">
+            <span class="door-vents" aria-hidden="true"></span>
+            <span class="door-label">
+              <img class="action-icon" src="kit/svg/icon-settings.svg" alt="" />
+              <span>Setup</span>
+            </span>
+            <span class="door-latch" aria-hidden="true"></span>
+          </span>
+        </button>
+        <div class="service-bay-inner" id="service-bay-inner" hidden>
+          <p class="small">Demo mode — no live switch. Use the page controls for size, colour, and Hubitat-style banners.</p>
+        </div>
+      </section>
+    </main>
+    <script src="kit-demo.js"></script>
+  </body>
+</html>

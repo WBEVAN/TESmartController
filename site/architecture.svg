@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 320" role="img" aria-labelledby="arch-title arch-desc">
+  <title id="arch-title">tesmartctl network diagram</title>
+  <desc id="arch-desc">TESmart HDMI or KVM switch connects over TCP or RS232 to the tesmartctl listener, which serves the floating kit, control panel, Hubitat, and other HTTP clients.</desc>
+  <defs>
+    <linearGradient id="box" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#24302a"/>
+      <stop offset="100%" stop-color="#16201b"/>
+    </linearGradient>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#3dff8a"/>
+    </marker>
+  </defs>
+
+  <rect width="920" height="320" rx="16" fill="#0e1412"/>
+  <rect x="1" y="1" width="918" height="318" rx="15" fill="none" stroke="rgba(232,240,234,0.12)"/>
+
+  <!-- Switch -->
+  <rect x="36" y="110" width="180" height="100" rx="12" fill="url(#box)" stroke="#3dff8a" stroke-opacity="0.55"/>
+  <text x="126" y="148" text-anchor="middle" fill="#e8f0ea" font-family="Syne, system-ui, sans-serif" font-size="15" font-weight="700">TESmart</text>
+  <text x="126" y="170" text-anchor="middle" fill="#c8d4cc" font-family="IBM Plex Sans, system-ui, sans-serif" font-size="12">HDMI / KVM</text>
+  <text x="126" y="190" text-anchor="middle" fill="#3dff8a" font-family="IBM Plex Sans, system-ui, sans-serif" font-size="11">TCP · RS232</text>
+
+  <line x1="216" y1="160" x2="288" y2="160" stroke="#3dff8a" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="252" y="148" text-anchor="middle" fill="#c8d4cc" font-family="IBM Plex Sans, system-ui, sans-serif" font-size="11">protocol</text>
+
+  <!-- Server -->
+  <rect x="292" y="96" width="210" height="128" rx="12" fill="url(#box)" stroke="#e8b84a" stroke-opacity="0.7"/>
+  <text x="397" y="138" text-anchor="middle" fill="#e8f0ea" font-family="Syne, system-ui, sans-serif" font-size="15" font-weight="700">tesmartctl</text>
+  <text x="397" y="160" text-anchor="middle" fill="#c8d4cc" font-family="IBM Plex Sans, system-ui, sans-serif" font-size="12">listen --http --panel</text>
+  <text x="397" y="182" text-anchor="middle" fill="#e8b84a" font-family="IBM Plex Sans, system-ui, sans-serif" font-size="11">/api · /events · /banner</text>
+  <text x="397" y="202" text-anchor="middle" fill="#c8d4cc" font-family="IBM Plex Sans, system-ui, sans-serif" font-size="11">callbacks ’ Hubitat</text>
+
+  <!-- Fan-out lines -->
+  <line x1="502" y1="130" x2="580" y2="70" stroke="#3dff8a" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="502" y1="150" x2="580" y2="130" stroke="#3dff8a" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="502" y1="170" x2="580" y2="190" stroke="#3dff8a" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="502" y1="190" x2="580" y2="250" stroke="#3dff8a" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Consumers -->
+  <rect x="584" y="36" width="300" height="48" rx="10" fill="url(#box)" stroke="rgba(232,240,234,0.2)"/>
+  <text x="734" y="66" text-anchor="middle" fill="#e8f0ea" font-family="Syne, system-ui, sans-serif" font-size="14" font-weight="700">Floating kit /kit</text>
+
+  <rect x="584" y="100" width="300" height="48" rx="10" fill="url(#box)" stroke="rgba(232,240,234,0.2)"/>
+  <text x="734" y="130" text-anchor="middle" fill="#e8f0ea" font-family="Syne, system-ui, sans-serif" font-size="14" font-weight="700">Control panel /panel</text>
+
+  <rect x="584" y="164" width="300" height="48" rx="10" fill="url(#box)" stroke="rgba(232,240,234,0.2)"/>
+  <text x="734" y="194" text-anchor="middle" fill="#e8f0ea" font-family="Syne, system-ui, sans-serif" font-size="14" font-weight="700">Hubitat package</text>
+
+  <rect x="584" y="228" width="300" height="48" rx="10" fill="url(#box)" stroke="rgba(232,240,234,0.2)"/>
+  <text x="734" y="258" text-anchor="middle" fill="#e8f0ea" font-family="Syne, system-ui, sans-serif" font-size="14" font-weight="700">Stream Deck · Companion · curl</text>
+</svg>

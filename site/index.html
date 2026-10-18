@@ -36,6 +36,7 @@
         <div class="cta">
           <a class="btn primary" href="https://pypi.org/project/tesmartctl/">Install from PyPI</a>
           <a class="btn ghost" href="https://github.com/WBEVAN/TESmartController">GitHub</a>
+          <a class="btn ghost" href="https://github.com/WBEVAN/TESmartController/blob/main/Docs/hubitat.md">Hubitat</a>
         </div>
       </div>
     </header>
@@ -44,6 +45,59 @@
       <section class="strip" aria-label="Quick start">
         <pre class="install"><code>pip install -U tesmartctl
 tesmartctl listen --http --panel</code></pre>
+      </section>
+
+      <section class="preview" aria-labelledby="preview-title">
+        <h2 id="preview-title">Floating kit preview</h2>
+        <p class="section-lede">
+          Live demo of the HDMI switcher UI — try sizes, black or silver body, and
+          Hubitat-style LCD banners (no switch required).
+        </p>
+
+        <div class="preview-controls" role="toolbar" aria-label="Kit demo controls">
+          <div class="control-group" role="group" aria-label="Size">
+            <span class="control-label">Size</span>
+            <button type="button" class="chip is-active" data-kit-view="compact" aria-pressed="true">Compact</button>
+            <button type="button" class="chip" data-kit-view="mini" aria-pressed="false">Mini</button>
+            <button type="button" class="chip" data-kit-view="full" aria-pressed="false">Full</button>
+          </div>
+          <div class="control-group" role="group" aria-label="Body colour">
+            <span class="control-label">Body</span>
+            <button type="button" class="chip is-active" data-kit-body="black" aria-pressed="true">Black</button>
+            <button type="button" class="chip" data-kit-body="silver" aria-pressed="false">Silver</button>
+          </div>
+          <div class="control-group" role="group" aria-label="Hubitat banners">
+            <span class="control-label">Hubitat</span>
+            <button type="button" class="chip" data-kit-banner="door">Door unlocked</button>
+            <button type="button" class="chip" data-kit-banner="meeting">Meeting in 5</button>
+            <button type="button" class="chip" data-kit-banner="sticky">Sticky</button>
+            <button type="button" class="chip ghost" data-kit-banner="dismiss">Dismiss</button>
+          </div>
+        </div>
+
+        <div class="kit-stage" id="kit-stage" data-view="compact">
+          <iframe
+            id="kit-frame"
+            class="kit-frame"
+            title="Interactive tesmartctl floating kit demo"
+            src="kit-demo.html"
+            loading="lazy"
+          ></iframe>
+        </div>
+        <p class="preview-note">
+          Same look as <code>tesmartctl kit</code> / <code>/kit</code>. On a real listener, banners also arrive
+          from Hubitat Notify and <code>tesmartctl banner</code> over Server-Sent Events.
+        </p>
+      </section>
+
+      <section class="architecture" aria-labelledby="arch-heading">
+        <h2 id="arch-heading">How it connects</h2>
+        <p class="section-lede">
+          One listener owns the switch session and fans out to every client you already use.
+        </p>
+        <figure class="arch-figure">
+          <img src="architecture.svg" width="920" height="320" alt="Network diagram: TESmart HDMI/KVM over TCP or RS232 to tesmartctl, then to kit, panel, Hubitat, and other HTTP clients" />
+        </figure>
       </section>
 
       <section class="links">
@@ -75,9 +129,9 @@ tesmartctl listen --http --panel</code></pre>
             </a>
           </li>
           <li>
-            <a href="https://github.com/WBEVAN/TESmartController/blob/main/Docs/wiki/Home.md">
-              <span class="label">Wiki draft</span>
-              <span class="hint">Setup → kit → Hubitat → panel</span>
+            <a href="https://community.hubitat.com/t/release-tesmart-hdmi-switch-rest-api-service-with-hubitat-package-manager-app/166591">
+              <span class="label">Hubitat community</span>
+              <span class="hint">Release thread and HPM discussion</span>
             </a>
           </li>
           <li>
@@ -88,13 +142,6 @@ tesmartctl listen --http --panel</code></pre>
           </li>
         </ul>
       </section>
-
-      <section class="product">
-        <figure>
-          <img src="assets/kit.png" width="720" height="480" alt="Floating tesmartctl kit UI" />
-          <figcaption>Floating kit — input tiles, LCD banners, peek, and cycle.</figcaption>
-        </figure>
-      </section>
     </main>
 
     <footer>
@@ -103,5 +150,6 @@ tesmartctl listen --http --panel</code></pre>
         <a href="https://github.com/WBEVAN/TESmartController/blob/main/LICENSE">MIT License</a>
       </p>
     </footer>
+    <script src="site.js"></script>
   </body>
 </html>

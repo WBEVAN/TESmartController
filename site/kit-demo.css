@@ -1,0 +1,26 @@
+/* Marketing iframe: transparent stage so the parent page shows through. */
+html,
+body.kit-float.is-popup {
+  background: transparent !important;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  height: auto;
+  min-height: 0;
+}
+
+body.kit-float.is-popup {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+}
+
+.kit-float .panel {
+  margin: 0 auto;
+}
+
+.kit-float .panel .name-track {
+  display: inline-block;
+}
+

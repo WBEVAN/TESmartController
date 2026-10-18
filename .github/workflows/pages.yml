@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "site/**"
+      - "tesmart/static/kit/**"
       - "Docs/images/readme-banner.png"
       - "Docs/images/kit.png"
       - ".github/workflows/pages.yml"
@@ -28,9 +29,22 @@ jobs:
 
       - name: Prepare site
         run: |
-          mkdir -p _site/assets
-          cp site/index.html site/site.css _site/
+          set -euo pipefail
+          mkdir -p _site/assets _site/kit
+          cp site/index.html site/site.css site/site.js _site/
+          cp site/kit-demo.html site/kit-demo.css site/kit-demo.js site/architecture.svg _site/
           cp Docs/images/readme-banner.png Docs/images/kit.png _site/assets/
+
+          # Ship kit look-and-feel (CSS + SVG icons) for the interactive demo.
+          rsync -a --include='*/' \
+            --include='*.css' \
+            --include='svg/***' \
+            --exclude='*' \
+            tesmart/static/kit/ _site/kit/
+
+          # CSS lives under kit/, so strip the /static/kit/ prefix (url(svg/...)).
+          find _site/kit -type f -name '*.css' -print0 \
+            | xargs -0 sed -i 's|/static/kit/||g'
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
