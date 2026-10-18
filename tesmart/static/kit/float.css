@@ -1169,6 +1169,8 @@ body.kit-float.is-history-popout .kit-dialog-popout .message-history-text {
 .kit-float .input {
   position: relative;
   background-image: url(/static/kit/svg/button-face-idle.svg);
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
   color: #e7edf1;
 }
 .kit-float .input::before {
@@ -1191,14 +1193,19 @@ body.kit-float.is-history-popout .kit-dialog-popout .message-history-text {
 .kit-float .input.selected,
 .kit-float .compact .input.selected {
   background-image: url(/static/kit/svg/button-face-idle.svg);
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
   color: var(--kit-select, #35dafa);
   border: 0;
+  /* Inset past the SVG face margin so the ring hugs the metal, not the letterbox. */
   box-shadow: inset 0 0 0 3px var(--kit-select, #35dafa);
   filter: none;
 }
 .kit-float .input.peeking,
 .kit-float .compact .input.peeking {
   background-image: url(/static/kit/svg/button-face-idle.svg);
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
   color: #ffc45c;
   border: 0;
   box-shadow: inset 0 0 0 3px #ffc45c;
@@ -1206,6 +1213,10 @@ body.kit-float.is-history-popout .kit-dialog-popout .message-history-text {
 }
 .kit-float .compact .input {
   background-image: url(/static/kit/svg/button-face-idle.svg);
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+  /* Match the face SVG corner scale when compact keys stretch. */
+  border-radius: 12px;
 }
 .kit-float .compact .input::before {
   top: 10%;

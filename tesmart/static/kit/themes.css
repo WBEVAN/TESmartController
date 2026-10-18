@@ -571,6 +571,8 @@ body.kit-float.is-transparent .panel {
 .kit-float .input.selected,
 .kit-float .compact .input.selected {
   background-image: url(/static/kit/svg/button-face-idle.svg) !important;
+  background-size: 100% 100% !important;
+  background-repeat: no-repeat !important;
   color: var(--kit-select) !important;
   border: 0 !important;
   box-shadow: inset 0 0 0 3px var(--kit-select) !important;
@@ -580,6 +582,8 @@ body.kit-float.is-transparent .panel {
 .kit-float .input.peeking,
 .kit-float .compact .input.peeking {
   background-image: url(/static/kit/svg/button-face-idle.svg) !important;
+  background-size: 100% 100% !important;
+  background-repeat: no-repeat !important;
   color: #ffc45c !important;
   box-shadow: inset 0 0 0 3px #ffc45c !important;
   filter: none !important;
@@ -884,6 +888,8 @@ body.kit-float.is-transparent .panel {
 .kit-float .panel[data-body="silver"] .input,
 .kit-float .panel[data-body="silver"] .compact .input {
   background-image: url(/static/kit/svg/button-face-silver-idle.svg) !important;
+  background-size: 100% 100% !important;
+  background-repeat: no-repeat !important;
   color: #1a1816;
   border: 0 !important;
   outline: none !important;

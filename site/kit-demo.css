@@ -20,6 +20,17 @@ body.kit-float.is-popup {
   margin: 0 auto;
 }
 
+/* Keep Compact at its design width so keys (and the select ring) stay proportional. */
+html[data-kit-shell="demo"] body.kit-float.is-popup .panel.compact {
+  width: min(100%, 380px);
+  max-width: 380px;
+}
+
+html[data-kit-shell="demo"] body.kit-float.is-popup .panel.mini {
+  width: min(100%, 340px);
+  max-width: 340px;
+}
+
 .kit-float .panel .name-track {
   display: inline-block;
 }
