@@ -384,7 +384,8 @@ A full session on stdin:
 
 ```text
 $ tesmartctl listen
-Command listener on stdin for tcp://192.168.1.50:5000 (Ctrl-C or 'quit' to stop).
+Command listener on stdin (Ctrl-C or 'quit' to stop).
+  HDMI switch:  tcp://192.168.1.50:5000
 commands: get | set <n> | <n> | next | previous | rotate [1,2,4] | peek <n> [seconds] | quit
 get
 2

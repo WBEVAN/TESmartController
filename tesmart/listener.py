@@ -248,7 +248,8 @@ def serve_stdio(switch: TesmartSwitch, *, as_json: bool = False, stdin: TextIO |
     """Read commands from stdin until EOF, ``quit``, or Ctrl-C."""
     source = stdin if stdin is not None else sys.stdin
     sink = stdout if stdout is not None else sys.stdout
-    print(f"Command listener on stdin for {switch.endpoint} (Ctrl-C or 'quit' to stop).", file=sys.stderr)
+    print("Command listener on stdin (Ctrl-C or 'quit' to stop).", file=sys.stderr)
+    print(f"  HDMI switch:  {switch.endpoint}", file=sys.stderr)
     print(HELP, file=sys.stderr)
     follow = PeekFollow()
     peeker = Peeker(switch)
@@ -326,9 +327,10 @@ def serve_tcp(switch: TesmartSwitch, host: str, port: int, *, as_json: bool = Fa
         return 1
     bound_host, bound_port = server.server_address[:2]
     print(
-        f"Command listener on {bound_host}:{bound_port} for {switch.endpoint} (Ctrl-C to stop).",
+        f"Command listener on {bound_host}:{bound_port} (Ctrl-C to stop).",
         file=sys.stderr,
     )
+    print(f"  HDMI switch:  {switch.endpoint}", file=sys.stderr)
     print(HELP, file=sys.stderr)
     try:
         server.serve_forever()

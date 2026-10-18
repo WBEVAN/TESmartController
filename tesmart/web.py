@@ -658,9 +658,10 @@ def serve_http(
         return 1
     bound_host, bound_port = server.server_address[:2]
     print(
-        f"HTTP listener on http://{bound_host}:{bound_port}/ for {switch.endpoint} (Ctrl-C to stop).",
+        f"HTTP listener on http://{bound_host}:{bound_port}/ (Ctrl-C to stop).",
         file=sys.stderr,
     )
+    print(f"  HDMI switch:  {switch.endpoint}", file=sys.stderr)
     print(f"  http://{bound_host}:{bound_port}/input        read", file=sys.stderr)
     print(f"  http://{bound_host}:{bound_port}/status       read input and LAN settings", file=sys.stderr)
     print(f"  http://{bound_host}:{bound_port}/version      {pkg_version.package_version()}", file=sys.stderr)
