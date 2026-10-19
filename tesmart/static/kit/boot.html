@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TESmart · connecting</title>
+  <!-- Local file:// shell — relative CSS/SVG so the deck paints with no listener. -->
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="float.css">
+  <link rel="stylesheet" href="themes.css">
+  <script>
+    (() => {
+      const q = new URLSearchParams(location.search);
+      document.documentElement.dataset.kitShell = "app";
+      if (q.has("transparent")) {
+        document.documentElement.dataset.kitTransparent = "1";
+      }
+    })();
+  </script>
+</head>
+<body class="kit-float is-app is-popup" data-body="black" data-lcd="green" data-glass="matrix">
+  <main class="panel compact" id="deck" data-mode="compact" data-body="black" data-lcd="green" data-glass="matrix">
+    <header class="title" id="drag">
+      <span class="drag-handle drag-region" id="drag-handle" title="Drag to move">
+        <img class="icon" src="svg/icon-grip.svg" alt="">
+        <strong>HDMI SWITCHER</strong>
+        <span class="led" id="led" data-state="busy" title="Listener link">
+          <img id="led-img" src="svg/led-busy.svg" alt="">
+          <span id="led-label">busy</span>
+        </span>
+      </span>
+      <button type="button" id="view-mode" class="view-toggle" disabled
+              aria-label="View: Compact" title="Connect to the listener to change size" data-mode="compact">
+        <img class="action-icon" src="svg/icon-monitor.svg" alt="">
+        <span>Compact</span>
+      </button>
+      <button type="button" id="btn-power" class="view-toggle app-only power-btn" aria-label="Power off" title="Power off">
+        <img class="action-icon" src="svg/icon-power.svg" alt="">
+      </button>
+    </header>
+
+    <section class="lcd">
+      <div class="lcd-copy" aria-live="polite">
+        <h1 id="name" class="is-banner is-boot"><span id="name-track" class="name-track"></span></h1>
+        <p id="status">STARTING</p>
+        <div class="lcd-meta">
+          <p id="detail">Waiting for listener</p>
+        </div>
+      </div>
+      <div class="countdown" aria-hidden="true">
+        <button type="button" class="lcd-peek-mode" disabled>PEEK</button>
+        <strong id="digits">--</strong>
+        <span>SEC · EST.</span>
+      </div>
+    </section>
+
+    <div id="grid" class="grid" aria-label="HDMI inputs (offline)" data-layout="fixed"></div>
+
+    <section class="service-bay" id="service-bay" data-open="false">
+      <button type="button" class="service-door" disabled aria-expanded="false" title="Setup available after connect">
+        <span class="door-hinge" aria-hidden="true"></span>
+        <span class="door-face">
+          <span class="door-vents" aria-hidden="true"></span>
+          <span class="door-label">
+            <img class="action-icon" src="svg/icon-settings.svg" alt="">
+            <span>Setup</span>
+          </span>
+          <span class="door-latch" aria-hidden="true"></span>
+        </span>
+      </button>
+    </section>
+  </main>
+
+  <script src="boot.js"></script>
+</body>
+</html>

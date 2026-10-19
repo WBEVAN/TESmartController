@@ -49,6 +49,10 @@ The peek duration is already stored by the listener in its env file, so it is sh
 
 The frameless window keeps these in `~/.config/tesmartctl/kit.json` (pywebview clears browser storage between launches). Browser tabs, popups, and Chromium `--app` windows use the browser’s `localStorage`.
 
+On open, the frameless kit (`tesmartctl kit` / pywebview) probes the listener first. If `/kit` answers, that page opens. If not, a **packaged boot deck** (`tesmart/static/kit/boot.html`, loaded as `file://` with the same CSS/SVG as the live kit) paints immediately so the window is never blank Chromium. The LCD scrolls ephemeral status while it retries; those lines are not banners and are not stored in `kit.json`. When the listener responds, the window navigates to live `/kit`. Browser cache alone is unreliable here (private webview + `--fresh`), so the shell ships with the package instead. Chromium `--app` fallback still needs a reachable URL.
+
+Once the live page is up, short in-page boot steps (preferences, state, events, ready) can still scroll on the LCD; also display-only.
+
 If the kit opens somewhere odd or in a bad state, start it with saved settings ignored:
 
 ```bash

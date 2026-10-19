@@ -422,6 +422,51 @@ def _with_query(url: str, **params: str) -> str:
     return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
 
 
+def _kit_static_dir() -> Path:
+    return Path(__file__).resolve().parent / "static" / "kit"
+
+
+def _boot_page_url(live_url: str, *, transparent: bool = True) -> str:
+    """``file://`` boot deck that paints without a network, then hands off to ``live_url``."""
+    from urllib.parse import urlencode
+
+    boot = _kit_static_dir() / "boot.html"
+    if not boot.is_file():
+        raise KitWindowError(f"kit boot shell missing: {boot}")
+    params = {"target": live_url, "app": "1"}
+    if transparent:
+        params["transparent"] = "1"
+    return f"{boot.as_uri()}?{urlencode(params)}"
+
+
+def _probe_live(url: str, *, timeout: float = 1.5) -> tuple[bool, str]:
+    """Return ``(ok, detail)`` for whether the live kit URL answers."""
+    from urllib.error import HTTPError, URLError
+    from urllib.request import Request, urlopen
+
+    try:
+        req = Request(url, headers={"Accept": "text/html,application/json,*/*"})
+        with urlopen(req, timeout=timeout) as res:  # noqa: S310 - user-supplied listener URL
+            status = getattr(res, "status", None) or res.getcode()
+            if 200 <= int(status) < 400:
+                return True, "Listener ready"
+            return False, f"HTTP {status}"
+    except HTTPError as exc:
+        # 404 usually means listen without --panel.
+        if exc.code == 404:
+            return False, "Listener up · /kit not enabled (need --panel)"
+        return False, f"HTTP {exc.code}"
+    except URLError as exc:
+        reason = exc.reason
+        if isinstance(reason, OSError) and getattr(reason, "errno", None):
+            return False, reason.strerror or str(reason)
+        return False, str(reason or exc)
+    except TimeoutError:
+        return False, "Timed out"
+    except Exception as exc:  # noqa: BLE001 - surface any probe failure on the LCD
+        return False, str(exc) or exc.__class__.__name__
+
+
 class _WindowMemory:
     """Save and restore where the kit window sits (via :class:`KitPrefs`)."""
 
@@ -521,7 +566,11 @@ def run_webview(
     _brand_macos(schedule_retries=True)
     prefs = KitPrefs(fresh=fresh)
     memory = _WindowMemory(webview, prefs)
-    url = _with_query(url, transparent="1")
+    live_url = _with_query(url, transparent="1")
+    # Fast path: listener already answers → open live /kit. Otherwise paint the
+    # packaged boot deck (file://) so the window is never a blank Chromium page.
+    ready, _ = _probe_live(live_url, timeout=0.4)
+    entry_url = live_url if ready else _boot_page_url(live_url, transparent=True)
 
     class _Api:
         def get_prefs(self) -> dict:
@@ -535,6 +584,21 @@ def run_webview(
             allowed = {"view", "peek_follow", "peek_seconds", "body", "lcd"}
             prefs.update({k: v for k, v in dict(values or {}).items() if k in allowed})
             return self.get_prefs()
+
+        def probe_listener(self) -> dict:
+            """Boot shell: is the live kit URL reachable? Not persisted."""
+            ok, detail = _probe_live(live_url, timeout=1.5)
+            return {"ok": ok, "detail": detail, "url": live_url}
+
+        def load_live(self) -> bool:
+            """Swap the boot shell for the live listener /kit page."""
+            for window in webview.windows:
+                try:
+                    window.load_url(live_url)
+                    return True
+                except Exception:
+                    continue
+            return False
 
         def close(self) -> None:
             memory.save_now()
@@ -657,7 +721,7 @@ def run_webview(
 
     window = webview.create_window(
         "TESmart Kit",
-        url,
+        entry_url,
         width=width,
         height=height,
         **create_kwargs,

@@ -50,6 +50,9 @@
     sse: false, // true while EventSource to /api/events is open
     eventSource: null,
     pollTimer: 0,
+    // Ephemeral LCD boot/reconnect ticker — never written to banner history or kit.json.
+    bootPhase: null,
+    bootClearTimer: 0,
   };
 
   const POLL_MS = 5000;
@@ -157,13 +160,18 @@
         : `${String(state.active).padStart(2, "0")}  ${state.names[String(state.active)] || state.names[state.active] || `INPUT ${state.active}`}`;
     const banner = liveBanner();
     const showing = Boolean(banner && banner.showing);
-    const headline = !state.online
-      ? "CONTROLLER OFFLINE"
-      : showing
-        ? banner.text
-        : activeName;
-    nameRoot.classList.toggle("is-banner", showing);
-    setNameTrack(nameRoot, nameTrack, showing ? banner.text : headline, showing);
+    const bootText = state.bootPhase ? String(state.bootPhase) : "";
+    const showBoot = Boolean(bootText) && !showing;
+    const headline = showing
+      ? banner.text
+      : showBoot
+        ? bootText
+        : !state.online
+          ? "CONTROLLER OFFLINE"
+          : activeName;
+    nameRoot.classList.toggle("is-banner", showing || showBoot);
+    nameRoot.classList.toggle("is-boot", showBoot);
+    setNameTrack(nameRoot, nameTrack, showing ? banner.text : headline, showing || showBoot);
     syncMessageButton(banner);
     const peekSecs = Math.max(1, Number(state.peekSeconds) || Number($("#seconds").value) || 5);
     const peekLabel = `PEEK ${String(state.mode || "off").toUpperCase()} (${peekSecs} SEC)`;
@@ -171,9 +179,11 @@
       ? `PEEK • RETURNING TO ${String(state.peek.origin).padStart(2, "0")}`
       : showing
         ? "MESSAGE"
-        : state.online
-          ? `INPUT ${state.active} SELECTED`
-          : "INPUT STATE UNKNOWN";
+        : showBoot
+          ? "STARTING"
+          : state.online
+            ? `INPUT ${state.active} SELECTED`
+            : "INPUT STATE UNKNOWN";
     let detail = `${state.message} • ${peekLabel}`;
     if (state.peek) {
       detail = `TEMPORARY INPUT • ${peekLabel}`;
@@ -182,6 +192,8 @@
         banner.mode === "sticky"
           ? "LCD MESSAGE • UNTIL DISMISSED"
           : `LCD MESSAGE • ${Math.max(1, Math.ceil(banner.remaining || 0))} SEC`;
+    } else if (showBoot) {
+      detail = bootText;
     }
     $("#detail").textContent = detail;
 
@@ -657,9 +669,40 @@
     return unit;
   }
 
+  function setBootPhase(text, { sticky = false } = {}) {
+    if (state.bootClearTimer) {
+      clearTimeout(state.bootClearTimer);
+      state.bootClearTimer = 0;
+    }
+    state.bootPhase = text ? String(text) : null;
+    if (text) state.message = String(text);
+    draw();
+    if (text && !sticky) {
+      // Real banners / online state replace this; otherwise auto-clear after a beat.
+      state.bootClearTimer = setTimeout(() => {
+        state.bootClearTimer = 0;
+        if (state.bootPhase === text) {
+          state.bootPhase = null;
+          draw();
+        }
+      }, 1400);
+    }
+  }
+
+  function clearBootPhase() {
+    if (state.bootClearTimer) {
+      clearTimeout(state.bootClearTimer);
+      state.bootClearTimer = 0;
+    }
+    if (!state.bootPhase) return;
+    state.bootPhase = null;
+    draw();
+  }
+
   function setNameTrack(nameRoot, track, text, isBanner) {
     if (!nameRoot || !track) return;
-    const key = `${isBanner ? "b" : "n"}:${text}`;
+    const isBoot = nameRoot.classList.contains("is-boot");
+    const key = `${isBanner ? (isBoot ? "boot" : "b") : "n"}:${text}`;
     if (track.dataset.key === key) {
       // Keep a running marquee alive across timed redraws.
       if (isBanner && !nameRoot.classList.contains("is-scrolling")) {
@@ -683,6 +726,7 @@
   function syncNameScroll(nameRoot, track) {
     if (!nameRoot || !track) return;
     const isBanner = nameRoot.classList.contains("is-banner");
+    const isBoot = nameRoot.classList.contains("is-boot");
     const unit = track.querySelector(".name-unit");
     if (!isBanner || !unit) {
       nameRoot.classList.remove("is-scrolling");
@@ -702,7 +746,8 @@
     extras.forEach((el) => {
       el.style.display = "";
     });
-    const needsScroll = contentWidth > nameRoot.clientWidth + 2;
+    // Boot steps are often short — always marquee so the LCD feels active.
+    const needsScroll = isBoot || contentWidth > nameRoot.clientWidth + 2;
     if (!needsScroll) {
       track.style.removeProperty("--lcd-scroll-distance");
       track.style.removeProperty("--lcd-scroll-duration");
@@ -715,7 +760,7 @@
     nameRoot.classList.add("is-scrolling");
     // Segment = icon + text + trailing gap between repeats.
     const segment = unit.getBoundingClientRect().width;
-    const seconds = Math.max(6, Math.min(28, segment / 32));
+    const seconds = Math.max(isBoot ? 4 : 6, Math.min(28, segment / 32));
     track.style.setProperty("--lcd-scroll-distance", `${segment}px`);
     track.style.setProperty("--lcd-scroll-duration", `${seconds}s`);
   }
@@ -1791,15 +1836,13 @@
   } catch (err) {
     console.error("kit draw failed", err);
   }
-  try {
-    refresh();
-  } catch (err) {
-    console.error("kit refresh failed", err);
-  }
 
-  prefs
-    .load()
-    .then(() => {
+  // Show the deck immediately, then walk boot steps on the LCD marquee.
+  // These strings are UI-only — never posted as banners or stored in prefs.
+  (async () => {
+    setBootPhase("Loading preferences…", { sticky: true });
+    try {
+      await prefs.load();
       applyBodyTheme(prefs.get("body") || "black");
       applyLcdTheme(prefs.get("lcd") || "green");
       applyLcdGlass(prefs.get("lcd_glass") || "matrix");
@@ -1810,11 +1853,43 @@
       }
       const onTop = $("#btn-on-top");
       if (onTop) onTop.setAttribute("aria-pressed", String(prefs.get("on_top") === true));
-      return restorePeekFollow();
-    })
-    .catch((err) => console.error("kit prefs restore failed", err));
-  startEvents();
-  schedulePoll();
+      await restorePeekFollow();
+    } catch (err) {
+      console.error("kit prefs restore failed", err);
+    }
+
+    setBootPhase("Connecting to listener…", { sticky: true });
+    try {
+      await refresh();
+    } catch (err) {
+      console.error("kit refresh failed", err);
+    }
+
+    setBootPhase("Opening live events…", { sticky: true });
+    startEvents();
+    schedulePoll();
+
+    setBootPhase(
+      state.online
+        ? "Ready"
+        : state.message && state.message !== "Connecting…"
+          ? state.message
+          : "Listener up · waiting for switch",
+      { sticky: false }
+    );
+    // Drop the ticker once a real banner takes the LCD, or after the auto-clear.
+    const watch = setInterval(() => {
+      const banner = liveBanner();
+      if (banner && banner.showing) {
+        clearBootPhase();
+        clearInterval(watch);
+      } else if (!state.bootPhase) {
+        clearInterval(watch);
+      }
+    }, 200);
+    setTimeout(() => clearInterval(watch), 3000);
+  })();
+
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) refresh();
   });

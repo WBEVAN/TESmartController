@@ -63,48 +63,147 @@ def should_advertise(*, bind_host: str, force: bool | None) -> bool:
     return not is_loopback_host(bind_host)
 
 
+# Virtual / tunnel NICs — publishing their IPs makes --via auto open the VPN
+# address instead of the LAN when a tunnel is up.
+_VPN_IFACE_PREFIXES = (
+    "utun",
+    "tun",
+    "tap",
+    "ppp",
+    "ipsec",
+    "wg",
+    "tailscale",
+    "zt",
+    "nebula",
+    "awdl",
+    "llw",
+    "bridge",
+)
+
+
+def _looks_like_vpn_iface(name: str) -> bool:
+    text = (name or "").strip().lower()
+    if not text:
+        return False
+    return any(text == prefix or text.startswith(prefix) for prefix in _VPN_IFACE_PREFIXES)
+
+
+def _is_cgnat(ip: str) -> bool:
+    """True for 100.64.0.0/10 (Tailscale / carrier-grade NAT — often VPN)."""
+    parts = ip.split(".")
+    if len(parts) != 4:
+        return False
+    try:
+        a, b = int(parts[0]), int(parts[1])
+    except ValueError:
+        return False
+    return a == 100 and 64 <= b <= 127
+
+
+def _is_rfc1918(ip: str) -> bool:
+    parts = ip.split(".")
+    if len(parts) != 4:
+        return False
+    try:
+        a, b = int(parts[0]), int(parts[1])
+    except ValueError:
+        return False
+    if a == 10:
+        return True
+    if a == 192 and b == 168:
+        return True
+    if a == 172 and 16 <= b <= 31:
+        return True
+    return False
+
+
+def rank_ipv4(ip: str) -> tuple[int, str]:
+    """Sort key for client/server address choice (lower is better).
+
+    Prefer RFC1918 LAN addresses, then other globals, then CGNAT/VPN-ish,
+    and put link-local / loopback last (normally filtered out earlier).
+    """
+    text = (ip or "").strip()
+    if not text or ":" in text:
+        return (90, text)
+    if text.startswith("127.") or text.startswith("169.254."):
+        return (80, text)
+    if _is_cgnat(text):
+        return (40, text)
+    if _is_rfc1918(text):
+        return (0, text)
+    return (20, text)
+
+
+def pick_best_ipv4(addresses: list[str] | tuple[str, ...]) -> str | None:
+    """Choose the LAN-friendly IPv4 from a discovered/advertised set."""
+    v4 = [ip for ip in addresses if ip and ":" not in ip]
+    if not v4:
+        return None
+    return sorted(v4, key=rank_ipv4)[0]
+
+
 def _ipv4_addresses(preferred: str | None = None) -> list[bytes]:
-    """Local IPv4 addresses to publish (excludes loopback)."""
-    found: list[bytes] = []
+    """Local IPv4 addresses to publish (excludes loopback and VPN/tunnel NICs).
+
+    Previously a connect-to-``8.8.8.8`` probe was used to learn the "default"
+    source IP. With a VPN that returns the tunnel address, so mDNS clients
+    tried to reach the listener over the VPN instead of the LAN. Prefer
+    real interface enumeration (``ifaddr``, pulled in with zeroconf) and
+    rank RFC1918 ahead of CGNAT / other globals.
+    """
+    ranked: list[tuple[tuple[int, str], str]] = []
     seen: set[str] = set()
 
-    def add(ip: str) -> None:
+    def add(ip: str, *, boost: int = 0) -> None:
         ip = ip.strip()
-        if not ip or ip in seen or ip.startswith("127.") or ip.startswith("169.254."):
+        if not ip or ip in seen or ":" in ip:
+            return
+        if ip.startswith("127.") or ip.startswith("169.254."):
             return
         try:
-            found.append(socket.inet_aton(ip))
-            seen.add(ip)
+            socket.inet_aton(ip)
         except OSError:
             return
+        seen.add(ip)
+        score = rank_ipv4(ip)
+        ranked.append(((score[0] + boost, score[1]), ip))
 
     if preferred and not is_loopback_host(preferred) and preferred not in {"0.0.0.0", "::", ""}:
-        add(preferred)
+        # Explicit bind IP always wins (operator chose this interface).
+        add(preferred, boost=-10)
 
     try:
-        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET, socket.SOCK_DGRAM):
-            add(info[4][0])
-    except OSError:
-        pass
+        import ifaddr  # type: ignore[import-untyped]
 
-    try:
-        hostname = socket.gethostname()
-        add(socket.gethostbyname(hostname))
-    except OSError:
-        pass
-
-    # Route trick: ask the kernel which source IP it would use for LAN traffic.
-    try:
-        probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        for adapter in ifaddr.get_adapters():
+            name = getattr(adapter, "name", "") or ""
+            nice = getattr(adapter, "nice_name", "") or ""
+            if _looks_like_vpn_iface(name) or _looks_like_vpn_iface(nice):
+                continue
+            for entry in adapter.ips:
+                raw = entry.ip
+                if isinstance(raw, tuple):
+                    # IPv6 comes as (addr, flowinfo, scope_id)
+                    continue
+                if isinstance(raw, str):
+                    add(raw)
+    except Exception:
+        # Fall back to hostname records only — never the default-route probe.
         try:
-            probe.connect(("8.8.8.8", 80))
-            add(probe.getsockname()[0])
-        finally:
-            probe.close()
-    except OSError:
-        pass
+            for info in socket.getaddrinfo(
+                socket.gethostname(), None, socket.AF_INET, socket.SOCK_DGRAM
+            ):
+                add(info[4][0])
+        except OSError:
+            pass
+        try:
+            add(socket.gethostbyname(socket.gethostname()))
+        except OSError:
+            pass
 
-    return found
+    ranked.sort(key=lambda item: item[0])
+    return [socket.inet_aton(ip) for _, ip in ranked]
 
 
 def build_properties(
@@ -243,8 +342,13 @@ def start_for_listener(
 
     props = build_properties(version=version, panel=panel, input_count=input_count)
     txt = " ".join(f"{key}={value}" for key, value in props.items())
+    try:
+        published = [socket.inet_ntoa(addr) for addr in (adv.info.addresses or [])]
+    except Exception:
+        published = []
+    addr_note = f" addrs={','.join(published)}" if published else ""
     print(
-        f"  mDNS: {adv.service_name} port {port} ({txt})",
+        f"  mDNS: {adv.service_name} port {port}{addr_note} ({txt})",
         file=file,
     )
     print(
@@ -270,8 +374,8 @@ class DiscoveredListener:
 
     @property
     def base_url(self) -> str:
-        """HTTP base URL clients should call (prefers IPv4, then hostname)."""
-        host = next((ip for ip in self.addresses if ":" not in ip), None)
+        """HTTP base URL clients should call (LAN IPv4 over VPN/CGNAT, then hostname)."""
+        host = pick_best_ipv4(self.addresses)
         if host is None and self.addresses:
             host = self.addresses[0]
         if host is None:

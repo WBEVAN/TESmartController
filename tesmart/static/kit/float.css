@@ -662,6 +662,7 @@ body.kit-float.is-app .app-only {
   text-overflow: clip;
 }
 
+/* Banner + ephemeral boot ticker share the same marquee (.is-boot forces scroll in JS). */
 .kit-float .lcd-copy h1#name.is-banner.is-scrolling {
   mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
 }
