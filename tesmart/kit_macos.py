@@ -22,7 +22,7 @@ _DISPLAY_NAME = "TESmart Kit"
 _COPYRIGHT = "Independent community project — not affiliated with TESmart."
 _CREDITS_INTRO = "Control TESmart HDMI / KVM switches over LAN or RS232.\n"
 _GITHUB_URL = "https://github.com/WBEVAN/TESmartController"
-_GITHUB_LABEL = "tesmartctl on GitHub"
+_GITHUB_LABEL = "GitHub"
 
 # Keep Cocoa targets alive for the process lifetime.
 _ABOUT_TARGET = None
@@ -208,10 +208,10 @@ def _credits_attributed():
 
 def _about_options(image) -> dict:
     ver = pkg_version.package_version()
+    # Only ApplicationVersion — also setting Version makes macOS show "0.0.7.11 (0.0.7.11)".
     options = {
         "ApplicationName": _DISPLAY_NAME,
         "ApplicationVersion": ver,
-        "Version": ver,
         "Copyright": f"© {_COPYRIGHT}",
         "Credits": _credits_attributed(),
     }
