@@ -498,13 +498,18 @@ def run_webview(
         # the server stamps a new ?v= token on every /static asset.
         _clear_webview_http_cache()
         url = _with_query(url, fresh="1")
-    if sys.platform == "darwin":
+    def _brand_macos() -> None:
+        if sys.platform != "darwin":
+            return
         try:
             from . import kit_macos
 
-            _cocoa_on_main(kit_macos.apply_process_icon)
+            _cocoa_on_main(kit_macos.apply_branding)
         except Exception:
             pass
+
+    # Early pass for Dock icon; About menu is rewired again on shown (menu exists then).
+    _brand_macos()
     prefs = KitPrefs(fresh=fresh)
     memory = _WindowMemory(webview, prefs)
     url = _with_query(url, transparent="1")
@@ -642,7 +647,7 @@ def run_webview(
         height = max(160, min(int(height), int(target_screen.physical_height) - 8))
 
     window = webview.create_window(
-        "TESmart",
+        "TESmart Kit",
         url,
         width=width,
         height=height,
@@ -652,6 +657,7 @@ def run_webview(
     if events is not None:
         if hasattr(events, "shown"):
             events.shown += memory.restore
+            events.shown += lambda *_: _brand_macos()
         if hasattr(events, "moved"):
             events.moved += lambda *_: memory.save_soon()
         if hasattr(events, "closing"):
