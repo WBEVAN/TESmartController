@@ -20,7 +20,9 @@ _BUNDLE_ID = "com.tesmartctl.kit"
 _APP_NAME = "TESmart Kit.app"
 _DISPLAY_NAME = "TESmart Kit"
 _COPYRIGHT = "Independent community project — not affiliated with TESmart."
-_CREDITS = "Control TESmart HDMI / KVM switches over LAN or RS232.\ntesmartctl"
+_CREDITS_INTRO = "Control TESmart HDMI / KVM switches over LAN or RS232.\ntesmartctl\n"
+_GITHUB_URL = "https://github.com/WBEVAN/TESmartController"
+_GITHUB_LABEL = "github.com/WBEVAN/TESmartController"
 
 # Keep Cocoa targets alive for the process lifetime.
 _ABOUT_TARGET = None
@@ -172,21 +174,46 @@ def _load_app_icon():
     return AppKit.NSImage.alloc().initWithContentsOfFile_(str(icon))
 
 
+def _credits_attributed():
+    """Credits block with a clickable GitHub link for the About panel."""
+    plain = f"{_CREDITS_INTRO}{_GITHUB_LABEL}"
+    try:
+        from Foundation import (  # type: ignore[import-untyped]
+            NSMutableAttributedString,
+            NSURL,
+        )
+    except ImportError:
+        return plain
+
+    credits = NSMutableAttributedString.alloc().initWithString_(plain)
+    link_start = len(_CREDITS_INTRO)
+    link_len = len(_GITHUB_LABEL)
+    if link_len <= 0 or link_start + link_len > len(plain):
+        return credits
+
+    url = NSURL.URLWithString_(_GITHUB_URL)
+    # NSLinkAttributeName — clickable in NSAboutPanel credits.
+    try:
+        from AppKit import NSLinkAttributeName  # type: ignore[import-untyped]
+    except ImportError:
+        NSLinkAttributeName = "NSLink"  # type: ignore[misc, assignment]
+
+    credits.addAttribute_value_range_(
+        NSLinkAttributeName,
+        url,
+        (link_start, link_len),
+    )
+    return credits
+
+
 def _about_options(image) -> dict:
     ver = pkg_version.package_version()
-    try:
-        from Foundation import NSAttributedString  # type: ignore[import-untyped]
-    except ImportError:
-        credits = _CREDITS
-    else:
-        credits = NSAttributedString.alloc().initWithString_(_CREDITS)
-
     options = {
         "ApplicationName": _DISPLAY_NAME,
         "ApplicationVersion": ver,
         "Version": ver,
         "Copyright": f"© {_COPYRIGHT}",
-        "Credits": credits,
+        "Credits": _credits_attributed(),
     }
     if image is not None:
         options["ApplicationIcon"] = image
