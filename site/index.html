@@ -36,7 +36,9 @@
           <a class="btn ghost" href="https://github.com/WBEVAN/TESmartController">GitHub</a>
           <a class="btn ghost" href="https://github.com/WBEVAN/TESmartController/blob/main/Docs/hubitat.md">Hubitat</a>
         </div>
-        <pre class="install hero-install"><code>pip install -U tesmartctl
+        <pre class="install hero-install"><code># install / upgrade from PyPI (core package; add [mdns], [serial], or [kit] if needed)
+pip install -U tesmartctl
+# start the TESmart HTTP server (owns the switch; serves API + panel)
 tesmartctl listen --http --panel
 # floating kit via mDNS (or open /panel in a browser)
 tesmartctl --via auto kit</code></pre>
