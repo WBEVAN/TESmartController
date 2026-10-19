@@ -15,7 +15,7 @@ import groovy.json.JsonSlurper
 import groovy.transform.Field
 
 @Field static final String IMG_BANNER = "https://raw.githubusercontent.com/WBEVAN/TESmartController/main/Docs/images/readme-banner.png"
-@Field static final String DOCS_URL = "https://github.com/WBEVAN/TESmartController/blob/main/Docs/hubitat.md"
+@Field static final String DOCS_URL = "https://wbevan.github.io/TESmartController/"
 @Field static final String LISTENER_DOCS = "https://github.com/WBEVAN/TESmartController/blob/main/Docs/listener.md"
 /** Hubitat package version (keep in sync with packageManifest.json). */
 @Field static final String PACKAGE_VERSION = "1.6.0"
@@ -117,7 +117,7 @@ Requires <b>tesmartctl ${MIN_SERVER_VERSION}+</b>.
         }
         section("Logging & docs") {
             input name: "logEnable", type: "bool", title: "Enable debug logging", defaultValue: false
-            paragraph "<a href=\"${DOCS_URL}\" target=\"_blank\">Hubitat integration docs</a> · <a href=\"https://github.com/WBEVAN/TESmartController\" target=\"_blank\">GitHub repo</a>"
+            paragraph "<a href=\"${DOCS_URL}\" target=\"_blank\">tesmartctl docs</a> · <a href=\"https://github.com/WBEVAN/TESmartController\" target=\"_blank\">GitHub repo</a>"
         }
     }
 }

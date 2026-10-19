@@ -6,7 +6,7 @@
   "dateReleased": "2026-10-18",
   "licenseFile": "https://raw.githubusercontent.com/WBEVAN/TESmartController/main/LICENSE",
   "releaseNotes": "Notification capability (kit LCD via Notify / deviceNotification), banner commands, peek-follow (off/once/always), banner push callbacks. Requires tesmartctl 0.0.7.10+.",
-  "documentationLink": "https://github.com/WBEVAN/TESmartController/blob/main/Docs/hubitat.md",
+  "documentationLink": "https://wbevan.github.io/TESmartController/",
   "communityLink": "https://community.hubitat.com/t/release-tesmart-hdmi-switch-rest-api-service-with-hubitat-package-manager-app/166591",
   "gitHubUrl": "https://github.com/WBEVAN/TESmartController",
   "apps": [

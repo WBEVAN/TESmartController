@@ -10,7 +10,7 @@ Files follow the [Hubitat Package Manager developer documentation](https://hubit
 | [`TESmart-Controller.groovy`](TESmart-Controller.groovy) | Parent driver (`MediaInputSource`) |
 | [`TESmart-Input.groovy`](TESmart-Input.groovy) | Child input driver |
 
-Current package version is in `packageManifest.json` (also mirrored on `repository.json`). Full end-user setup, commands, and callbacks: [`Docs/hubitat.md`](../Docs/hubitat.md). Browser kit/panel live updates use Server-Sent Events (`/api/events`), not these Hubitat callback URLs — see [`Docs/listener.md`](../Docs/listener.md).
+Current package version is in `packageManifest.json` (also mirrored on `repository.json`). Project site / HPM docs link: [wbevan.github.io/TESmartController](https://wbevan.github.io/TESmartController/). Hubitat detail: [`Docs/hubitat.md`](../Docs/hubitat.md). Browser kit/panel live updates use Server-Sent Events (`/api/events`), not these Hubitat callback URLs — see [`Docs/listener.md`](../Docs/listener.md).
 
 ## Install with HPM
 
