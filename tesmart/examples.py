@@ -189,6 +189,8 @@ EXAMPLES: dict[str, list[tuple[str, str]]] = {
         ("tesmartctl kit --prefer webview", "force frameless pywebview"),
         ("tesmartctl kit --prefer chromium", "Chrome/Edge --app (still has OS title bar on macOS)"),
         ("tesmartctl kit --fresh", "ignore the remembered position, size, on-top and peek mode for this launch"),
+        ("tesmartctl kit --reset", "delete kit.json then open fresh (off-screen after unplugging a monitor)"),
+        ("tesmartctl --via auto kit --reset", "same, discovering the listener via mDNS"),
     ],
 }
 
