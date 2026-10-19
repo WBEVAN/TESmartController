@@ -416,6 +416,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="ignore remembered position, Always on top, view size and peek mode for this launch "
         "(use if the kit opens oddly; new changes are saved over the old ones)",
     )
+    p_kit.add_argument(
+        "--reset",
+        action="store_true",
+        help="delete saved kit prefs (~/.config/tesmartctl/kit.json) then open like --fresh "
+        "(use when the window opens off-screen after unplugging a monitor)",
+    )
 
     return parser
 
@@ -870,7 +876,16 @@ def cmd_kit(args: argparse.Namespace) -> int:
     """Open /kit without browser chrome. Does not need a switch connection."""
     from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-    from . import kit_window
+    from . import kit_prefs, kit_window
+
+    fresh = bool(args.fresh or args.reset)
+    if args.reset:
+        try:
+            path = kit_prefs.KitPrefs.reset_file()
+        except OSError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        print(f"Cleared kit prefs ({path})", file=sys.stderr)
 
     if (args.url or "").strip():
         url = args.url.strip()
@@ -884,12 +899,12 @@ def cmd_kit(args: argparse.Namespace) -> int:
         url = f"{url}{sep}app=1"
     if args.ports is not None and (args.ports < 8 or args.ports > 32):
         raise SystemExit("--ports must be between 8 and 32")
-    if args.ports is not None or args.fresh:
+    if args.ports is not None or fresh:
         parts = urlsplit(url)
         query = dict(parse_qsl(parts.query, keep_blank_values=True))
         if args.ports is not None:
             query["ports"] = str(args.ports)
-        if args.fresh:
+        if fresh:
             query["fresh"] = "1"
         url = urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
     width = args.width if args.width is not None else kit_window.DEFAULT_WIDTH
@@ -902,7 +917,7 @@ def cmd_kit(args: argparse.Namespace) -> int:
             height=height,
             prefer=args.prefer,
             block=True,
-            fresh=args.fresh,
+            fresh=fresh,
         )
     except kit_window.KitWindowError as exc:
         print(f"error: {exc}", file=sys.stderr)

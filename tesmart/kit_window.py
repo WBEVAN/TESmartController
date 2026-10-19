@@ -465,11 +465,19 @@ class _WindowMemory:
         if not pos:
             return
         if sys.platform == "darwin":
-            _cocoa_restore_top_left(pos["x"], pos["y"])
+            if not _cocoa_restore_top_left(pos["x"], pos["y"]):
+                # Unplugged / rearranged display — drop the bad coords for next time.
+                self._prefs.update({"position": None})
             return
+        screens = list(getattr(self._webview, "screens", []) or [])
+        x, y = int(pos["x"]), int(pos["y"])
+        if screens:
+            x, y, _, _ = _clamp_on_screen(x, y, DEFAULT_WIDTH, DEFAULT_HEIGHT, screens)
+            if (x, y) != (int(pos["x"]), int(pos["y"])):
+                self._prefs.update({"position": {"x": float(x), "y": float(y)}})
         for window in self._webview.windows:
             try:
-                window.move(int(pos["x"]), int(pos["y"]))
+                window.move(x, y)
             except Exception:
                 pass
 

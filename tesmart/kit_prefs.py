@@ -15,6 +15,9 @@ file next to the env file instead (``~/.config/tesmartctl/kit.json``):
 
 ``fresh=True`` ignores whatever is saved for this launch (defaults only); new
 changes made in that session are saved as normal, replacing the old file.
+
+``tesmartctl kit --reset`` deletes this file so the next launch starts clean
+(useful when a saved position is on a disconnected monitor).
 """
 
 from __future__ import annotations
@@ -107,6 +110,28 @@ class KitPrefs:
             self._data = _clean(merged)
             self._write(self._data)
             return dict(self._data)
+
+    def clear(self) -> Path:
+        """Erase remembered kit settings on disk and in memory."""
+        with self._lock:
+            self._data = {}
+            try:
+                if self.path.exists():
+                    self.path.unlink()
+            except OSError:
+                pass
+            return self.path
+
+    @classmethod
+    def reset_file(cls, path: Path | str | None = None) -> Path:
+        """Delete ``kit.json`` without opening a window (``tesmartctl kit --reset``)."""
+        target = Path(path) if path else DEFAULT_PATH
+        try:
+            if target.exists():
+                target.unlink()
+        except OSError as exc:
+            raise OSError(f"cannot remove {target}: {exc}") from exc
+        return target
 
     def _write(self, data: dict[str, Any]) -> None:
         try:

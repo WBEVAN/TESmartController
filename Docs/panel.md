@@ -55,7 +55,17 @@ If the kit opens somewhere odd or in a bad state, start it with saved settings i
 tesmartctl kit --fresh                                 # or: tesmartctl kit 'http://…/kit?app=1' --fresh
 ```
 
-`--fresh` opens with defaults (Compact, under the pointer, not on top, no peek re-arm). Anything you change in that session is saved over the old settings. In a browser, add `fresh=1` to the URL (`/kit?fresh=1`) for the same effect. Deleting `kit.json` resets it permanently.
+`--fresh` opens with defaults (Compact, under the pointer, not on top, no peek re-arm). Anything you change in that session is saved over the old settings. In a browser, add `fresh=1` to the URL (`/kit?fresh=1`) for the same effect.
+
+If the kit opens but you cannot see it on any monitor (saved position on a disconnected display), force a clean open:
+
+```bash
+tesmartctl kit --reset
+# or with mDNS:
+tesmartctl --via auto kit --reset
+```
+
+`--reset` deletes `~/.config/tesmartctl/kit.json` and then launches like `--fresh`. You can also delete that file by hand.
 
 #### Launch from another machine
 
