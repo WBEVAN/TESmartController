@@ -19,6 +19,7 @@ Ethernet/LAN or RS232 using Python.
 - Home Assistant, Hubitat, Stream Deck and Bitfocus Companion integration
 - Input switching, input naming, cycling and peeking
 - Network/IP configuration
+- Zeroconf mDNS / DNS-SD so clients can find the HTTP listener (`discover`, `--via auto`) without typing a host:port
 
 ## Supported TESmart models
 
@@ -38,9 +39,9 @@ Other TESmart models using the same AA BB 03 ... EE protocol may also work.
 >
 > TESmart is a trademark of its respective owner.
 
-LAN control uses only the Python standard library. RS232 needs `pyserial`. Python 3.10 or newer. Licensed under the [MIT License](https://github.com/WBEVAN/TESmartController/blob/main/LICENSE).
+LAN control uses only the Python standard library. Optional extras: `pyserial` for RS232, `zeroconf` for mDNS, `pywebview` for the kit window. Python 3.10 or newer. Licensed under the [MIT License](https://github.com/WBEVAN/TESmartController/blob/main/LICENSE).
 
-Install with `pip install tesmartctl`. The package is on [PyPI](https://pypi.org/project/tesmartctl/); the source is on [GitHub](https://github.com/WBEVAN/TESmartController).
+Install with `pip install tesmartctl` (add `[mdns]` for discovery). The package is on [PyPI](https://pypi.org/project/tesmartctl/); the source is on [GitHub](https://github.com/WBEVAN/TESmartController).
 
 ## Why tesmartctl?
 
@@ -54,6 +55,7 @@ switch through:
 - Command line
 - TCP
 - RS232
+- mDNS discovery (`tesmartctl[mdns]`)
 
 This allows a TESmart switch to be controlled from Home Assistant,
 Hubitat, Stream Deck, Bitfocus Companion, curl, shell scripts or any
@@ -71,6 +73,7 @@ application capable of making an HTTP request.
 | Settings | Buzzer, front-panel display timeout, auto input detection. The switch cannot report these back |
 | Address | Change the switch's IP, port, gateway, and mask, with two warnings and a read-back. Applied only after a power cycle |
 | Listen | Keep one connection open: a line protocol on stdin or TCP, or HTTP URLs for Stream Deck, Companion, Home Assistant, and similar |
+| mDNS | Optional zeroconf advertise/browse (`tesmartctl[mdns]`): clients use `discover` or `--via auto` to reach the listener; see [`Docs/mdns.md`](Docs/mdns.md) |
 | Panel / kit | Optional browser UIs with `--panel`: floating `/kit` (frameless via `tesmartctl kit`) and full `/panel` with API explorer |
 | Banner | Brief LCD message on kit/panel via `tesmartctl banner` or `POST /banner` (needs `listen --http`) |
 
