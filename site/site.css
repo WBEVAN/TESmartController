@@ -153,6 +153,14 @@ a:hover {
   white-space: pre;
 }
 
+.hero-install .cmt {
+  color: rgba(200, 212, 204, 0.55);
+}
+
+.hero-install .cmd {
+  color: var(--phosphor);
+}
+
 .hero-demo {
   min-width: 0;
 }

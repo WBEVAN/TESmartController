@@ -20,7 +20,7 @@
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Syne:wght@600;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="site.css?v=9" />
+    <link rel="stylesheet" href="site.css?v=10" />
   </head>
   <body>
     <header class="hero">
@@ -36,15 +36,15 @@
           <a class="btn ghost" href="https://github.com/WBEVAN/TESmartController">GitHub</a>
           <a class="btn ghost" href="https://github.com/WBEVAN/TESmartController/blob/main/Docs/hubitat.md">Hubitat</a>
         </div>
-        <pre class="install hero-install"><code># install / upgrade from PyPI
-# core only — add [mdns], [serial], or [kit] if needed
-pip install -U tesmartctl
-# start the TESmart HTTP server
-# owns the switch; serves API + panel
-tesmartctl listen --http --panel
-# floating kit via mDNS
-# or open /panel in a browser
-tesmartctl --via auto kit</code></pre>
+        <pre class="install hero-install"><code><span class="cmt"># install / upgrade from PyPI</span>
+<span class="cmt"># core only — add [mdns], [serial], or [kit] if needed</span>
+<span class="cmd">pip install -U tesmartctl</span>
+<span class="cmt"># start the TESmart HTTP server</span>
+<span class="cmt"># owns the switch; serves API + panel</span>
+<span class="cmd">tesmartctl listen --http --panel</span>
+<span class="cmt"># floating kit via mDNS</span>
+<span class="cmt"># or open /panel in a browser</span>
+<span class="cmd">tesmartctl --via auto kit</span></code></pre>
       </div>
 
       <div class="hero-demo" aria-labelledby="preview-title">
