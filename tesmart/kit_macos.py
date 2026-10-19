@@ -22,8 +22,9 @@ _DISPLAY_NAME = "TESmart Kit"
 _COPYRIGHT = "Independent community project — not affiliated with TESmart."
 _CREDITS = "Control TESmart HDMI / KVM switches over LAN or RS232.\ntesmartctl"
 
-# Keep the Cocoa About target alive for the process lifetime.
+# Keep Cocoa targets alive for the process lifetime.
 _ABOUT_TARGET = None
+_BRANDING_TIMER_TARGET = None
 
 
 class KitMacosError(RuntimeError):
@@ -192,44 +193,97 @@ def _about_options(image) -> dict:
     return options
 
 
-def _wire_about_menu(app, image) -> None:
-    """Point the app menu About item at our branded panel (not Python's)."""
-    global _ABOUT_TARGET
+_ABOUT_OPTIONS: dict | None = None
+_BRANDING_TIMER = None
+
+
+def _show_branded_about(_sender=None) -> None:
     try:
+        import AppKit  # type: ignore[import-untyped]
+    except ImportError:
+        return
+    opts = _ABOUT_OPTIONS
+    if not opts:
+        return
+    AppKit.NSApp.orderFrontStandardAboutPanelWithOptions_(opts)
+
+
+def _install_about_override(image) -> None:
+    """Replace the system About action so it never falls back to ``python3``."""
+    global _ABOUT_TARGET, _ABOUT_OPTIONS
+    try:
+        import objc  # type: ignore[import-untyped]
         import AppKit  # type: ignore[import-untyped]
         from Foundation import NSObject  # type: ignore[import-untyped]
     except ImportError:
         return
 
     options = _about_options(image)
+    _ABOUT_OPTIONS = options
+
+    # ObjC-runtime override (plain Python assignment is ignored by menu IMPs).
+    def orderFrontStandardAboutPanel_(self, sender=None):  # noqa: ANN001, N802
+        self.orderFrontStandardAboutPanelWithOptions_(options)
+
+    orderFrontStandardAboutPanel_ = objc.selector(
+        orderFrontStandardAboutPanel_,
+        signature=b"v@:@",
+    )
+    AppKit.NSApplication.orderFrontStandardAboutPanel_ = orderFrontStandardAboutPanel_
 
     class _AboutTarget(NSObject):
-        def showTesmartAbout_(self, _sender) -> None:
-            AppKit.NSApp.orderFrontStandardAboutPanelWithOptions_(options)
+        def showTesmartAbout_(self, sender) -> None:  # noqa: ARG002, N802
+            _show_branded_about(sender)
 
     target = _AboutTarget.alloc().init()
     _ABOUT_TARGET = target
 
+    app = AppKit.NSApplication.sharedApplication()
     menu = app.mainMenu()
     if menu is None or menu.numberOfItems() < 1:
         return
-    app_item = menu.itemAtIndex_(0)
-    submenu = app_item.submenu() if app_item is not None else None
-    if submenu is None:
-        return
-    for index in range(submenu.numberOfItems()):
-        item = submenu.itemAtIndex_(index)
-        if item is None:
+    # Walk every top-level menu; pywebview may not put About in index 0.
+    for menu_index in range(menu.numberOfItems()):
+        top = menu.itemAtIndex_(menu_index)
+        submenu = top.submenu() if top is not None else None
+        if submenu is None:
             continue
-        title = str(item.title() or "")
-        if "About" in title:
-            item.setTitle_(f"About {_DISPLAY_NAME}")
-            item.setTarget_(target)
-            item.setAction_("showTesmartAbout:")
-            return
+        for index in range(submenu.numberOfItems()):
+            item = submenu.itemAtIndex_(index)
+            if item is None:
+                continue
+            title = str(item.title() or "")
+            if "About" in title:
+                item.setTitle_(f"About {_DISPLAY_NAME}")
+                item.setTarget_(target)
+                item.setAction_("showTesmartAbout:")
+                return
 
 
-def apply_branding() -> None:
+def _schedule_branding_retries() -> None:
+    """Menus appear after webview starts; re-apply a few times on the main thread."""
+    global _BRANDING_TIMER, _BRANDING_TIMER_TARGET
+    if _BRANDING_TIMER_TARGET is not None:
+        return
+    try:
+        from Foundation import NSObject, NSTimer  # type: ignore[import-untyped]
+    except ImportError:
+        return
+
+    class _Retry(NSObject):
+        def tick_(self, timer) -> None:  # noqa: ARG002, N802
+            apply_branding(schedule_retries=False)
+
+    retry = _Retry.alloc().init()
+    _BRANDING_TIMER_TARGET = retry
+    _BRANDING_TIMER = retry
+    for delay in (0.25, 0.75, 1.5, 3.0):
+        NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
+            delay, retry, "tick:", None, False
+        )
+
+
+def apply_branding(*, schedule_retries: bool = False) -> None:
     """Dock icon + About panel branding while the kit window is running."""
     if sys.platform != "darwin":
         return
@@ -250,9 +304,17 @@ def apply_branding() -> None:
         app.setActivationPolicy_(AppKit.NSApplicationActivationPolicyRegular)
     except Exception:
         pass
-    _wire_about_menu(app, image)
+    try:
+        from Foundation import NSProcessInfo  # type: ignore[import-untyped]
+
+        NSProcessInfo.processInfo().setProcessName_(_DISPLAY_NAME)
+    except Exception:
+        pass
+    _install_about_override(image)
+    if schedule_retries:
+        _schedule_branding_retries()
 
 
 def apply_process_icon() -> None:
     """Backward-compatible alias for :func:`apply_branding`."""
-    apply_branding()
+    apply_branding(schedule_retries=True)

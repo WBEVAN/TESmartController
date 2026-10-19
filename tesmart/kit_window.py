@@ -295,7 +295,8 @@ def _tesmart_nswindows():  # type: ignore[no-untyped-def]
     found = []
     for nsw in AppKit.NSApp.windows():
         try:
-            if str(nsw.title()) == "TESmart" and nsw.isVisible():
+            title = str(nsw.title() or "")
+            if title.startswith("TESmart") and nsw.isVisible():
                 found.append(nsw)
         except Exception:
             continue
@@ -498,18 +499,18 @@ def run_webview(
         # the server stamps a new ?v= token on every /static asset.
         _clear_webview_http_cache()
         url = _with_query(url, fresh="1")
-    def _brand_macos() -> None:
+    def _brand_macos(*, schedule_retries: bool = False) -> None:
         if sys.platform != "darwin":
             return
         try:
             from . import kit_macos
 
-            _cocoa_on_main(kit_macos.apply_branding)
+            _cocoa_on_main(lambda: kit_macos.apply_branding(schedule_retries=schedule_retries))
         except Exception:
             pass
 
-    # Early pass for Dock icon; About menu is rewired again on shown (menu exists then).
-    _brand_macos()
+    # Early Dock icon; schedule About rewires until the app menu exists.
+    _brand_macos(schedule_retries=True)
     prefs = KitPrefs(fresh=fresh)
     memory = _WindowMemory(webview, prefs)
     url = _with_query(url, transparent="1")
@@ -657,7 +658,7 @@ def run_webview(
     if events is not None:
         if hasattr(events, "shown"):
             events.shown += memory.restore
-            events.shown += lambda *_: _brand_macos()
+            events.shown += lambda *_: _brand_macos(schedule_retries=True)
         if hasattr(events, "moved"):
             events.moved += lambda *_: memory.save_soon()
         if hasattr(events, "closing"):
