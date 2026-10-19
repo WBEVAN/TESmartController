@@ -22,7 +22,7 @@ _DISPLAY_NAME = "TESmart Kit"
 _COPYRIGHT = "Independent community project — not affiliated with TESmart."
 _CREDITS_INTRO = "Control TESmart HDMI / KVM switches over LAN or RS232.\n"
 _GITHUB_URL = "https://github.com/WBEVAN/TESmartController"
-_GITHUB_LABEL = "GitHub"
+_GITHUB_LABEL = "tesmartctl on GitHub"
 
 # Keep Cocoa targets alive for the process lifetime.
 _ABOUT_TARGET = None
