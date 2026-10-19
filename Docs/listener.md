@@ -15,13 +15,27 @@ tesmartctl listen --bind 9753        # raw TCP, this computer only (127.0.0.1:97
 tesmartctl listen --bind 0.0.0.0:9753 # raw TCP on every interface
 tesmartctl listen --json             # one JSON object per line (line protocol only)
 tesmartctl listen --http 8080        # HTTP, this computer only (http://127.0.0.1:8080/)
-tesmartctl listen --http 0.0.0.0:8080 # HTTP on every interface
+tesmartctl listen --http 0.0.0.0:8080 # HTTP on every interface (auto mDNS when zeroconf is installed)
+tesmartctl listen --http 0.0.0.0:8080 --mdns-name "Office Switch"
 tesmartctl listen --http 8080 --panel # also the control panel at /panel
+tesmartctl listen --http 0.0.0.0:8080 --no-mdns  # LAN HTTP without advertising
 ```
 
 A bare port binds `127.0.0.1`, so only this computer can connect. `0.0.0.0` accepts every network interface. Other devices then use the address of the computer running `tesmartctl`, for example `http://192.168.1.20:8080/input/3`. There is no authentication. `--bind` and `--http` cannot be used together; start two processes to expose both. Ctrl-C stops the process. Connection flags (`--host`, `--serial`, `--inputs`, `--timeout`, `--env-file`) work the same way as the rest of `tesmartctl`; see the README.
 
 There is no authentication. Leave the bind address on `127.0.0.1` unless every machine that can open the port is trusted.
+
+## mDNS / DNS-SD
+
+When the HTTP listener binds a non-loopback address and the optional `zeroconf` package is installed (`pip install 'tesmartctl[mdns]'`), it advertises `_wbevan-tesmart._tcp` on the LAN. Clients can then run `tesmartctl discover` or `tesmartctl --via auto …` instead of typing a host:port.
+
+```bash
+tesmartctl listen --http 0.0.0.0:8080 --panel --mdns-name OfficeHDMI
+tesmartctl --via auto --mdns-name OfficeHDMI input 3
+tesmartctl --via auto kit --fresh
+```
+
+Full detail — service type, **`tesmartctl discover`** (all OSes), optional macOS `dns-sd` / Linux `avahi-browse`, **limitations**, and **fallback** when discovery fails — is in [`mdns.md`](mdns.md).
 
 ## Line protocol
 

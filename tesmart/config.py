@@ -44,6 +44,10 @@ LAST_SENT_KEYS = ("buzzer", "led_timeout", "auto_detect")
 # show the message / history icons again without waiting for a new send.
 BANNER_HISTORY_KEY = "TESMART_BANNER_HISTORY"
 BANNER_HISTORY_MAX = 10
+# Last discovered / preferred HTTP listener (for --via auto). Not a switch address.
+VIA_KEY = "TESMART_VIA"
+# Preferred mDNS instance name when several listeners are on the LAN.
+MDNS_NAME_KEY = "TESMART_MDNS_NAME"
 
 # setting name -> (env var, built-in default)
 SETTINGS: dict[str, tuple[str, str | None]] = {
@@ -485,3 +489,41 @@ def unset_default(name: str, env_file: str | None = None) -> Path:
     values.pop(SETTINGS[name][0], None)
     write_env_file(path, values)
     return path
+
+
+def _read_optional(key: str, env_file: str | None = None) -> str | None:
+    path = env_file_path(env_file)
+    file_values = read_env_file(path)
+    if key in file_values and file_values[key].strip():
+        return file_values[key].strip()
+    from_env = os.environ.get(key)
+    return from_env.strip() if from_env and from_env.strip() else None
+
+
+def _write_optional(key: str, value: str | None, env_file: str | None = None) -> Path:
+    path = env_file_path(env_file)
+    values = read_env_file(path)
+    if value is None or not str(value).strip():
+        values.pop(key, None)
+    else:
+        values[key] = str(value).strip()
+    write_env_file(path, values)
+    return path
+
+
+def read_via_url(env_file: str | None = None) -> str | None:
+    """Last preferred HTTP listener base URL (``TESMART_VIA``)."""
+    return _read_optional(VIA_KEY, env_file)
+
+
+def write_via_url(url: str, env_file: str | None = None) -> Path:
+    return _write_optional(VIA_KEY, url.rstrip("/"), env_file)
+
+
+def read_mdns_name(env_file: str | None = None) -> str | None:
+    """Preferred mDNS instance name (``TESMART_MDNS_NAME``)."""
+    return _read_optional(MDNS_NAME_KEY, env_file)
+
+
+def write_mdns_name(name: str | None, env_file: str | None = None) -> Path:
+    return _write_optional(MDNS_NAME_KEY, name, env_file)

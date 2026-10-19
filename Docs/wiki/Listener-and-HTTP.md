@@ -45,6 +45,10 @@ SSE event names: `hello`, `input_changed`, `names_changed`, `banner`. Same JSON 
 - `tesmartctl banner …` (POSTs to the listener; kit/panel see it over SSE)
 - One-shot CLI still can open its own short TCP session to the switch when no listener is required
 
+## mDNS
+
+With `tesmartctl[mdns]`, a non-loopback `--http` bind can advertise `_wbevan-tesmart._tcp`. Clients use `tesmartctl discover` or `--via auto`. Hubitat still needs a typed base URL. Full limits and fallbacks: [mDNS](mDNS) / [Docs/mdns.md](https://github.com/WBEVAN/TESmartController/blob/main/Docs/mdns.md).
+
 ## Deeper detail
 
 [Docs/listener.md](https://github.com/WBEVAN/TESmartController/blob/main/Docs/listener.md) (includes the SSE section)

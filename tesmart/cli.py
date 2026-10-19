@@ -116,6 +116,20 @@ def build_parser() -> argparse.ArgumentParser:
         "--timeout", type=float, default=1.5,
         help="seconds to wait for a reply (default 1.5)",
     )
+    conn.add_argument(
+        "--via",
+        default=None,
+        metavar="auto|URL",
+        help="talk through an HTTP listener instead of the switch: "
+             "'auto' browses mDNS (_wbevan-tesmart._tcp), or pass http://host:port",
+    )
+    conn.add_argument(
+        "--mdns-name",
+        default=None,
+        metavar="NAME",
+        help="mDNS instance name when several listeners exist "
+             f"(env {config.MDNS_NAME_KEY}; also used by listen --mdns-name)",
+    )
     parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
 
     sub = parser.add_subparsers(dest="command", required=True, metavar="<command>")
@@ -320,7 +334,47 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="with --http: also serve a browser control panel at /panel (off by default)",
     )
-    p_listen.description = "Without --bind or --http, commands are read from stdin."
+    mdns_mode = p_listen.add_mutually_exclusive_group()
+    mdns_mode.add_argument(
+        "--mdns",
+        action="store_true",
+        help="with --http: advertise via mDNS/DNS-SD (_wbevan-tesmart._tcp); needs zeroconf",
+    )
+    mdns_mode.add_argument(
+        "--no-mdns",
+        action="store_true",
+        help="with --http: do not advertise (default when bound to loopback)",
+    )
+    p_listen.add_argument(
+        "--mdns-name",
+        default=None,
+        metavar="NAME",
+        help="with --http: mDNS instance name (default: this computer's hostname; "
+             "same as the global --mdns-name flag)",
+    )
+    p_listen.description = (
+        "Without --bind or --http, commands are read from stdin. "
+        "HTTP on a non-loopback bind advertises via mDNS when zeroconf is installed "
+        "(see --mdns / --no-mdns)."
+    )
+
+    p_discover = _add(
+        sub,
+        "discover",
+        "browse the LAN for tesmartctl HTTP listeners (mDNS / DNS-SD)",
+    )
+    p_discover.add_argument(
+        "--timeout",
+        type=float,
+        default=None,
+        metavar="S",
+        help="seconds to browse (default 2)",
+    )
+    p_discover.add_argument(
+        "--save",
+        action="store_true",
+        help="remember the chosen base URL (and --mdns-name) in the env file",
+    )
 
     p_kit = _add(
         sub,
@@ -738,7 +792,23 @@ def cmd_monitor(switch: TesmartSwitch, args: argparse.Namespace) -> int:
 def cmd_listen(switch: TesmartSwitch, args: argparse.Namespace) -> int:
     if args.http is not None:
         host, port = args.http
-        return serve_http(switch, host, port, args.env_file, panel_enabled=args.panel)
+        if args.mdns:
+            mdns: bool | None = True
+        elif args.no_mdns:
+            mdns = False
+        else:
+            mdns = None
+        return serve_http(
+            switch,
+            host,
+            port,
+            args.env_file,
+            panel_enabled=args.panel,
+            mdns=mdns,
+            mdns_name=args.mdns_name,
+        )
+    if args.mdns or args.no_mdns:
+        raise SystemExit("--mdns / --no-mdns need --http")
     if args.panel:
         raise SystemExit("--panel needs --http PORT")
     if args.bind is None:
@@ -747,13 +817,66 @@ def cmd_listen(switch: TesmartSwitch, args: argparse.Namespace) -> int:
     return serve_tcp(switch, host, port, as_json=args.json, env_file=args.env_file)
 
 
+def cmd_discover(args: argparse.Namespace) -> int:
+    """Browse for HTTP listeners. Does not need a switch connection."""
+    from . import via_client
+    from .mdns import DEFAULT_BROWSE_TIMEOUT, MdnsError, pick_listener
+
+    timeout = float(args.timeout) if args.timeout is not None else DEFAULT_BROWSE_TIMEOUT
+    try:
+        services = via_client.discover_services(name=args.mdns_name, timeout=timeout)
+    except MdnsError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    if not services:
+        print("error: no tesmartctl HTTP listeners found on the LAN", file=sys.stderr)
+        return 1
+    payload = {
+        "listeners": [item.to_dict() for item in services],
+        "count": len(services),
+    }
+    if args.save:
+        try:
+            chosen = pick_listener(
+                services,
+                name=args.mdns_name,
+                prefer_url=config.read_via_url(args.env_file),
+            )
+        except MdnsError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        path = config.write_via_url(chosen.base_url, args.env_file)
+        config.write_mdns_name(chosen.instance_name, args.env_file)
+        payload["saved"] = {"via": chosen.base_url, "mdns_name": chosen.instance_name, "env_file": str(path)}
+    if args.json:
+        emit(args, payload, "")
+        return 0
+    lines = []
+    for item in services:
+        props = item.properties
+        meta = " ".join(f"{key}={value}" for key, value in props.items()) if props else ""
+        host = item.hostname or (item.addresses[0] if item.addresses else "?")
+        lines.append(f"{item.instance_name:<20} {item.base_url:<28} {host}:{item.port}")
+        if meta:
+            lines.append(f"  {meta}")
+    if args.save and payload.get("saved"):
+        saved = payload["saved"]
+        lines.append(f"Saved via={saved['via']} mdns_name={saved['mdns_name']} in {saved['env_file']}")
+    emit(args, payload, "\n".join(lines))
+    return 0
+
+
 def cmd_kit(args: argparse.Namespace) -> int:
     """Open /kit without browser chrome. Does not need a switch connection."""
     from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
     from . import kit_window
 
-    url = (args.url or "").strip() or f"http://127.0.0.1:{args.listen}/kit?app=1"
+    if (args.url or "").strip():
+        url = args.url.strip()
+    else:
+        base = _listener_base_url(args, default_port=args.listen)
+        url = f"{base}/kit?app=1"
     if not url.startswith(("http://", "https://")):
         raise SystemExit("kit URL must be an absolute http(s) address")
     if "app=1" not in url and "app=" not in url:
@@ -801,13 +924,33 @@ def cmd_kit(args: argparse.Namespace) -> int:
     return 0
 
 
-def _banner_base_url(args: argparse.Namespace) -> str:
-    raw = (args.url or "").strip()
+def _listener_base_url(args: argparse.Namespace, *, default_port: int | None = None) -> str:
+    """Resolve banner/kit listener URL: explicit --url, --via, else loopback."""
+    raw = (getattr(args, "url", None) or "").strip()
     if raw:
         if not raw.startswith(("http://", "https://")):
-            raise SystemExit("banner --url must be an absolute http(s) address")
+            raise SystemExit("URL must be an absolute http(s) address")
         return raw.rstrip("/")
-    return f"http://127.0.0.1:{args.listen}"
+    via = getattr(args, "via", None)
+    if via:
+        from . import via_client
+        from .mdns import MdnsError
+
+        try:
+            return via_client.resolve_base_url(
+                via=via,
+                mdns_name=args.mdns_name,
+                env_file=args.env_file,
+                timeout=max(float(args.timeout), 2.0),
+            )
+        except MdnsError as exc:
+            raise SystemExit(f"error: {exc}") from exc
+    port = default_port if default_port is not None else getattr(args, "listen", 8080)
+    return f"http://127.0.0.1:{port}"
+
+
+def _banner_base_url(args: argparse.Namespace) -> str:
+    return _listener_base_url(args)
 
 
 def _banner_request(base: str, method: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -999,6 +1142,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_config(args)
         if args.command == "name":
             return cmd_name(args)
+        if args.command == "discover":
+            return cmd_discover(args)
         if args.command == "banner":
             return cmd_banner(args)
         if args.command == "kit":
@@ -1008,6 +1153,32 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "examples":
             print(all_examples_text())
             return 0
+
+        if args.via:
+            from . import via_client
+            from .mdns import MdnsError
+
+            supported = {"status", "input", "rotate", "next", "previous", "peek"}
+            if args.command not in supported:
+                print(
+                    f"error: --via does not support `{args.command}`; "
+                    "use status, input, rotate, next, previous, peek "
+                    "(banner/kit accept --via without going through this path)",
+                    file=sys.stderr,
+                )
+                return 2
+            try:
+                base = via_client.resolve_base_url(
+                    via=args.via,
+                    mdns_name=args.mdns_name,
+                    env_file=args.env_file,
+                    timeout=max(float(args.timeout), 2.0),
+                )
+            except MdnsError as exc:
+                print(f"error: {exc}", file=sys.stderr)
+                return 1
+            return via_client.run_via_command(args, base)
+
         settings = resolve_settings(args)
         with open_transport(settings) as transport:
             switch = TesmartSwitch(transport, input_count=settings.inputs, reply_timeout=args.timeout)

@@ -42,6 +42,20 @@ That skips saved window / appearance prefs for one launch.
 - Re-run Manager setup / refresh children
 - Enable callbacks if you change inputs from kit/CLI and need Hubitat to follow
 
+## `discover` / `--via auto` finds nothing
+
+- Install the extra: `pip install 'tesmartctl[mdns]'`
+- Listener must bind a LAN address (`0.0.0.0:PORT` or a real IP), not only `127.0.0.1`
+- Guest Wi‑Fi / AP isolation / some mesh VLANs block multicast — use a typed URL instead:
+
+```bash
+tesmartctl --via http://192.168.1.20:8080 status
+curl http://192.168.1.20:8080/version
+```
+
+- Several listeners: pass `--mdns-name` (or `discover --save` once)
+- Full checklist: [mDNS](mDNS) / [Docs/mdns.md](https://github.com/WBEVAN/TESmartController/blob/main/Docs/mdns.md)
+
 ## Images / README kit screenshot outdated on GitHub
 
 Local `Docs/images/*.png` updates need a commit and push before GitHub (and this wiki’s raw image URLs) show the new look.
@@ -49,5 +63,7 @@ Local `Docs/images/*.png` updates need a commit and push before GitHub (and this
 ## More
 
 - [Setup](Setup)
+- [mDNS](mDNS)
 - [Docs/listener.md](https://github.com/WBEVAN/TESmartController/blob/main/Docs/listener.md)
+- [Docs/mdns.md](https://github.com/WBEVAN/TESmartController/blob/main/Docs/mdns.md)
 - [Docs/hubitat.md](https://github.com/WBEVAN/TESmartController/blob/main/Docs/hubitat.md)

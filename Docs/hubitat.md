@@ -58,6 +58,8 @@ curl http://192.168.1.20:8080/status?network=0
 
 There is no authentication on the server — only do this on a trusted network. Details: [`listener.md`](listener.md).
 
+Hubitat does **not** browse mDNS. Always enter the listener’s LAN IP (or a stable hostname) and port in Manager. For CLI discovery on other machines, see [`mdns.md`](mdns.md).
+
 ## Install
 
 Packaging follows the [HPM developer documentation](https://hubitatpackagemanager.hubitatcommunity.com/devs1.html).

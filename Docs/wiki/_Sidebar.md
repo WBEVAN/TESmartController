@@ -7,6 +7,7 @@
 
 **Reference**
 * [Listener & HTTP](Listener-and-HTTP)
+* [mDNS](mDNS)
 * [CLI reference](CLI-Reference)
 * [Troubleshooting](Troubleshooting)
 
@@ -14,4 +15,5 @@
 * [README](https://github.com/WBEVAN/TESmartController#readme)
 * [panel.md](https://github.com/WBEVAN/TESmartController/blob/main/Docs/panel.md)
 * [listener.md](https://github.com/WBEVAN/TESmartController/blob/main/Docs/listener.md)
+* [mdns.md](https://github.com/WBEVAN/TESmartController/blob/main/Docs/mdns.md)
 * [hubitat.md](https://github.com/WBEVAN/TESmartController/blob/main/Docs/hubitat.md)

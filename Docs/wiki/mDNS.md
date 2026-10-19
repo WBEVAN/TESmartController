@@ -1,0 +1,48 @@
+# mDNS discovery
+
+Find the HTTP listener on the LAN without typing its IP — then fall back to a typed URL when multicast is blocked.
+
+## Quick start
+
+```bash
+pip install 'tesmartctl[mdns]'
+
+# listener host
+tesmartctl listen --http 0.0.0.0:8080 --panel --mdns-name OfficeHDMI
+
+# any client on the same LAN
+tesmartctl discover
+tesmartctl --via auto --mdns-name OfficeHDMI input 3
+tesmartctl --via auto kit --fresh
+tesmartctl --via auto banner "Door unlocked"
+```
+
+Service type: `_wbevan-tesmart._tcp` (TXT includes `domain=wbevan.com`).
+
+## When discovery fails
+
+Guest Wi‑Fi, AP isolation, some mesh/VLANs, and many corporate networks block mDNS. If `discover` is empty but the listener is up:
+
+```bash
+tesmartctl --via http://192.168.1.20:8080 status
+tesmartctl kit 'http://192.168.1.20:8080/kit?app=1'
+curl http://192.168.1.20:8080/version
+```
+
+Hubitat always uses a typed base URL in Manager — it does not browse mDNS.
+
+## OS browse tools (optional)
+
+Prefer `tesmartctl discover` on every platform. For manual checks:
+
+| OS | Tool |
+| --- | --- |
+| macOS | `dns-sd` (ships with the OS) |
+| Linux | `avahi-browse` (Avahi utils package) |
+| Windows | no stock CLI — use `tesmartctl discover`, or Bonjour Print Services’ `dns-sd.exe` |
+
+## Full guide
+
+Limitations, platform CLI notes, `--save` / `TESMART_VIA`, and the full fallback list:
+
+[Docs/mdns.md](https://github.com/WBEVAN/TESmartController/blob/main/Docs/mdns.md)

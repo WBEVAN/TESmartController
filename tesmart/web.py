@@ -705,6 +705,9 @@ class WebServer(ThreadingHTTPServer):
     allow_reuse_address = True
     daemon_threads = True
 
+    # Client hung up mid-request (kit close, SSE reconnect, flaky Wi-Fi). Not a server bug.
+    _CLIENT_GONE = (ConnectionResetError, BrokenPipeError, ConnectionAbortedError, TimeoutError)
+
     def __init__(
         self,
         address: tuple[str, int],
@@ -733,6 +736,15 @@ class WebServer(ThreadingHTTPServer):
             persist=lambda entries: config.write_banner_history(entries, env_file),
         )
 
+    def handle_error(self, request: object, client_address: tuple[str, int] | str) -> None:
+        """Log client disconnects as one line; keep a traceback only for real bugs."""
+        exc = sys.exc_info()[1]
+        if isinstance(exc, self._CLIENT_GONE):
+            host = client_address[0] if isinstance(client_address, tuple) else client_address
+            print(f"{host} connection closed by peer", file=sys.stderr)
+            return
+        super().handle_error(request, client_address)
+
 
 def serve_http(
     switch: TesmartSwitch,
@@ -741,8 +753,16 @@ def serve_http(
     env_file: str | None = None,
     *,
     panel_enabled: bool = False,
+    mdns: bool | None = None,
+    mdns_name: str | None = None,
 ) -> int:
-    """Serve the routes above on ``host:port`` until Ctrl-C."""
+    """Serve the routes above on ``host:port`` until Ctrl-C.
+
+    ``mdns`` is True/False for ``--mdns`` / ``--no-mdns``, or None for the
+    default (advertise when the bind is not loopback-only).
+    """
+    from . import mdns as mdns_mod
+
     try:
         server = WebServer((host, port), switch, env_file, panel_enabled=panel_enabled)
     except OSError as exc:
@@ -777,12 +797,31 @@ def serve_http(
         )
     else:
         print(f"  callback POST timeout {timeout:g}s", file=sys.stderr)
+
+    advertisement = None
+    try:
+        advertisement = mdns_mod.start_for_listener(
+            bind_host=host,
+            port=bound_port,
+            force=mdns,
+            instance_name=mdns_name,
+            version=pkg_version.package_version(),
+            panel=panel_enabled,
+            input_count=switch.input_count,
+        )
+    except mdns_mod.MdnsError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        server.server_close()
+        return 1
+
     server.callbacks.start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         print(file=sys.stderr)
     finally:
+        if advertisement is not None:
+            advertisement.close()
         server.events.close_all()
         server.callbacks.stop()
         server.server_close()

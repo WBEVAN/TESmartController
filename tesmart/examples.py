@@ -14,6 +14,7 @@ EXAMPLES: dict[str, list[tuple[str, str]]] = {
         ("tesmartctl status --no-network", "active input only; skips the four LAN queries"),
         ("tesmartctl --json status", "same data as one JSON object"),
         ("tesmartctl --host 192.168.1.10 status", "ask a switch at a different address"),
+        ("tesmartctl --via auto status", "same, through a discovered HTTP listener (needs zeroconf)"),
     ],
     "input": [
         ("tesmartctl input", "print the active input"),
@@ -23,6 +24,13 @@ EXAMPLES: dict[str, list[tuple[str, str]]] = {
         ("tesmartctl input next", "same as `tesmartctl rotate`"),
         ("tesmartctl input next --only 1,2,4", "rotate within that list only"),
         ("tesmartctl --json input 3", '{"requested": 3, "active_input": 3, ...}'),
+        ("tesmartctl --via auto --mdns-name OfficeHDMI input 3", "find the listener on the LAN, then switch"),
+    ],
+    "discover": [
+        ("tesmartctl discover", "browse for _wbevan-tesmart._tcp listeners (needs zeroconf)"),
+        ("tesmartctl discover --mdns-name OfficeHDMI", "only that instance"),
+        ("tesmartctl discover --save", "remember TESMART_VIA (and name) in the env file"),
+        ("tesmartctl --json discover", "machine-readable list with base_url and TXT props"),
     ],
     "rotate": [
         ("tesmartctl next", "next input in the saved cycle"),

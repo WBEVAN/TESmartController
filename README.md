@@ -83,6 +83,7 @@ The switch cannot say which HDMI inputs have a signal. A cycle is the list you c
 | [Wiki](https://github.com/WBEVAN/TESmartController/wiki) | Setup → kit → Hubitat → panel (source: `Docs/wiki/`) |
 | [`Docs/protocol.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/protocol.md) | Byte protocol the switch speaks |
 | [`Docs/listener.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/listener.md) | Long-running line protocol and HTTP URLs |
+| [`Docs/mdns.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/mdns.md) | mDNS advertise / discover / `--via auto`, limitations, connection fallbacks |
 | [`Docs/panel.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/panel.md) | Floating kit (`/kit`) and full panel (`/panel`), including remote launch |
 | [`Docs/embed.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/embed.md) | Input buttons on a page you already have |
 | [`Docs/hubitat.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/hubitat.md) | Hubitat drivers (`hubitat/`) over the REST listener |
@@ -94,6 +95,7 @@ From PyPI:
 ```bash
 pip install tesmartctl               # adds the tesmartctl command
 pip install 'tesmartctl[serial]'     # also installs pyserial, for the RS232 port
+pip install 'tesmartctl[mdns]'       # zeroconf: LAN advertise / discover / --via auto
 pip install --upgrade tesmartctl     # move to the newest release
 ```
 
@@ -145,6 +147,8 @@ From a URL, after starting the HTTP listener once (for example as a login item o
 
 ```bash
 tesmartctl listen --http 0.0.0.0:8080      # add --panel for the browser control panel
+# with pip install 'tesmartctl[mdns]', a non-loopback bind advertises on the LAN:
+tesmartctl --via auto input 3              # find that listener, then switch
 ```
 
 ```text
@@ -157,7 +161,7 @@ http://<host>:8080/input                   read the active input, {"active_input
 http://<host>:8080/input?format=text       same, as a bare number
 ```
 
-`<host>` is the machine running `tesmartctl`, not the switch. Use `127.0.0.1` with a port-only `--http 8080` when the controller runs on the same computer. Use `0.0.0.0:8080` to accept other devices on your network. The listener has no authentication, so only expose it to a network you trust.
+`<host>` is the machine running `tesmartctl`, not the switch. Use `127.0.0.1` with a port-only `--http 8080` when the controller runs on the same computer. Use `0.0.0.0:8080` to accept other devices on your network. The listener has no authentication, so only expose it to a network you trust. mDNS advertise/discover, limitations, and typed-URL fallbacks: [`Docs/mdns.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/mdns.md).
 
 ### Stream Deck, macro pads, and home control
 

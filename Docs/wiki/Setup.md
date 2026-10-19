@@ -57,6 +57,8 @@ tesmartctl listen --http --panel
 
 Leave this running. CLI one-shots, Stream Deck HTTP, the floating kit, and Hubitat all talk through it (or open their own short-lived TCP sessions for one-shots).
 
+Optional LAN discovery (`pip install 'tesmartctl[mdns]'`): bind `0.0.0.0`, then from another machine use `tesmartctl --via auto …`. Limits and typed-URL fallback: [mDNS](mDNS).
+
 ## Local input names
 
 Names are stored only on the Mac/PC (env file), not on the switch:
@@ -73,3 +75,4 @@ tesmartctl input Office
 - [Hubitat](Hubitat) — smart-home drivers
 - [Control panel](Control-Panel) — full `/panel`
 - [Listener & HTTP](Listener-and-HTTP) — URL cheat sheet
+- [mDNS](mDNS) — discover the listener without typing an IP

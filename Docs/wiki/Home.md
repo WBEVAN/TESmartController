@@ -11,8 +11,9 @@ Control TESmart 8- and 16-port HDMI / KVM switches over LAN or RS232 — CLI, HT
 3. [Hubitat](Hubitat) — Manager app, controller, child inputs, push callbacks
 4. [Control panel](Control-Panel) — full Bootstrap `/panel` and API explorer
 5. [Listener & HTTP](Listener-and-HTTP) — URLs, SSE vs Hubitat callbacks, Stream Deck / Companion
-6. [CLI reference](CLI-Reference) — everyday commands (input, peek, cycle, banner, names)
-7. [Troubleshooting](Troubleshooting) — offline kit, reconnect, banners, `--fresh`
+6. [mDNS](mDNS) — advertise / discover / `--via auto`, limits, typed-URL fallback
+7. [CLI reference](CLI-Reference) — everyday commands (input, peek, cycle, banner, names)
+8. [Troubleshooting](Troubleshooting) — offline kit, reconnect, banners, `--fresh`
 
 ## Also in the repo
 
@@ -22,6 +23,7 @@ Control TESmart 8- and 16-port HDMI / KVM switches over LAN or RS232 — CLI, HT
 | [README](https://github.com/WBEVAN/TESmartController#readme) | Install + command overview |
 | [Docs/panel.md](https://github.com/WBEVAN/TESmartController/blob/main/Docs/panel.md) | Kit + panel detail |
 | [Docs/listener.md](https://github.com/WBEVAN/TESmartController/blob/main/Docs/listener.md) | Line protocol + HTTP routes |
+| [Docs/mdns.md](https://github.com/WBEVAN/TESmartController/blob/main/Docs/mdns.md) | mDNS discovery + connection fallbacks |
 | [Docs/hubitat.md](https://github.com/WBEVAN/TESmartController/blob/main/Docs/hubitat.md) | Hubitat package detail |
 | [Docs/protocol.md](https://github.com/WBEVAN/TESmartController/blob/main/Docs/protocol.md) | Wire protocol |
 | [Docs/embed.md](https://github.com/WBEVAN/TESmartController/blob/main/Docs/embed.md) | Embed input buttons on your page |
