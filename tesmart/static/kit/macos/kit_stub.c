@@ -6,9 +6,13 @@
 
    Rebuild the shipped universal binary from this directory:
 
-     clang -arch arm64 -Os -o /tmp/tesmart-kit-arm64 kit_stub.c
-     clang -arch x86_64 -Os -o /tmp/tesmart-kit-x64 kit_stub.c
+     clang -arch arm64 -mmacosx-version-min=11.0 -Os -o /tmp/tesmart-kit-arm64 kit_stub.c
+     clang -arch x86_64 -mmacosx-version-min=11.0 -Os -o /tmp/tesmart-kit-x64 kit_stub.c
      lipo -create -output tesmart-kit /tmp/tesmart-kit-arm64 /tmp/tesmart-kit-x64
+
+   The deployment target has to stay 11.0. Clang otherwise stamps the build
+   machine's SDK (this stub was once 27.0), and Launch Services then refuses
+   to open the app on older macOS (error -10825).
 */
 
 #include <dlfcn.h>
