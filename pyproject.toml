@@ -31,4 +31,4 @@ tesmartctl = "tesmart.cli:main"
 include = ["tesmart*"]
 
 [tool.setuptools.package-data]
-tesmart = ["static/*", "static/kit/**/*"]
+tesmart = ["static/*", "static/kit/**/*", "static/kit/macos/*"]

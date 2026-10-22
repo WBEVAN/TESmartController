@@ -3,17 +3,21 @@
 The kit itself (``tesmart.kit_window``) is cross-platform. On Darwin, a bare
 ``python3.12`` process cannot replace the Dock document icon — Apple keys that
 off the hosting ``.app`` bundle. This module builds a tiny launcher app under
-``~/.config/tesmartctl/`` so Dock / Cmd-Tab show TESmart. It also rewires the
-About menu so the panel shows TESmart Kit (not ``python3``) and adds an
-**Inputs** menu (listener input list + checkmark on the active one). Linux
-and Windows never import this path.
+``~/.config/tesmartctl/`` so Dock / Cmd-Tab show TESmart. The app's main
+executable is a Mach-O stub that stays the process and loads the installed
+Python, so Local Network permission belongs to ``com.tesmartctl.kit``. It also
+rewires the About menu so the panel shows TESmart Kit (not ``python3``) and
+adds an **Inputs** menu (listener input list + checkmark on the active one).
+Linux and Windows never import this path.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 import sys
+import sysconfig
 import threading
 import urllib.request
 from pathlib import Path
@@ -72,27 +76,200 @@ def app_root() -> Path:
     return Path.home() / ".config" / "tesmartctl" / _APP_NAME
 
 
-def ensure_kit_app() -> Path:
-    """Create/update the Dock-facing ``.app`` wrapper (idempotent)."""
-    if sys.platform != "darwin":
-        raise KitMacosError("TESmart Kit.app is only used on macOS")
+_FAT_MAGIC = 0xCAFEBABE
+_FAT_CIGAM = 0xBEBAFECA
+_MH_MAGIC_64 = 0xFEEDFACF
+_CPU_X86_64 = 0x01000007
+_CPU_ARM64 = 0x0100000C
 
-    root = app_root()
-    contents = root / "Contents"
-    macos = contents / "MacOS"
-    resources = contents / "Resources"
-    macos.mkdir(parents=True, exist_ok=True)
-    resources.mkdir(parents=True, exist_ok=True)
 
-    icns_src = _packaged_icns()
-    if icns_src is not None:
-        dest = resources / "AppIcon.icns"
-        if not dest.is_file() or dest.stat().st_mtime < icns_src.stat().st_mtime:
-            dest.write_bytes(icns_src.read_bytes())
+def _cpu_name(cputype: int) -> str | None:
+    base = cputype & 0x00FFFFFF
+    if cputype == _CPU_X86_64 or base == 0x00000007:
+        return "x86_64"
+    if cputype == _CPU_ARM64 or base == 0x0000000C:
+        return "arm64"
+    return None
 
+
+def _mach_slices(data: bytes) -> dict[str, bytes]:
+    """Map ``arm64`` / ``x86_64`` to the Mach-O slice bytes in ``data``."""
+    if len(data) < 8:
+        return {}
+    magic = int.from_bytes(data[:4], "big")
+    if magic in {_FAT_MAGIC, _FAT_CIGAM}:
+        endian = "big" if magic == _FAT_MAGIC else "little"
+        count = int.from_bytes(data[4:8], endian)
+        found: dict[str, bytes] = {}
+        for index in range(count):
+            start = 8 + index * 20
+            if start + 20 > len(data):
+                break
+            cputype = int.from_bytes(data[start : start + 4], endian)
+            offset = int.from_bytes(data[start + 8 : start + 12], endian)
+            size = int.from_bytes(data[start + 12 : start + 16], endian)
+            name = _cpu_name(cputype)
+            if name and offset + size <= len(data):
+                found[name] = data[offset : offset + size]
+        return found
+    if int.from_bytes(data[:4], "little") == _MH_MAGIC_64:
+        name = _cpu_name(int.from_bytes(data[4:8], "little"))
+        return {name: data} if name else {}
+    if int.from_bytes(data[:4], "big") == _MH_MAGIC_64:
+        name = _cpu_name(int.from_bytes(data[4:8], "big"))
+        return {name: data} if name else {}
+    return {}
+
+
+def _mach_archs(path: Path) -> list[str]:
+    try:
+        header = path.read_bytes()[: 8 + 20 * 8]
+    except OSError:
+        return []
+    if len(header) >= 4 and int.from_bytes(header[:4], "big") in {_FAT_MAGIC, _FAT_CIGAM}:
+        return list(_mach_slices(path.read_bytes()))
+    return list(_mach_slices(header))
+
+
+def _is_macho_file(path: Path) -> bool:
+    return bool(_mach_archs(path))
+
+
+def _packaged_stub() -> Path:
+    path = Path(__file__).resolve().parent / "static" / "kit" / "macos" / "tesmart-kit"
+    if not path.is_file():
+        raise KitMacosError("TESmart Kit is missing its macOS launcher")
+    return path
+
+
+def _interpreter() -> Path:
+    """Mach-O Python that is running tesmartctl, past a pyenv shim."""
+    candidates = [Path(sys.executable)]
+    base = getattr(sys, "_base_executable", None)
+    if base:
+        candidates.append(Path(base))
+    for candidate in candidates:
+        try:
+            resolved = candidate.resolve()
+        except OSError:
+            continue
+        if resolved.is_file() and _is_macho_file(resolved):
+            return resolved
+    raise KitMacosError(f"could not find a Mach-O Python at {sys.executable}")
+
+
+def _resolve_install_name(name: str, exe: Path, rpaths: list[Path]) -> Path | None:
+    if name.startswith(("@executable_path/", "@loader_path/")):
+        relative = name.split("/", 1)[1]
+        return (exe.parent / relative).resolve()
+    if name.startswith("@rpath/"):
+        relative = name[len("@rpath/") :]
+        for root in rpaths:
+            candidate = (root / relative).resolve()
+            if candidate.is_file():
+                return candidate
+        return None
+    candidate = Path(name)
+    if candidate.is_file():
+        return candidate.resolve()
+    return None
+
+
+def _otool_rpaths(exe: Path) -> list[Path]:
+    proc = subprocess.run(
+        ["otool", "-l", str(exe)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        return []
+    rpaths: list[Path] = []
+    lines = proc.stdout.splitlines()
+    for index, line in enumerate(lines):
+        if line.strip() != "cmd LC_RPATH":
+            continue
+        for follow in lines[index + 1 : index + 6]:
+            stripped = follow.strip()
+            if stripped.startswith("path "):
+                path = stripped.split(" (offset", 1)[0].removeprefix("path ").strip()
+                if path.startswith("@executable_path/"):
+                    path = str(exe.parent / path.split("/", 1)[1])
+                elif path.startswith("@loader_path/"):
+                    path = str(exe.parent / path.split("/", 1)[1])
+                rpaths.append(Path(path))
+                break
+    return rpaths
+
+
+def _libpython_from_otool(exe: Path) -> Path | None:
+    proc = subprocess.run(
+        ["otool", "-L", str(exe)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        return None
+    rpaths = _otool_rpaths(exe)
+    for line in proc.stdout.splitlines()[1:]:
+        name = line.strip().split(" (compatibility", 1)[0].strip()
+        if "libpython" not in name and not name.endswith("/Python"):
+            continue
+        resolved = _resolve_install_name(name, exe, rpaths)
+        if resolved is not None and resolved.is_file():
+            return resolved
+    return None
+
+
+def _libpython_candidates(exe: Path) -> list[Path]:
+    candidates: list[Path] = []
+    libdir = sysconfig.get_config_var("LIBDIR")
+    ldlibrary = sysconfig.get_config_var("LDLIBRARY")
+    if libdir and ldlibrary:
+        candidates.append(Path(libdir) / str(ldlibrary))
+    prefix = Path(sysconfig.get_config_var("prefix") or exe.parent.parent)
+    framework = sysconfig.get_config_var("PYTHONFRAMEWORK")
+    if framework:
+        candidates.append(prefix / str(framework))
+        candidates.append(prefix / "Python")
+    version = f"libpython{sys.version_info.major}.{sys.version_info.minor}.dylib"
+    candidates.append(exe.parent.parent / "lib" / version)
+    return candidates
+
+
+def _find_libpython(exe: Path) -> Path:
+    found = _libpython_from_otool(exe)
+    if found is not None:
+        return found
+    for candidate in _libpython_candidates(exe):
+        if candidate.is_file() and _is_macho_file(candidate):
+            return candidate.resolve()
+    raise KitMacosError(f"could not find libpython for {exe}")
+
+
+def _stub_for(executable: Path) -> bytes:
+    """Launcher slice that matches ``executable`` so dlopen can load libpython."""
+    packaged = _packaged_stub()
+    slices = _mach_slices(packaged.read_bytes())
+    if not slices:
+        raise KitMacosError("TESmart Kit launcher is not a Mach-O executable")
+    py_archs = _mach_archs(executable)
+    if not py_archs:
+        raise KitMacosError(f"could not read the CPU architecture of {executable}")
+    if len(py_archs) == 1:
+        arch = py_archs[0]
+        if arch not in slices:
+            raise KitMacosError(f"TESmart Kit has no {arch} launcher for {executable}")
+        return slices[arch]
+    if not set(py_archs) & set(slices):
+        raise KitMacosError(f"TESmart Kit has no launcher for {', '.join(py_archs)}")
+    return packaged.read_bytes()
+
+
+def _plist_text() -> str:
     ver = pkg_version.package_version()
-    (contents / "Info.plist").write_text(
-        f"""<?xml version="1.0" encoding="UTF-8"?>
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
@@ -118,18 +295,95 @@ def ensure_kit_app() -> Path:
   </array>
 </dict>
 </plist>
-""",
-        encoding="utf-8",
+"""
+
+
+def _same_text(path: Path, text: str) -> bool:
+    try:
+        return path.read_text(encoding="utf-8") == text
+    except OSError:
+        return False
+
+
+def _codesign_ok(path: Path) -> bool:
+    return (
+        subprocess.run(  # noqa: S603 - fixed codesign verify
+            ["codesign", "--verify", str(path)],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        ).returncode
+        == 0
     )
 
-    launcher = macos / "tesmart-kit"
-    launcher.write_text(
-        "#!/bin/bash\n"
-        "export PYTHONUNBUFFERED=1\n"
-        f'exec "{sys.executable}" -m tesmart.kit_window "$@"\n',
-        encoding="utf-8",
+
+def _sign(path: Path) -> None:
+    proc = subprocess.run(  # noqa: S603 - fixed codesign of our app
+        ["codesign", "--force", "--sign", "-", "--identifier", _BUNDLE_ID, str(path)],
+        check=False,
+        capture_output=True,
+        text=True,
     )
-    launcher.chmod(0o755)
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout or "").strip() or f"exit {proc.returncode}"
+        raise KitMacosError(f"could not sign {path.name}: {detail}")
+
+
+def _refresh_icon(resources: Path) -> bool:
+    """Copy the packaged icon when its bytes differ. True when the file changed."""
+    source = _packaged_icns()
+    if source is None:
+        return False
+    dest = resources / "AppIcon.icns"
+    data = source.read_bytes()
+    try:
+        if dest.read_bytes() == data:
+            return False
+    except OSError:
+        pass
+    dest.write_bytes(data)
+    return True
+
+
+def ensure_kit_app() -> Path:
+    """Create/update the Dock-facing ``.app`` (idempotent when nothing changed)."""
+    if sys.platform != "darwin":
+        raise KitMacosError("TESmart Kit.app is only used on macOS")
+
+    root = app_root()
+    contents = root / "Contents"
+    macos = contents / "MacOS"
+    resources = contents / "Resources"
+    macos.mkdir(parents=True, exist_ok=True)
+    resources.mkdir(parents=True, exist_ok=True)
+
+    executable = _interpreter()
+    libpython = _find_libpython(executable)
+    stub = _stub_for(executable)
+    plist = _plist_text()
+    host = f"{libpython}\n{executable}\n{hashlib.sha256(stub).hexdigest()}\n"
+    exe_path = macos / "tesmart-kit"
+    plist_path = contents / "Info.plist"
+    host_path = resources / "python-host"
+    icon_changed = _refresh_icon(resources)
+    current = (
+        not icon_changed
+        and _same_text(plist_path, plist)
+        and _same_text(host_path, host)
+        and _is_macho_file(exe_path)
+        and _codesign_ok(root)
+    )
+    if current:
+        return root
+
+    exe_path.write_bytes(stub)
+    exe_path.chmod(0o755)
+    plist_path.write_text(plist, encoding="utf-8")
+    host_path.write_text(host, encoding="utf-8")
+    _sign(exe_path)
+    _sign(root)
+    if not _codesign_ok(root):
+        raise KitMacosError("TESmart Kit.app signature did not verify")
     return root
 
 

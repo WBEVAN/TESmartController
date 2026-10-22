@@ -183,7 +183,7 @@ def _hint_once(host: str, port: int, sources: list[str]) -> None:
     if sys.platform == "darwin":
         print(
             f"No route to {where}. macOS is blocking this app's LAN connection. "
-            "Allow TESmart Kit and Python in System Settings → Privacy & Security → Local Network, "
+            "Allow TESmart Kit in System Settings → Privacy & Security → Local Network, "
             "then relaunch the kit.",
             file=sys.stderr,
         )
