@@ -20,6 +20,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
 from .kit_prefs import KitPrefs
@@ -256,6 +257,148 @@ def _use_supported_webview_transparency() -> None:
     view_cls._tesmart_transparency = True
 
 
+# Compact / the boot deck. The live page replaces this with the computed
+# chassis radius (Mini 18, Compact 22, Full 30).
+_WIN_CLIP_RADIUS_CSS = 22.0
+_win_clip_delegates: list = []
+_win_clip_hooked: set[int] = set()
+
+
+def clip_corner_px(css_radius: float, dpi: int) -> int:
+    """Device pixels for one chassis corner at this window DPI.
+
+    CSS ``border-radius`` is in CSS pixels. The Win32 region is in physical
+    pixels, and pywebview sizes the form the same way (``width * dpi / 96``).
+    """
+    scale = max(int(dpi), 1) / 96.0
+    return max(1, int(round(float(css_radius) * scale)))
+
+
+def _win_set_radius(radius: float) -> None:
+    """Remember the deck corner radius. Ignored off Windows."""
+    global _WIN_CLIP_RADIUS_CSS
+    if sys.platform != "win32":
+        return
+    try:
+        value = float(radius)
+    except (TypeError, ValueError):
+        return
+    if value < 1 or value > 80:
+        return
+    _WIN_CLIP_RADIUS_CSS = value
+
+
+def _win_on_ui(form, fn) -> None:  # type: ignore[no-untyped-def]
+    """Run ``fn`` on the WinForms UI thread. js_api calls are not on it."""
+    try:
+        if form.InvokeRequired:
+            from System import Action  # type: ignore[import-untyped]
+
+            action = Action(fn)
+            # Keep the delegate alive; BeginInvoke returns before it runs.
+            _win_clip_delegates.append(action)
+            form.BeginInvoke(action)
+            return
+    except Exception:
+        pass
+    fn()
+
+
+_win_gdi_dlls = None
+
+
+def _win_gdi():  # type: ignore[no-untyped-def]
+    """Private user32/gdi32 with pointer-sized handles.
+
+    pywebview's shared ``ctypes.windll`` must not get ``argtypes`` from here.
+    ``CreateRoundRectRgn`` returns an ``HRGN``; the ctypes default ``c_int``
+    restype would truncate that pointer on 64-bit Windows.
+    """
+    global _win_gdi_dlls
+    if _win_gdi_dlls is not None:
+        return _win_gdi_dlls
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    gdi32 = ctypes.WinDLL("gdi32", use_last_error=True)
+    user32.GetWindowRect.argtypes = [ctypes.c_void_p, ctypes.POINTER(wintypes.RECT)]
+    user32.GetWindowRect.restype = wintypes.BOOL
+    user32.GetDpiForWindow.argtypes = [ctypes.c_void_p]
+    user32.GetDpiForWindow.restype = ctypes.c_uint
+    user32.SetWindowRgn.argtypes = [ctypes.c_void_p, ctypes.c_void_p, wintypes.BOOL]
+    user32.SetWindowRgn.restype = ctypes.c_int
+    gdi32.CreateRoundRectRgn.argtypes = [ctypes.c_int] * 6
+    gdi32.CreateRoundRectRgn.restype = ctypes.c_void_p
+    gdi32.DeleteObject.argtypes = [ctypes.c_void_p]
+    gdi32.DeleteObject.restype = wintypes.BOOL
+    _win_gdi_dlls = (user32, gdi32)
+    return _win_gdi_dlls
+
+
+def _win_clip_form(form) -> None:  # type: ignore[no-untyped-def]
+    """Clip this borderless form to the chassis radius. UI thread only."""
+    import ctypes
+    from ctypes import wintypes
+
+    try:
+        hwnd = int(form.Handle.ToInt64())
+    except Exception:
+        return
+    if not hwnd:
+        return
+    try:
+        user32, gdi32 = _win_gdi()
+        rect = wintypes.RECT()
+        if not user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+            return
+        width = int(rect.right - rect.left)
+        height = int(rect.bottom - rect.top)
+        if width < 2 or height < 2:
+            return
+        try:
+            dpi = int(user32.GetDpiForWindow(hwnd)) or 96
+        except Exception:
+            dpi = 96
+        radius = min(clip_corner_px(_WIN_CLIP_RADIUS_CSS, dpi), width // 2, height // 2)
+        # CreateRoundRectRgn omits the right and bottom edges, and its ellipse
+        # arguments are the corner diameter.
+        region = gdi32.CreateRoundRectRgn(0, 0, width + 1, height + 1, radius * 2, radius * 2)
+        if not region:
+            return
+        # The system takes ownership of the region when the call succeeds.
+        if not user32.SetWindowRgn(hwnd, region, True):
+            gdi32.DeleteObject(region)
+    except Exception:
+        return
+
+
+def _win_ensure_clip(window) -> None:  # type: ignore[no-untyped-def]
+    """Apply the rounded clip, and keep it applied across resizes."""
+    if sys.platform != "win32" or window is None:
+        return
+    form = getattr(window, "native", None)
+    if form is None:
+        return
+
+    def arm() -> None:
+        key = id(form)
+        if key not in _win_clip_hooked:
+            _win_clip_hooked.add(key)
+
+            def on_resize(_sender, _args) -> None:
+                _win_clip_form(form)
+
+            _win_clip_delegates.append(on_resize)
+            try:
+                form.Resize += on_resize
+            except Exception:
+                pass
+        _win_clip_form(form)
+
+    _win_on_ui(form, arm)
+
+
 def _cocoa_on_main(fn):  # type: ignore[no-untyped-def]
     """Run ``fn`` on the AppKit main thread (js_api callbacks are not main).
 
@@ -426,21 +569,134 @@ def _kit_static_dir() -> Path:
     return Path(__file__).resolve().parent / "static" / "kit"
 
 
-def _boot_page_url(live_url: str, *, transparent: bool = True) -> str:
+def _boot_page_url(live_url: str, *, transparent: bool = True, discover: bool = False) -> str:
     """``file://`` boot deck that paints without a network, then hands off to ``live_url``."""
     from urllib.parse import urlencode
 
     boot = _kit_static_dir() / "boot.html"
     if not boot.is_file():
         raise KitWindowError(f"kit boot shell missing: {boot}")
-    params = {"target": live_url, "app": "1"}
+    params: dict[str, str] = {"app": "1"}
+    if live_url and not _is_discover_placeholder(live_url):
+        params["target"] = live_url
     if transparent:
         params["transparent"] = "1"
+    if discover:
+        params["discover"] = "1"
     return f"{boot.as_uri()}?{urlencode(params)}"
 
 
+def _is_discover_placeholder(url: str) -> bool:
+    """True for the stand-in URL used when ``--via auto`` has not found a listener yet."""
+    from urllib.parse import urlsplit
+
+    parts = urlsplit(url or "")
+    return parts.hostname in {"127.0.0.1", "localhost"} and parts.port == 9
+
+
+def _origin(url: str) -> str:
+    """``scheme://host:port`` for an http(s) URL, or empty."""
+    from urllib.parse import urlsplit
+
+    parts = urlsplit(url or "")
+    if parts.scheme not in {"http", "https"} or not parts.netloc:
+        return ""
+    return f"{parts.scheme}://{parts.netloc}".lower()
+
+
+def _kit_page_url(base: str, *, template: str = "", discover: bool = False) -> str:
+    """Build the live ``/kit`` URL for a listener base, keeping launch flags."""
+    from urllib.parse import parse_qsl, urlencode, urlsplit
+
+    root = (base or "").rstrip("/")
+    if root.endswith("/kit"):
+        root = root[: -len("/kit")]
+    keep = dict(parse_qsl(urlsplit(template or "").query, keep_blank_values=True))
+    query = {"app": "1", "transparent": "1"}
+    if discover or "discover" in keep:
+        query["discover"] = "1"
+    for key in ("ports", "inputs", "fresh", "mdns"):
+        if keep.get(key):
+            query[key] = keep[key]
+    return f"{root}/kit?{urlencode(query)}"
+
+
+def _discover_listener_base(name: str | None = None) -> str | None:
+    """Browse mDNS for a listener base URL. ``None`` when nothing matches.
+
+    ``name`` is the instance from this launch (``--mdns-name``). It wins over
+    the saved name. A set name never falls through to a different listener.
+    """
+    try:
+        from . import config
+        from .mdns import MdnsError, resolve_listener
+    except ImportError:
+        return None
+    chosen = (name or "").strip() or (config.read_mdns_name() or "").strip() or None
+    try:
+        service = resolve_listener(
+            name=chosen,
+            prefer_url=config.read_via_url(),
+            timeout=1.2,
+        )
+    except MdnsError:
+        return None
+    return service.base_url.rstrip("/")
+
+
+def _remember_via(base: str) -> None:
+    """Store a listener we actually attached to, so the next launch prefers it."""
+    new = (base or "").rstrip("/")
+    if not new:
+        return
+    try:
+        from . import config
+
+        current = (config.read_via_url() or "").rstrip("/")
+        if new != current:
+            config.write_via_url(new)
+    except Exception:
+        return
+
+
+def _expected_mdns_name(url: str) -> str:
+    """mDNS instance this kit URL is bound to, or empty when it has none."""
+    from urllib.parse import parse_qs, urlsplit
+
+    query = parse_qs(urlsplit(url or "").query)
+    return ((query.get("mdns") or [""])[0] or "").strip()
+
+
+def _reported_mdns_name(url: str, *, timeout: float) -> str | None:
+    """Advertised instance name from ``GET /version``, or None when not reported."""
+    import json
+    from urllib.request import Request, urlopen
+
+    origin = _origin(url)
+    if not origin:
+        return None
+    try:
+        req = Request(f"{origin}/version", headers={"Accept": "application/json"})
+        with urlopen(req, timeout=timeout) as res:  # noqa: S310 - user-supplied listener URL
+            payload = json.loads(res.read().decode("utf-8"))
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    reported = payload.get("mdns_name")
+    if not isinstance(reported, str):
+        return None
+    text = reported.strip()
+    return text or None
+
+
 def _probe_live(url: str, *, timeout: float = 1.5) -> tuple[bool, str]:
-    """Return ``(ok, detail)`` for whether the live kit URL answers."""
+    """Return ``(ok, detail)`` for whether the live kit URL answers.
+
+    When the URL carries ``mdns=NAME``, an answer from a listener advertising
+    a different instance name is a failed connection. The same host and port
+    coming back under that other name must not be treated as ready.
+    """
     from urllib.error import HTTPError, URLError
     from urllib.request import Request, urlopen
 
@@ -449,6 +705,13 @@ def _probe_live(url: str, *, timeout: float = 1.5) -> tuple[bool, str]:
         with urlopen(req, timeout=timeout) as res:  # noqa: S310 - user-supplied listener URL
             status = getattr(res, "status", None) or res.getcode()
             if 200 <= int(status) < 400:
+                expected = _expected_mdns_name(url)
+                if expected:
+                    from .mdns import mdns_identity_conflict
+
+                    reported = _reported_mdns_name(url, timeout=timeout)
+                    if mdns_identity_conflict(expected, reported):
+                        return False, f"Wrong mDNS name ({reported})"
                 return True, "Listener ready"
             return False, f"HTTP {status}"
     except HTTPError as exc:
@@ -567,10 +830,89 @@ def run_webview(
     prefs = KitPrefs(fresh=fresh)
     memory = _WindowMemory(webview, prefs)
     live_url = _with_query(url, transparent="1")
+    from urllib.parse import parse_qs, urlsplit
+
+    launch_query = parse_qs(urlsplit(url).query)
+    discover = "discover" in launch_query
+    # ``--mdns-name`` for this launch. Empty means "use the saved name".
+    wanted_name = ((launch_query.get("mdns") or [""])[0] or "").strip()
+    live = {"url": "" if _is_discover_placeholder(live_url) else live_url}
+    if sys.platform == "darwin" and live["url"]:
+        try:
+            from . import kit_macos
+
+            kit_macos.set_listener_url(live["url"])
+        except Exception:
+            pass
     # Fast path: listener already answers → open live /kit. Otherwise paint the
     # packaged boot deck (file://) so the window is never a blank Chromium page.
-    ready, _ = _probe_live(live_url, timeout=0.4)
-    entry_url = live_url if ready else _boot_page_url(live_url, transparent=True)
+    ready, _ = (False, "")
+    if live["url"]:
+        ready, _ = _probe_live(live["url"], timeout=0.4)
+    entry_url = live["url"] if ready and live["url"] else _boot_page_url(
+        live["url"], transparent=True, discover=discover
+    )
+    adopt_lock = threading.Lock()
+
+    def _adopt_moved_listener(*, navigate: bool) -> str:
+        """Attach to the listener advertising now when the saved one is down.
+
+        With ``navigate``, reload the window only when the host or port
+        changed. The same endpoint is left to the page poll, which already
+        recovers it, unless that process advertises a different mDNS name
+        than the one on this kit URL. That probe fails and the kit stays
+        offline until the named listener answers. Returns the kit page URL,
+        or empty when nothing new was adopted.
+        """
+        if not discover or not adopt_lock.acquire(blocking=False):
+            return ""
+        try:
+            current = live["url"]
+            reachable = (
+                bool(current)
+                and not _is_discover_placeholder(current)
+                and _probe_live(current, timeout=0.8)[0]
+            )
+            if reachable:
+                return "" if navigate else current
+            base = _discover_listener_base(wanted_name)
+            if not base:
+                return ""
+            page = _kit_page_url(base, template=current, discover=True)
+            if not _probe_live(page, timeout=1.2)[0]:
+                return ""
+            moved = _origin(page) != _origin(current)
+            if navigate and not moved:
+                return ""
+            live["url"] = page
+            _remember_via(base)
+            if sys.platform == "darwin":
+                try:
+                    from . import kit_macos
+
+                    _cocoa_on_main(lambda: kit_macos.set_listener_url(page))
+                except Exception:
+                    pass
+            if navigate and moved:
+                for window in list(webview.windows):
+                    try:
+                        window.load_url(page)
+                        break
+                    except Exception:
+                        continue
+            return page
+        finally:
+            adopt_lock.release()
+
+    def _watch_moved_listener() -> None:
+        # Let the boot shell paint before the first browse.
+        time.sleep(2.5)
+        while True:
+            try:
+                _adopt_moved_listener(navigate=True)
+            except Exception:
+                pass
+            time.sleep(3.0)
 
     class _Api:
         def get_prefs(self) -> dict:
@@ -586,15 +928,47 @@ def run_webview(
             return self.get_prefs()
 
         def probe_listener(self) -> dict:
-            """Boot shell: is the live kit URL reachable? Not persisted."""
-            ok, detail = _probe_live(live_url, timeout=1.5)
-            return {"ok": ok, "detail": detail, "url": live_url}
+            """Boot shell: is the live kit URL reachable? Not persisted.
+
+            ``--via auto`` sets ``discover=1`` for the whole window, including
+            after the first connection. A failed probe browses mDNS and adopts
+            the same instance when it appears on a new host or port.
+            """
+            current = live["url"]
+            if current:
+                ok, detail = _probe_live(current, timeout=1.5)
+                if ok:
+                    return {"ok": True, "detail": "Listener ready", "url": current}
+            else:
+                ok, detail = False, "Looking for listener…"
+            if not discover:
+                return {"ok": False, "detail": detail, "url": current}
+            found = _adopt_moved_listener(navigate=False)
+            if not found:
+                return {"ok": False, "detail": detail or "Looking for listener…", "url": current}
+            return {"ok": True, "detail": "Listener found", "url": found}
+
+        def rediscover_listener(self) -> dict:
+            """Live kit: while offline, browse again and follow a moved listener.
+
+            Same host and port is left alone when it is still this client's
+            mDNS name — the page poll already retries it. A different name
+            on that address fails the probe, so the named listener is sought
+            again and the kit stays offline until it appears.
+            """
+            if not discover:
+                return {"ok": False, "moved": False, "url": live["url"]}
+            found = _adopt_moved_listener(navigate=True)
+            return {"ok": bool(found), "moved": bool(found), "url": live["url"]}
 
         def load_live(self) -> bool:
             """Swap the boot shell for the live listener /kit page."""
+            target = live["url"]
+            if not target:
+                return False
             for window in webview.windows:
                 try:
-                    window.load_url(live_url)
+                    window.load_url(target)
                     return True
                 except Exception:
                     continue
@@ -614,6 +988,12 @@ def run_webview(
             for window in webview.windows:
                 window.on_top = bool(on)
             prefs.update({"on_top": bool(on)})
+
+        def set_window_clip(self, radius: float) -> None:
+            """Clip the Windows window to the deck's corner radius (CSS px)."""
+            _win_set_radius(radius)
+            for item in webview.windows:
+                _win_ensure_clip(item)
 
         def drag_by(self, dx: float, dy: float) -> None:
             """Move by pointer delta (browser screen coords: Y grows downward).
@@ -706,7 +1086,9 @@ def run_webview(
         # on secondary monitors — pywebview#1820). Keep easy_drag off.
         "easy_drag": False,
         "on_top": bool(prefs.get("on_top", False)),
-        # Only the rounded deck is drawn; the square corners are see-through.
+        # The page is transparent so only the rounded chassis is painted.
+        # macOS composites that shape. Windows still owns a rectangular HWND,
+        # so the window is clipped to the chassis radius (see _win_ensure_clip).
         "transparent": True,
         "background_color": "#10151b",
         "js_api": _Api(),
@@ -731,10 +1113,20 @@ def run_webview(
         if hasattr(events, "shown"):
             events.shown += memory.restore
             events.shown += lambda *_: _brand_macos(schedule_retries=True)
+            events.shown += lambda *_: _win_ensure_clip(window)
+        if hasattr(events, "resized"):
+            events.resized += lambda *_: _win_ensure_clip(window)
         if hasattr(events, "moved"):
             events.moved += lambda *_: memory.save_soon()
+            events.moved += lambda *_: _win_ensure_clip(window)
         if hasattr(events, "closing"):
             events.closing += memory.save_now
+    if discover:
+        threading.Thread(
+            target=_watch_moved_listener,
+            name="tesmart-kit-discover",
+            daemon=True,
+        ).start()
     webview.start(debug=False)
 
 

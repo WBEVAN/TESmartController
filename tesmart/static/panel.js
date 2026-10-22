@@ -14,6 +14,13 @@ class ApiError extends Error {
   }
 }
 
+function mdnsNamesConflict(expected, reported) {
+  const norm = (value) => String(value || "").trim().replace(/\./g, "-").toLowerCase();
+  const want = norm(expected);
+  const got = norm(reported);
+  return Boolean(want && got && want !== got);
+}
+
 class Api {
   async get(path) {
     return this.#request("GET", path);
@@ -222,6 +229,9 @@ class Panel {
     this.bannerTimer = null;
     this.eventSource = null;
     this.sse = false;
+    this.expectedMdns = (new URLSearchParams(location.search).get("mdns") || "").trim();
+    this.mdnsBlocked = false;
+    this.foreignMdnsLabel = "";
 
     this.el = {
       endpoint: document.getElementById("endpoint"),
@@ -276,7 +286,9 @@ class Panel {
   async start() {
     this.#wire();
     await this.refresh(true);
-    this.#startEvents();
+    // A name mismatch already closed the stream. Leave it closed until the
+    // named listener answers; refresh() opens it again on the next match.
+    if (!this.eventSource && !this.mdnsBlocked) this.#startEvents();
     this.#schedulePoll();
   }
 
@@ -387,7 +399,7 @@ class Panel {
         /* ignore malformed frames */
       }
     };
-    ["hello", "input_changed", "names_changed", "banner"].forEach((name) => {
+    ["hello", "input_changed", "names_changed", "banner", "peek_follow"].forEach((name) => {
       es.addEventListener(name, onNamed);
     });
     es.onerror = () => {
@@ -402,10 +414,18 @@ class Panel {
     if (!data || !data.event) return;
     const kind = String(data.event);
     if (kind === "hello") {
+      if (this.#mdnsConflict(data.mdns_name)) {
+        this.#failForeignListener(data.mdns_name);
+        this.#setLink("down");
+        this.#showForeignLabel();
+        return;
+      }
+      this.mdnsBlocked = false;
       this.sse = true;
       this.#schedulePoll();
       return;
     }
+    if (this.mdnsBlocked) return;
     if (!this.state) this.state = {};
     if (kind === "input_changed") {
       if (typeof data.active_input === "number") this.state.active_input = data.active_input;
@@ -424,6 +444,16 @@ class Panel {
       this.state.banner = this.#mergeBanner(previousBanner, data.banner);
       if (Array.isArray(data.banner_history)) {
         this.state.banner_history = data.banner_history;
+      }
+      this.render();
+      return;
+    }
+    if (kind === "peek_follow") {
+      const mode = String(data.mode || data.peek_follow || "off");
+      if (!["off", "once", "always"].includes(mode)) return;
+      this.state.peek = { ...(this.state.peek || {}), follow: mode };
+      if (typeof data.seconds === "number" && data.seconds >= 1) {
+        this.state.peek.seconds = data.seconds;
       }
       this.render();
     }
@@ -456,12 +486,46 @@ class Panel {
     }
   }
 
+  #mdnsConflict(reported) {
+    return mdnsNamesConflict(this.expectedMdns, reported);
+  }
+
+  #failForeignListener(name) {
+    this.mdnsBlocked = true;
+    this.sse = false;
+    this.foreignMdnsLabel = ` wrong mDNS name (${name})`;
+    if (this.eventSource) {
+      try {
+        this.eventSource.close();
+      } catch (_) {
+        /* ignore */
+      }
+      this.eventSource = null;
+    }
+  }
+
+  #showForeignLabel() {
+    const link = this.el.link;
+    if (!link || !this.foreignMdnsLabel) return;
+    const text = link.childNodes[link.childNodes.length - 1];
+    if (text) text.textContent = this.foreignMdnsLabel;
+  }
+
   async refresh(includeNetwork) {
-    const state = await this.#call(
-      () => this.api.get(`/api/state?network=${includeNetwork ? 1 : 0}`),
-      { silent: !includeNetwork },
-    );
-    if (!state) return;
+    const state = await this.#call(async () => {
+      const body = await this.api.get(`/api/state?network=${includeNetwork ? 1 : 0}`);
+      if (this.#mdnsConflict(body && body.mdns_name)) {
+        this.#failForeignListener(body.mdns_name);
+        throw new ApiError(`Wrong mDNS name (${body.mdns_name})`, 0);
+      }
+      return body;
+    }, { silent: !includeNetwork });
+    if (!state) {
+      if (this.mdnsBlocked) this.#showForeignLabel();
+      return;
+    }
+    this.mdnsBlocked = false;
+    this.foreignMdnsLabel = "";
     const network = state.network || (this.state && this.state.network);
     const previousBanner = this.state && this.state.banner;
     this.state = { ...state, network };
@@ -469,6 +533,7 @@ class Panel {
     if (Array.isArray(state.banner_history)) {
       this.state.banner_history = state.banner_history;
     }
+    if (!this.eventSource) this.#startEvents();
     this.render();
   }
 
@@ -689,10 +754,12 @@ class Panel {
       this.toaster.error("Peek duration must be a whole number of seconds, 1 or more.");
       return;
     }
-    const result = await this.#call(() => this.api.post("/api/peek-default", { seconds }));
+    const mode = (this.state.peek && this.state.peek.follow) || "off";
+    const result = await this.#call(() => this.api.post("/api/peek-follow", { mode, seconds }));
     if (!result) return;
-    this.state.peek = { ...(this.state.peek || {}), seconds: result.peek.seconds };
-    this.toaster.success(`Peek duration saved: ${seconds} s.`);
+    this.state.peek = { ...(this.state.peek || {}), follow: result.peek_follow || mode, seconds };
+    this.renderFollow();
+    this.toaster.success(`Peek ${mode} · ${seconds} s.`);
   }
 
   #refreshSoon(ms) {
@@ -713,7 +780,10 @@ class Panel {
   }
 
   async setFollow(mode) {
-    const result = await this.#call(() => this.api.post("/api/peek-follow", { mode }));
+    const seconds = Number(this.el.peekSeconds.value);
+    const body = { mode };
+    if (Number.isInteger(seconds) && seconds >= 1) body.seconds = seconds;
+    const result = await this.#call(() => this.api.post("/api/peek-follow", body));
     if (!result) return;
     this.state.peek = { ...(this.state.peek || {}), follow: result.peek_follow };
     this.renderFollow();

@@ -50,6 +50,8 @@
     sse: false, // true while EventSource to /api/events is open
     eventSource: null,
     pollTimer: 0,
+    // Set when this page's mDNS name does not match the listener that answered.
+    mdnsBlocked: false,
     // Ephemeral LCD boot/reconnect ticker — never written to banner history or kit.json.
     bootPhase: null,
     bootClearTimer: 0,
@@ -136,7 +138,10 @@
         (state.peek && n === state.peek.origin ? " returning" : "") +
         (beyond ? " preview-only" : "");
       b.textContent = String(n);
-      const label = state.names[String(n)] || state.names[n] || `Input ${n}`;
+      const named = state.names[String(n)] || state.names[n] || "";
+      const label = named || `Input ${n}`;
+      // Native tooltip, same as the header icons — the key face only shows the number.
+      b.title = beyond ? `Input ${n} (preview only)` : label;
       b.setAttribute("aria-label", beyond ? `Input ${n} (preview only)` : `Input ${n}: ${label}`);
       b.setAttribute("aria-pressed", String(n === state.active));
       b.disabled = beyond || !state.online || state.busy || !!state.peek;
@@ -232,6 +237,13 @@
     const wasOnline = state.online;
     try {
       const data = await api("GET", "/api/state?network=0");
+      if (mdnsConflict(data && data.mdns_name)) {
+        state.mdnsBlocked = true;
+        const err = new Error(`Wrong mDNS name (${data.mdns_name})`);
+        err.mdnsConflict = true;
+        throw err;
+      }
+      state.mdnsBlocked = false;
       state.online = true;
       state.active = data.active_input ?? data.activeInput ?? state.active;
       state.realCount = data.input_count ?? data.inputCount ?? state.realCount;
@@ -256,12 +268,15 @@
       }
       if (!state.peek) state.message = "Ready";
       applyBannerFromState(data.banner, data.banner_history);
+      if (!state.eventSource) startEvents();
       draw();
     } catch (err) {
       state.online = false;
       state.message = err.message || "Offline";
+      if (err && err.mdnsConflict) stopEvents();
       setLed("error");
       draw();
+      void maybeRediscover();
     }
     if (wasOnline !== state.online) schedulePoll();
   }
@@ -270,10 +285,16 @@
     if (!data || !data.event) return;
     const kind = String(data.event);
     if (kind === "hello") {
+      if (mdnsConflict(data.mdns_name)) {
+        failMdns(data.mdns_name);
+        return;
+      }
+      state.mdnsBlocked = false;
       state.sse = true;
       schedulePoll();
       return;
     }
+    if (state.mdnsBlocked) return;
     if (kind === "input_changed") {
       if (typeof data.active_input === "number") state.active = data.active_input;
       if (data.names && typeof data.names === "object") state.names = data.names;
@@ -293,6 +314,64 @@
     if (kind === "banner") {
       applyBannerFromState(data.banner, data.banner_history);
       draw();
+      return;
+    }
+    if (kind === "peek_follow") {
+      const mode = String(data.mode || data.peek_follow || "off");
+      if (!["off", "once", "always"].includes(mode)) return;
+      state.mode = mode;
+      if (typeof data.seconds === "number" && data.seconds >= 1) {
+        state.peekSeconds = data.seconds;
+        const seconds = $("#seconds");
+        if (seconds) seconds.value = String(data.seconds);
+      }
+      if (!state.peek) state.message = `Peek ${mode}`;
+      if (mode !== "once") prefs.save({ peek_follow: mode, peek_seconds: state.peekSeconds });
+      draw();
+    }
+  }
+
+  const autoDiscover = params.has("discover");
+  const expectedMdns = (params.get("mdns") || "").trim();
+  let rediscoverBusy = false;
+
+  function normalizeMdns(value) {
+    return String(value || "").trim().replace(/\./g, "-").toLowerCase();
+  }
+
+  function mdnsConflict(reported) {
+    const want = normalizeMdns(expectedMdns);
+    const got = normalizeMdns(reported);
+    if (!want || !got) return false;
+    return want !== got;
+  }
+
+  function failMdns(reported) {
+    state.mdnsBlocked = true;
+    state.online = false;
+    state.sse = false;
+    state.message = `Wrong mDNS name (${reported})`;
+    stopEvents();
+    setLed("error");
+    draw();
+    schedulePoll();
+    void maybeRediscover();
+  }
+
+  async function maybeRediscover() {
+    // --via auto only. The native side browses mDNS and reloads /kit when the
+    // listener is advertising on a different host or port. The same address
+    // with a different mDNS name is a failed connection, not a recovery.
+    if (!autoDiscover || rediscoverBusy || state.online) return;
+    const bridge = pyApi();
+    if (!bridge || typeof bridge.rediscover_listener !== "function") return;
+    rediscoverBusy = true;
+    try {
+      await bridge.rediscover_listener();
+    } catch (_) {
+      /* the window also browses on its own while auto-discover is on */
+    } finally {
+      rediscoverBusy = false;
     }
   }
 
@@ -306,6 +385,17 @@
     state.pollTimer = setInterval(() => {
       if (!state.busy && !state.peek) refresh();
     }, ms);
+  }
+
+  function stopEvents() {
+    state.sse = false;
+    if (!state.eventSource) return;
+    try {
+      state.eventSource.close();
+    } catch (_) {
+      /* ignore */
+    }
+    state.eventSource = null;
   }
 
   function startEvents() {
@@ -327,7 +417,7 @@
         /* ignore malformed frames */
       }
     };
-    ["hello", "input_changed", "names_changed", "banner"].forEach((name) => {
+    ["hello", "input_changed", "names_changed", "banner", "peek_follow"].forEach((name) => {
       es.addEventListener(name, onNamed);
     });
     es.onerror = () => {
@@ -896,8 +986,7 @@
   async function setPeekMode(mode) {
     await withBusy(async () => {
       const seconds = Math.max(1, Math.min(60, Number($("#seconds").value) || 5));
-      if (mode === "off") await api("POST", "/api/peek-follow", { mode: "off" });
-      else await api("POST", "/api/peek-follow", { mode, seconds });
+      await api("POST", "/api/peek-follow", { mode, seconds });
       state.mode = mode;
       state.peekSeconds = seconds;
       state.message = `Peek ${mode}`;
@@ -964,10 +1053,13 @@
     secondsInput.onchange = async () => {
       const seconds = Math.max(1, Math.min(60, Number(secondsInput.value) || 5));
       secondsInput.value = String(seconds);
+      const mode = state.mode || "off";
       await withBusy(async () => {
-        await api("POST", "/api/peek-default", { seconds });
+        await api("POST", "/api/peek-follow", { mode, seconds });
         state.peekSeconds = seconds;
-        state.message = `Peek default ${seconds}s`;
+        if (mode !== "once") prefs.save({ peek_follow: mode, peek_seconds: seconds });
+        state.message = mode === "off" ? `Peek default ${seconds}s` : `Peek ${mode} ${seconds}s`;
+        draw();
       });
     };
   }
@@ -1038,6 +1130,11 @@
       draw();
     } catch (err) {
       console.error("kit draw after view change failed", err);
+    }
+    try {
+      syncWindowClip();
+    } catch (err) {
+      console.error("kit window clip failed", err);
     }
     try {
       if (typeof sizeWidgetToMode === "function") sizeWidgetToMode({ resizeWindow });
@@ -1306,6 +1403,15 @@
 
   function pyApi() {
     return (window.pywebview && window.pywebview.api) || null;
+  }
+
+  function syncWindowClip() {
+    const deck = document.querySelector("#deck");
+    const api = pyApi();
+    if (!deck || !api || typeof api.set_window_clip !== "function") return;
+    const radius = parseFloat(getComputedStyle(deck).borderTopLeftRadius);
+    if (!Number.isFinite(radius) || radius < 1) return;
+    Promise.resolve(api.set_window_clip(radius)).catch(() => {});
   }
 
   const powerBtn = $("#btn-power") || $("#btn-close");
@@ -1631,6 +1737,7 @@
   }
 
   window.addEventListener("pywebviewready", () => {
+    syncWindowClip();
     sizeWidgetToMode({ resizeWindow: true });
   });
   if (isApp || isPopup) {
@@ -1641,6 +1748,7 @@
       resizeTimer = setTimeout(() => {
         enforceMinWindowSize();
         applyDeckLayout();
+        syncWindowClip();
       }, 50);
     });
   }
@@ -1866,7 +1974,9 @@
     }
 
     setBootPhase("Opening live events…", { sticky: true });
-    startEvents();
+    // A name mismatch already closed the stream. Leave it closed until the
+    // named listener answers; refresh() opens it again on the next match.
+    if (!state.eventSource && !state.mdnsBlocked) startEvents();
     schedulePoll();
 
     setBootPhase(

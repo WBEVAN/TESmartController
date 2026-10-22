@@ -21,7 +21,7 @@ tesmartctl listen --http 8080 --panel # also the control panel at /panel
 tesmartctl listen --http 0.0.0.0:8080 --no-mdns  # LAN HTTP without advertising
 ```
 
-A bare port binds `127.0.0.1`, so only this computer can connect. `0.0.0.0` accepts every network interface. Other devices then use the address of the computer running `tesmartctl`, for example `http://192.168.1.20:8080/input/3`. There is no authentication. `--bind` and `--http` cannot be used together; start two processes to expose both. Ctrl-C stops the process. Connection flags (`--host`, `--serial`, `--inputs`, `--timeout`, `--env-file`) work the same way as the rest of `tesmartctl`; see the README.
+A bare port binds `127.0.0.1`, so only this computer can connect. `0.0.0.0` accepts every network interface. Other devices then use the address of the computer running `tesmartctl`, for example `http://192.168.1.20:8080/input/3`. There is no authentication. `--bind` and `--http` cannot be used together; start two processes to expose both. Ctrl-C prints `stopping.` and closes the socket, callback thread, and mDNS advertisement. Another Ctrl-C during that teardown is ignored so zeroconf's shutdown does not print a traceback. Connection flags (`--host`, `--serial`, `--inputs`, `--timeout`, `--env-file`) work the same way as the rest of `tesmartctl`; see the README.
 
 There is no authentication. Leave the bind address on `127.0.0.1` unless every machine that can open the port is trusted.
 
@@ -122,8 +122,8 @@ JSON is the default. Add `format=text` to get plain text: a bare input number, o
 | `/status` | active input and saved LAN settings | see below (includes `"version"`) |
 | `/status?network=0` | active input only | `"network": null` plus `"version"` |
 | `/banner` | last LCD message + history for kit / panel / callbacks (also `tesmartctl banner`) | GET `banner` + `banner_history` (≤10, with `at` / `at_iso`); POST `{"text","seconds"}` or `{"sticky":true}`; POST `{"show":true}` / `{"dismiss":true}` / `{"clear":true}` |
-| `/events` | Server-Sent Events for browser clients (same payloads as callbacks) | long-lived `text/event-stream`; named events `hello`, `input_changed`, `names_changed`, `banner` |
-| `/version` | package name, version, feature tags | `{"name":"tesmartctl","version":"0.0.7.9","features":[…]}` |
+| `/events` | Server-Sent Events for browser clients (same payloads as callbacks) | long-lived `text/event-stream`; named events `hello`, `input_changed`, `names_changed`, `banner`, `peek_follow` |
+| `/version` | package name, version, feature tags, and `mdns_name` (the instance this process is advertising, or `null`) | `{"name":"tesmartctl","version":"0.0.7.9","features":[…],"mdns_name":"OfficeHDMI"}` |
 | `/compat` | GET or POST compatibility check | `{"min_server":"0.0.7.9","features":["callbacks"]}` → `{"compatible":true,…}` |
 | `/names` | GET local input names | `{"names": {"2": "Office"}}` |
 | `POST /names` | set or clear local names (JSON body) | `{"names": {"2": "Office", "3": ""}}` — empty string clears |
@@ -163,14 +163,14 @@ curl -X POST http://127.0.0.1:8080/compat \
 
 ### Server-Sent Events (kit / panel)
 
-Browsers cannot register as outbound callback URLs. With `--panel`, the kit and control panel open `GET /api/events` (plain listener also exposes `GET /events`) and receive push frames as soon as the active input, local names, or LCD banner changes. Event bodies match the Hubitat callback JSON (`event`, `active_input`, `banner`, …); `banner` frames also include `banner_history` when available. Named SSE events: `hello` (on connect), `input_changed`, `names_changed`, `banner`. A `: keepalive` comment is sent about every 20 seconds. Feature tag: `sse`.
+Browsers cannot register as outbound callback URLs. With `--panel`, the kit and control panel open `GET /api/events` (plain listener also exposes `GET /events`) and receive push frames as soon as the active input, local names, LCD banner, or peek-follow mode changes. Event bodies match the Hubitat callback JSON (`event`, `active_input`, `banner`, …); `banner` frames also include `banner_history` when available. Named SSE events: `hello` (on connect), `input_changed`, `names_changed`, `banner`, `peek_follow` (`mode` of `off`, `once`, or `always`, plus `seconds` when set). A `: keepalive` comment is sent about every 20 seconds. Feature tag: `sse`.
 
 ```bash
 # watch frames (Ctrl-C to stop)
 curl -N http://127.0.0.1:8080/events
 ```
 
-SSE talks to the **listener**, not the HDMI switch. While the switch is unreachable, kit/panel still keep the EventSource open and poll `/api/state` about every **2 seconds** so they reconnect quickly when the box comes back. When online with SSE healthy, that poll slows to about **30 seconds** as a safety net. Hubitat continues to use outbound `POST /callbacks` URLs; it does not use `/events`.
+SSE talks to the **listener**, not the HDMI switch. While the switch is unreachable, kit/panel still keep the EventSource open and poll `/api/state` about every **2 seconds** so they reconnect quickly when the box comes back. When online with SSE healthy, that poll slows to about **30 seconds** as a safety net. That poll only reaches the host and port the page was opened on. `tesmartctl --via auto kit` keeps browsing after the first connection. While that listener is stopped it reloads the kit if the same mDNS name is advertising on a different host or port, without restarting the window. If the client is bound to an mDNS name and the process that answers on that same host and port advertises a different name (`mdns_name` on `/version`, `/api/state`, and the SSE `hello` frame), the reconnect fails and the kit stays offline until the named listener is back. A typed `--via http://…` URL is not re-browsed. Hubitat continues to use outbound `POST /callbacks` URLs; it does not use `/events`.
 
 ### Change callbacks
 

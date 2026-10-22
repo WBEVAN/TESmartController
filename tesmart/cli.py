@@ -422,6 +422,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="delete saved kit prefs (~/.config/tesmartctl/kit.json) then open like --fresh "
         "(use when the window opens off-screen after unplugging a monitor)",
     )
+    p_kit.add_argument(
+        "--mdns-name",
+        default=argparse.SUPPRESS,
+        metavar="NAME",
+        help="with --via auto: only attach to this mDNS instance "
+        "(same as the global --mdns-name flag; either position works)",
+    )
 
     return parser
 
@@ -887,11 +894,19 @@ def cmd_kit(args: argparse.Namespace) -> int:
             return 1
         print(f"Cleared kit prefs ({path})", file=sys.stderr)
 
+    discover = False
     if (args.url or "").strip():
         url = args.url.strip()
     else:
-        base = _listener_base_url(args, default_port=args.listen)
-        url = f"{base}/kit?app=1"
+        base, discover = _kit_listener_base(args)
+        if base:
+            url = f"{base}/kit?app=1"
+        else:
+            url = "http://127.0.0.1:9/kit?app=1"
+            discover = True
+    if discover and "discover=" not in url:
+        sep = "&" if "?" in url else "?"
+        url = f"{url}{sep}discover=1"
     if not url.startswith(("http://", "https://")):
         raise SystemExit("kit URL must be an absolute http(s) address")
     if "app=1" not in url and "app=" not in url:
@@ -899,13 +914,20 @@ def cmd_kit(args: argparse.Namespace) -> int:
         url = f"{url}{sep}app=1"
     if args.ports is not None and (args.ports < 8 or args.ports > 32):
         raise SystemExit("--ports must be between 8 and 32")
-    if args.ports is not None or fresh:
+    mdns_name = (getattr(args, "mdns_name", None) or "").strip()
+    # --via auto is bound to a name even when it comes from the env file.
+    # The kit URL has to carry it so a later reconnect can reject a different one.
+    if not mdns_name and (getattr(args, "via", None) or "").strip().lower() == "auto":
+        mdns_name = (config.read_mdns_name(getattr(args, "env_file", None)) or "").strip()
+    if args.ports is not None or fresh or mdns_name:
         parts = urlsplit(url)
         query = dict(parse_qsl(parts.query, keep_blank_values=True))
         if args.ports is not None:
             query["ports"] = str(args.ports)
         if fresh:
             query["fresh"] = "1"
+        if mdns_name:
+            query["mdns"] = mdns_name
         url = urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
     width = args.width if args.width is not None else kit_window.DEFAULT_WIDTH
     height = args.height if args.height is not None else kit_window.DEFAULT_HEIGHT
@@ -937,6 +959,39 @@ def cmd_kit(args: argparse.Namespace) -> int:
     if getattr(args, "json", False):
         emit(args, result, "")
     return 0
+
+
+def _kit_listener_base(args: argparse.Namespace) -> tuple[str | None, bool]:
+    """Listener base for ``tesmartctl kit``, and whether to keep browsing.
+
+    ``--via auto`` stays in discover mode for the life of the window, including
+    when the first browse already found a listener. If that listener later
+    stops, the kit browses again and follows the same mDNS name to a new host
+    or port without a client restart. A typed ``--via http://…`` URL does not.
+    """
+    via = (getattr(args, "via", None) or "").strip().lower()
+    if via != "auto":
+        return _listener_base_url(args, default_port=args.listen), False
+    from . import config, via_client
+    from .mdns import MdnsError
+
+    try:
+        base = via_client.resolve_base_url(
+            via="auto",
+            mdns_name=args.mdns_name,
+            env_file=args.env_file,
+            timeout=max(float(args.timeout), 2.0),
+        )
+    except MdnsError:
+        saved = (config.read_via_url(args.env_file) or "").strip().rstrip("/") or None
+        where = f" ({saved})" if saved else ""
+        print(
+            "listener not advertising; the kit will stay open and attach when it appears"
+            + where,
+            file=sys.stderr,
+        )
+        return saved, True
+    return base, True
 
 
 def _listener_base_url(args: argparse.Namespace, *, default_port: int | None = None) -> str:

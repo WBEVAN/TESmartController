@@ -292,6 +292,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if request.verb == "version":
             payload = pkg_version.version_info()
+            payload["mdns_name"] = getattr(self.server, "mdns_name", None)
             text = f"{payload['name']} {payload['version']}" if request.as_text else None
             self._send(HTTPStatus.OK, payload, request.as_text, text)
             return
@@ -309,6 +310,7 @@ class _Handler(BaseHTTPRequestHandler):
             payload = {"peek_follow": state["mode"]}
             if state["seconds"] is not None:
                 payload["seconds"] = state["seconds"]
+            panel._publish_peek_follow(self.server, state)
             self._send(HTTPStatus.OK, payload, request.as_text, state["mode"])
             return
         if request.verb in {
@@ -390,6 +392,7 @@ class _Handler(BaseHTTPRequestHandler):
         config.apply_names(payload, names, include_map=True)
         if request.verb == "status":
             payload["version"] = pkg_version.package_version()
+            payload["mdns_name"] = getattr(self.server, "mdns_name", None)
             payload["rotate"] = config.rotate_info(self.server.env_file, input_count=self.server.switch.input_count)
             payload["peek"] = config.peek_info(self.server.env_file)
             payload["peek"]["follow"] = self.server.peek_follow.status()["mode"]
@@ -735,6 +738,9 @@ class WebServer(ThreadingHTTPServer):
             history=config.read_banner_history(env_file),
             persist=lambda entries: config.write_banner_history(entries, env_file),
         )
+        # Instance name actually registered with mDNS, or None when not advertising.
+        # Reconnecting clients compare this to the name they attached with.
+        self.mdns_name: str | None = None
 
     def handle_error(self, request: object, client_address: tuple[str, int] | str) -> None:
         """Log client disconnects as one line; keep a traceback only for real bugs."""
@@ -813,16 +819,42 @@ def serve_http(
         print(f"error: {exc}", file=sys.stderr)
         server.server_close()
         return 1
+    server.mdns_name = advertisement.instance_name if advertisement is not None else None
 
     server.callbacks.start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print(file=sys.stderr)
+        print("stopping.", file=sys.stderr)
     finally:
-        if advertisement is not None:
-            advertisement.close()
-        server.events.close_all()
-        server.callbacks.stop()
-        server.server_close()
+        _stop_http_listener(server, advertisement)
     return 0
+
+
+def _stop_http_listener(server: WebServer, advertisement: object | None) -> None:
+    """Close mDNS, event streams, and the socket. Further Ctrl-C is ignored."""
+    import signal
+
+    try:
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+    except (OSError, ValueError):
+        pass
+    if advertisement is not None:
+        try:
+            close = getattr(advertisement, "close", None)
+            if close is not None:
+                close()
+        except BaseException:
+            pass
+    try:
+        server.events.close_all()
+    except BaseException:
+        pass
+    try:
+        server.callbacks.stop()
+    except BaseException:
+        pass
+    try:
+        server.server_close()
+    except BaseException:
+        pass

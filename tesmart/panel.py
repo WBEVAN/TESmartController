@@ -382,7 +382,24 @@ def _action_peek_follow(handler: "_Handler", body: dict[str, Any]) -> dict[str, 
     if seconds is not None and (isinstance(seconds, bool) or not isinstance(seconds, int) or seconds < 1):
         raise PanelError('"seconds" must be a whole number of seconds, 1 or more')
     state = handler.server.peek_follow.set_mode(mode, seconds)
-    return {"peek_follow": state["mode"], "seconds": state["seconds"]}
+    # Duration is shared even when follow is off (set_mode drops seconds for off).
+    if isinstance(seconds, int) and seconds >= 1:
+        config.set_peek_seconds(seconds, handler.server.env_file)
+        state = {**state, "seconds": seconds}
+    _publish_peek_follow(handler.server, state)
+    return {"peek_follow": state["mode"], "seconds": state.get("seconds")}
+
+
+def _publish_peek_follow(server: Any, state: dict[str, Any]) -> None:
+    """Tell open kit/panel pages the peek-follow mode changed (SSE)."""
+    hub = getattr(server, "events", None)
+    if hub is None:
+        return
+    mode = str(state.get("mode") or "off")
+    payload: dict[str, Any] = {"event": "peek_follow", "mode": mode, "peek_follow": mode}
+    if state.get("seconds") is not None:
+        payload["seconds"] = state["seconds"]
+    hub.publish(payload)
 
 
 def _action_peek_default(handler: "_Handler", body: dict[str, Any]) -> dict[str, Any]:
@@ -598,9 +615,12 @@ def _api(handler: "_Handler", method: str, segments: list[str], query_text: str)
         include_network = query.get("network", ["1"])[0].lower() not in {"0", "off", "false", "no"}
         state = build_state(handler, include_network)
         state["version"] = pkg_version.package_version()
+        state["mdns_name"] = getattr(handler.server, "mdns_name", None)
         return state
     if name == "version" and method == "GET":
-        return pkg_version.version_info()
+        info = pkg_version.version_info()
+        info["mdns_name"] = getattr(handler.server, "mdns_name", None)
+        return info
     if name == "compat" and method in {"GET", "POST", "PUT"}:
         return _action_compat(handler, method, query)
     if name == "network" and method == "GET":

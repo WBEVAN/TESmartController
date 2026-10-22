@@ -63,6 +63,7 @@ tesmartctl --via auto next
 tesmartctl --via auto peek 2
 tesmartctl --via auto banner "Door unlocked"
 tesmartctl --via auto kit --fresh
+tesmartctl --via auto kit --mdns-name OfficeHDMI
 ```
 
 Supported `--via` commands: `status`, `input`, `rotate`, `next`, `previous`, `peek`, `banner`, `kit`.
@@ -131,9 +132,11 @@ curl http://192.168.1.20:8080/input
 | Hubitat | The Hubitat package expects a configured base URL. It does not browse mDNS; enter the listener’s LAN IP (or a stable hostname) in Manager. |
 | Multiple listeners | Two switches / two hosts both advertising need distinct `--mdns-name` values; clients must pass `--mdns-name` (or save one). |
 | Not the switch | Finding the listener does not change the switch’s own IP. Configure that with `tesmartctl --host …` / `config set host` on the **listener host**. |
-| Stale cache | `TESMART_VIA` can point at an old IP after DHCP moves the host. Re-run `discover --save` or pass `--via http://…` once. |
+| Stale cache | `TESMART_VIA` can point at an old IP or port after the listener moves. `tesmartctl --via auto kit` keeps browsing while that listener stops answering and attaches to the new advertisement, then updates `TESMART_VIA`. Other `--via auto` commands already browse on each run. A typed `--via http://…` stays on that address until you change it. |
 
 ## Fallback when discovery fails
+
+`tesmartctl --via auto kit` does **not** exit when nothing is advertising. The window opens and waits, then attaches when the listener appears (last saved `TESMART_VIA` if there is one, otherwise the next mDNS browse). Discover stays on after that first connection, including when the listener was already up at launch. The same host and port coming back is picked up by the kit's own poll when that process still advertises the mDNS name this client is using (`--mdns-name`, or the saved `TESMART_MDNS_NAME`). The listener publishes that name as `mdns_name` on `GET /version`, `GET /status`, `GET /api/state`, and the SSE `hello` frame. If a different instance name answers on that same address, the reconnect fails: the kit and panel stay offline and do not send commands to it. When the attached listener stops, the kit browses again every few seconds and loads the same mDNS name from a new host or port without restarting the window. It stays offline until that name is advertising. The saved `TESMART_VIA` is updated only when it attaches to that name. Other `--via auto` commands (`status`, `input`, …) still error immediately when the browse is empty. A typed `--via http://…` URL is not re-browsed; if that launch also has an mDNS name, a different name on the saved address still fails the reconnect and the kit stays on that address, offline.
 
 Use these in order when `discover` finds nothing or `--via auto` errors:
 

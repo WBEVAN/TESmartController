@@ -4,6 +4,8 @@
   const $ = (s) => document.querySelector(s);
   const params = new URLSearchParams(location.search);
   const target = params.get("target") || "";
+  const discover = params.has("discover");
+  const waitingForAdvertise = discover && (!target || target.includes("127.0.0.1:9"));
 
   if (params.has("transparent")) {
     document.body.classList.add("is-transparent");
@@ -84,6 +86,7 @@
       b.type = "button";
       b.className = "input";
       b.disabled = true;
+      b.title = `Input ${n}`;
       b.innerHTML =
         `<span class="num">${String(n).padStart(2, "0")}</span>` +
         `<span class="label">INPUT ${n}</span>`;
@@ -100,7 +103,7 @@
   }
 
   function hostLabel() {
-    if (!target) return "listener";
+    if (waitingForAdvertise || !target) return "listener";
     try {
       const u = new URL(target);
       return u.host || target;
@@ -185,6 +188,14 @@
     });
   }
 
+  function syncWindowClip(api) {
+    const deck = document.querySelector("#deck");
+    if (!deck || !api || typeof api.set_window_clip !== "function") return;
+    const radius = parseFloat(getComputedStyle(deck).borderTopLeftRadius);
+    if (!Number.isFinite(radius) || radius < 1) return;
+    Promise.resolve(api.set_window_clip(radius)).catch(() => {});
+  }
+
   async function openLive(api) {
     setStatus("Opening kit…", hostLabel(), "busy");
     if (api && typeof api.load_live === "function") {
@@ -232,7 +243,8 @@
     const api = await waitForApi(4000);
     wireChrome(api);
     await applyPrefs(api);
-    if (!target) {
+    syncWindowClip(api);
+    if (!target && !discover) {
       setStatus("No listener URL", "Relaunch with tesmartctl kit", "error");
       return;
     }

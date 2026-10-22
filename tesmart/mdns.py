@@ -238,13 +238,15 @@ class MdnsAdvertisement:
         return f"{self.instance_name}.{self.service_type}"
 
     def close(self) -> None:
+        # KeyboardInterrupt is a BaseException, so a second Ctrl-C during
+        # zeroconf's thread join must not escape as a traceback.
         try:
             self.zeroconf.unregister_service(self.info)
-        except Exception:
+        except BaseException:
             pass
         try:
             self.zeroconf.close()
-        except Exception:
+        except BaseException:
             pass
 
 
@@ -408,10 +410,24 @@ def _instance_from_service_name(name: str) -> str:
 def _normalize_instance(name: str | None) -> str | None:
     if name is None:
         return None
-    text = name.strip()
+    text = str(name).strip()
     if not text:
         return None
     return text.replace(".", "-")
+
+
+def mdns_identity_conflict(expected: str | None, reported: str | None) -> bool:
+    """True when a client bound to ``expected`` must not attach to ``reported``.
+
+    A client with no mDNS name accepts whatever answers. A listener that is
+    not advertising (no reported name) does not contradict a bound client.
+    A different advertised instance name on the same address does.
+    """
+    want = _normalize_instance(expected)
+    got = _normalize_instance(reported)
+    if not want or not got:
+        return False
+    return want.casefold() != got.casefold()
 
 
 def _properties_from_info(info: Any) -> dict[str, str]:
