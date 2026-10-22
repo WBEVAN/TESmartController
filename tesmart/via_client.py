@@ -50,8 +50,11 @@ def resolve_base_url(
     remember: bool = True,
 ) -> str:
     """Turn ``--via auto`` or an explicit URL into an ``http://host:port`` base."""
+    from .debug import log
+
     target = parse_via_target(via)
     if target != "auto":
+        log(f"via {target}")
         if remember:
             config.write_via_url(target, env_file)
         return target
@@ -82,9 +85,11 @@ def request_json(
     if body is not None:
         data = json.dumps(body).encode("utf-8")
         headers["Content-Type"] = "application/json"
+    from .reach import open_url
+
     request = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with open_url(request, timeout=timeout) as response:
             raw = response.read().decode("utf-8")
     except urllib.error.HTTPError as exc:
         detail = ""

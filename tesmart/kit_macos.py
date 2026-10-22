@@ -20,6 +20,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from . import version as pkg_version
+from .reach import open_url
 
 _BUNDLE_ID = "com.tesmartctl.kit"
 _APP_NAME = "TESmart Kit.app"
@@ -110,6 +111,11 @@ def ensure_kit_app() -> Path:
   <key>LSMinimumSystemVersion</key><string>11.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSPrincipalClass</key><string>NSApplication</string>
+  <key>NSLocalNetworkUsageDescription</key><string>TESmart Kit connects to the tesmartctl listener on your local network.</string>
+  <key>NSBonjourServices</key>
+  <array>
+    <string>_wbevan-tesmart._tcp</string>
+  </array>
 </dict>
 </plist>
 """,
@@ -150,6 +156,8 @@ def open_kit_app(
     height: int,
     fresh: bool = False,
     wait: bool = False,
+    debug: bool = False,
+    netdebug: bool = False,
 ) -> None:
     """Launch the kit through the Dock-facing ``.app`` (``open -a``)."""
     app = ensure_kit_app()
@@ -161,6 +169,10 @@ def open_kit_app(
     )
     if fresh:
         cmd.append("--fresh")
+    if debug:
+        cmd.append("--debug")
+    if netdebug:
+        cmd.append("--netdebug")
     try:
         # Popen so Ctrl-C can quit the kit window instead of dumping a traceback
         # while ``open -W`` is blocked waiting for the app to exit.
@@ -454,7 +466,7 @@ def _fetch_inputs() -> tuple[list[dict], int | None, str] | None:
         headers={"Accept": "application/json"},
     )
     try:
-        with urllib.request.urlopen(request, timeout=4.0) as response:  # noqa: S310
+        with open_url(request, timeout=4.0) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except Exception:
         _CONTROLLER_ONLINE = False
@@ -527,7 +539,7 @@ def _post_input(number: int) -> None:
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=8.0) as response:  # noqa: S310
+        with open_url(request, timeout=8.0) as response:
             response.read()
     except Exception:
         pass
@@ -548,7 +560,7 @@ def _post_peek_mode(mode: str) -> None:
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=8.0) as response:  # noqa: S310
+        with open_url(request, timeout=8.0) as response:
             response.read()
     except Exception:
         pass

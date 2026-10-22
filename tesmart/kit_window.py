@@ -670,14 +670,16 @@ def _expected_mdns_name(url: str) -> str:
 def _reported_mdns_name(url: str, *, timeout: float) -> str | None:
     """Advertised instance name from ``GET /version``, or None when not reported."""
     import json
-    from urllib.request import Request, urlopen
+    from urllib.request import Request
+
+    from .reach import open_url
 
     origin = _origin(url)
     if not origin:
         return None
     try:
         req = Request(f"{origin}/version", headers={"Accept": "application/json"})
-        with urlopen(req, timeout=timeout) as res:  # noqa: S310 - user-supplied listener URL
+        with open_url(req, timeout=timeout) as res:
             payload = json.loads(res.read().decode("utf-8"))
     except Exception:
         return None
@@ -690,6 +692,17 @@ def _reported_mdns_name(url: str, *, timeout: float) -> str | None:
     return text or None
 
 
+def probe_failure_detail(url: str, message: str) -> str:
+    """Attach the host the kit dialed so a bare OS error names its target."""
+    from urllib.parse import urlsplit
+
+    host = urlsplit(url or "").netloc
+    text = (message or "Connection failed").strip() or "Connection failed"
+    if host and host not in text:
+        return f"{text} · {host}"
+    return text
+
+
 def _probe_live(url: str, *, timeout: float = 1.5) -> tuple[bool, str]:
     """Return ``(ok, detail)`` for whether the live kit URL answers.
 
@@ -698,11 +711,15 @@ def _probe_live(url: str, *, timeout: float = 1.5) -> tuple[bool, str]:
     coming back under that other name must not be treated as ready.
     """
     from urllib.error import HTTPError, URLError
-    from urllib.request import Request, urlopen
+    from urllib.request import Request
 
+    from .debug import log
+    from .reach import open_url
+
+    log(f"probe {url}")
     try:
         req = Request(url, headers={"Accept": "text/html,application/json,*/*"})
-        with urlopen(req, timeout=timeout) as res:  # noqa: S310 - user-supplied listener URL
+        with open_url(req, timeout=timeout) as res:
             status = getattr(res, "status", None) or res.getcode()
             if 200 <= int(status) < 400:
                 expected = _expected_mdns_name(url)
@@ -711,23 +728,41 @@ def _probe_live(url: str, *, timeout: float = 1.5) -> tuple[bool, str]:
 
                     reported = _reported_mdns_name(url, timeout=timeout)
                     if mdns_identity_conflict(expected, reported):
-                        return False, f"Wrong mDNS name ({reported})"
+                        detail = probe_failure_detail(url, f"Wrong mDNS name ({reported})")
+                        log(f"probe fail {detail}")
+                        return False, detail
+                log("probe ok")
                 return True, "Listener ready"
-            return False, f"HTTP {status}"
+            detail = probe_failure_detail(url, f"HTTP {status}")
+            log(f"probe fail {detail}")
+            return False, detail
     except HTTPError as exc:
         # 404 usually means listen without --panel.
         if exc.code == 404:
-            return False, "Listener up · /kit not enabled (need --panel)"
-        return False, f"HTTP {exc.code}"
+            detail = probe_failure_detail(url, "Listener up · /kit not enabled (need --panel)")
+        else:
+            detail = probe_failure_detail(url, f"HTTP {exc.code}")
+        log(f"probe fail {detail}")
+        return False, detail
     except URLError as exc:
         reason = exc.reason
         if isinstance(reason, OSError) and getattr(reason, "errno", None):
-            return False, reason.strerror or str(reason)
-        return False, str(reason or exc)
+            text = reason.strerror or str(reason)
+            errno = getattr(reason, "errno", None)
+            detail = probe_failure_detail(url, text)
+            log(f"probe fail errno={errno} {detail}")
+            return False, detail
+        detail = probe_failure_detail(url, str(reason or exc))
+        log(f"probe fail {detail}")
+        return False, detail
     except TimeoutError:
-        return False, "Timed out"
+        detail = probe_failure_detail(url, "Timed out")
+        log(f"probe fail {detail}")
+        return False, detail
     except Exception as exc:  # noqa: BLE001 - surface any probe failure on the LCD
-        return False, str(exc) or exc.__class__.__name__
+        detail = probe_failure_detail(url, str(exc) or exc.__class__.__name__)
+        log(f"probe fail {detail}")
+        return False, detail
 
 
 class _WindowMemory:
@@ -1137,6 +1172,8 @@ def open_webview_process(
     height: int = DEFAULT_HEIGHT,
     fresh: bool = False,
     wait: bool = False,
+    debug: bool = False,
+    netdebug: bool = False,
 ) -> str:
     """Spawn a child process that owns the frameless webview event loop."""
     if not _webview_available():
@@ -1151,7 +1188,13 @@ def open_webview_process(
 
         try:
             kit_macos.open_kit_app(
-                url, width=width, height=height, fresh=fresh, wait=wait
+                url,
+                width=width,
+                height=height,
+                fresh=fresh,
+                wait=wait,
+                debug=debug,
+                netdebug=netdebug,
             )
         except kit_macos.KitMacosError as exc:
             raise KitWindowError(str(exc)) from exc
@@ -1169,6 +1212,10 @@ def open_webview_process(
     ]
     if fresh:
         cmd.append("--fresh")
+    if debug:
+        cmd.append("--debug")
+    if netdebug:
+        cmd.append("--netdebug")
     try:
         if wait:
             proc = subprocess.Popen(cmd)  # noqa: S603 - our own module entrypoint
@@ -1202,6 +1249,8 @@ def open_kit_window(
     prefer: str = "auto",
     block: bool = False,
     fresh: bool = False,
+    debug: bool = False,
+    netdebug: bool = False,
 ) -> dict[str, str]:
     """Open the kit URL without normal browser chrome.
 
@@ -1218,14 +1267,26 @@ def open_kit_window(
 
     if prefer in {"webview", "auto"}:
         try:
-            if block and prefer == "webview" and sys.platform != "darwin":
-                run_webview(url, width=width, height=height, fresh=fresh)
-                return {"backend": "webview", "browser": "pywebview", "url": url}
-            if block and prefer == "auto" and _webview_available() and sys.platform != "darwin":
+            # macOS normally launches a Dock .app, whose output never reaches
+            # this terminal. --debug stays in-process so probe errors print here.
+            in_process = block and _webview_available() and (
+                sys.platform != "darwin" or debug
+            )
+            if in_process and (prefer == "webview" or prefer == "auto"):
+                if debug and sys.platform == "darwin":
+                    from .debug import log
+
+                    log("macOS kit stays in this terminal so connection errors print here")
                 run_webview(url, width=width, height=height, fresh=fresh)
                 return {"backend": "webview", "browser": "pywebview", "url": url}
             open_webview_process(
-                url, width=width, height=height, fresh=fresh, wait=block
+                url,
+                width=width,
+                height=height,
+                fresh=fresh,
+                wait=block,
+                debug=debug,
+                netdebug=netdebug,
             )
             return {"backend": "webview", "browser": "pywebview", "url": url}
         except KitWindowError:
@@ -1245,7 +1306,20 @@ def _main(argv: list[str] | None = None) -> int:
     parser.add_argument("--width", type=int, default=DEFAULT_WIDTH)
     parser.add_argument("--height", type=int, default=DEFAULT_HEIGHT)
     parser.add_argument("--fresh", action="store_true", help="ignore remembered kit settings")
+    parser.add_argument("--debug", action="store_true", help="print connection errors on stderr")
+    parser.add_argument(
+        "--netdebug",
+        action="store_true",
+        help="with --debug, also print local interfaces and saved network settings",
+    )
     args = parser.parse_args(argv)
+    if args.debug or args.netdebug:
+        from .debug import log_network, set_enabled, set_netdebug
+
+        set_enabled(True)
+        if args.netdebug:
+            set_netdebug(True)
+            log_network()
     try:
         run_webview(args.url, width=args.width, height=args.height, fresh=args.fresh)
     except KitWindowError as exc:

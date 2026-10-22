@@ -135,6 +135,75 @@ def rank_ipv4(ip: str) -> tuple[int, str]:
     return (20, text)
 
 
+def address_rank_label(ip: str) -> str:
+    """Short reason ``pick_best_ipv4`` would prefer or avoid this address."""
+    rank = rank_ipv4(ip)[0]
+    if rank <= 0:
+        return "lan"
+    if rank <= 20:
+        return "public"
+    if rank <= 40:
+        return "cgnat"
+    if rank <= 80:
+        return "local"
+    return "other"
+
+
+def format_adapter_line(name: str, nice: str, addresses: list[str], *, vpn: bool) -> str:
+    """One local interface for ``--netdebug`` (VPN interfaces are marked skip)."""
+    label = name or nice or "?"
+    if nice and name and nice != name:
+        label = f"{name} ({nice})"
+    shown: list[str] = []
+    for addr in addresses:
+        if ":" in addr:
+            shown.append(f"{addr} (ipv6)")
+        else:
+            shown.append(f"{addr} ({address_rank_label(addr)})")
+    body = ", ".join(shown) if shown else "no address"
+    kind = "skip vpn" if vpn else "use"
+    return f"if {label} [{kind}] {body}"
+
+
+def local_interface_lines() -> list[str]:
+    """Every local interface, including tunnel NICs that advertising skips."""
+    try:
+        import ifaddr  # type: ignore[import-untyped]
+    except ImportError:
+        return ["ifaddr not installed"]
+    lines: list[str] = []
+    for adapter in ifaddr.get_adapters():
+        name = getattr(adapter, "name", "") or ""
+        nice = getattr(adapter, "nice_name", "") or ""
+        addresses: list[str] = []
+        for entry in adapter.ips:
+            raw = entry.ip
+            if isinstance(raw, tuple):
+                addresses.append(str(raw[0]))
+            elif isinstance(raw, str) and raw:
+                addresses.append(raw)
+        lines.append(
+            format_adapter_line(
+                name,
+                nice,
+                addresses,
+                vpn=_looks_like_vpn_iface(name) or _looks_like_vpn_iface(nice),
+            )
+        )
+    return lines or ["no interfaces"]
+
+
+def describe_listener(service: DiscoveredListener) -> str:
+    """One line: every advertised address, why it ranked, and the URL we call."""
+    parts = [f"{ip} ({address_rank_label(ip)})" for ip in service.addresses]
+    listed = ", ".join(parts) if parts else "none"
+    host = service.hostname or "-"
+    return (
+        f"{service.instance_name} hostname={host} port={service.port} "
+        f"addresses={listed} chosen={service.base_url}"
+    )
+
+
 def pick_best_ipv4(addresses: list[str] | tuple[str, ...]) -> str | None:
     """Choose the LAN-friendly IPv4 from a discovered/advertised set."""
     v4 = [ip for ip in addresses if ip and ":" not in ip]
@@ -204,6 +273,15 @@ def _ipv4_addresses(preferred: str | None = None) -> list[bytes]:
 
     ranked.sort(key=lambda item: item[0])
     return [socket.inet_aton(ip) for _, ip in ranked]
+
+
+def local_lan_ipv4s() -> list[str]:
+    """Non-tunnel local IPv4 addresses, best LAN candidate first.
+
+    Used when a connection to the listener gets "No route to host" on the
+    default route (often a VPN) and should be retried from a LAN interface.
+    """
+    return [socket.inet_ntoa(raw) for raw in _ipv4_addresses()]
 
 
 def build_properties(
@@ -556,7 +634,18 @@ def resolve_listener(
     timeout: float = DEFAULT_BROWSE_TIMEOUT,
 ) -> DiscoveredListener:
     """Browse then :func:`pick_listener`. Convenience for ``--via auto``."""
-    return pick_listener(browse(timeout=timeout), name=name, prefer_url=prefer_url)
+    from .debug import log
+
+    services = browse(timeout=timeout)
+    for item in services:
+        log(f"browse {describe_listener(item)}")
+    if prefer_url:
+        log(f"saved via {prefer_url}")
+    if name:
+        log(f"want name {name}")
+    chosen = pick_listener(services, name=name, prefer_url=prefer_url)
+    log(f"using {chosen.base_url}")
+    return chosen
 
 
 def parse_via_target(text: str) -> str:

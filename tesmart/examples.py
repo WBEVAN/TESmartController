@@ -192,6 +192,11 @@ EXAMPLES: dict[str, list[tuple[str, str]]] = {
         ("tesmartctl kit --reset", "delete kit.json then open fresh (off-screen after unplugging a monitor)"),
         ("tesmartctl --via auto kit --reset", "same, discovering the listener via mDNS"),
         ("tesmartctl --via auto kit --mdns-name OfficeHDMI", "same, only that mDNS instance"),
+        ("tesmartctl --debug --via auto kit", "print the chosen address and why the connection failed"),
+        (
+            "tesmartctl --debug --netdebug --via auto kit",
+            "same, plus local interfaces, default route, and saved host/via",
+        ),
     ],
 }
 
@@ -203,6 +208,8 @@ GLOBAL_EXAMPLES: list[tuple[str, str]] = [
     ("tesmartctl config set host 192.168.1.50", "save the switch address"),
     ("tesmartctl listen --http 8080", "control via http://127.0.0.1:8080/input/3"),
     ('tesmartctl banner "Door unlocked"', "LCD message on kit/panel (needs listen --http)"),
+    ("tesmartctl --version", "print the tesmartctl version"),
+    ("tesmartctl --debug --netdebug --via auto status", "debug log plus this machine's interfaces and saved network settings"),
     ("tesmartctl <command> --help", "flags and more examples for one command"),
     ("tesmartctl examples", "every example in one place"),
 ]

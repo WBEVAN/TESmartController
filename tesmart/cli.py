@@ -18,6 +18,7 @@ import urllib.request
 from typing import Any
 
 from . import config, notices
+from .version import package_version
 from .banner import DEFAULT_SECONDS as BANNER_DEFAULT_SECONDS
 from .banner import MAX_SECONDS as BANNER_MAX_SECONDS
 from .banner import MAX_TEXT as BANNER_MAX_TEXT
@@ -72,19 +73,59 @@ def _bind_arg(text: str) -> tuple[str, int]:
 
 
 _RAW = argparse.RawDescriptionHelpFormatter
+_SHARED: list[argparse.ArgumentParser] = []
+
+
+def _shared_flags() -> argparse.ArgumentParser:
+    """``--debug`` and ``--version``, accepted before or after the command.
+
+    ``default=SUPPRESS`` so a subparser does not clear a ``--debug`` that was
+    already set on the main parser.
+    """
+    shared = argparse.ArgumentParser(add_help=False)
+    shared.add_argument(
+        "--debug",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="print the chosen listener address and connection errors on the console",
+    )
+    shared.add_argument(
+        "--netdebug",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="with --debug, also print local interfaces, the default-route source, "
+        "and saved host/via settings",
+    )
+    shared.add_argument(
+        "--version",
+        action="version",
+        version=f"tesmartctl {package_version()}",
+        help="print the tesmartctl version and exit",
+    )
+    return shared
 
 
 def _add(sub: argparse._SubParsersAction, name: str, help: str, **kwargs: object) -> argparse.ArgumentParser:
     """``add_parser`` with the command's worked examples appended to ``--help``."""
-    return sub.add_parser(name, help=help, epilog=epilog_for(name), formatter_class=_RAW, **kwargs)
+    return sub.add_parser(
+        name,
+        help=help,
+        epilog=epilog_for(name),
+        formatter_class=_RAW,
+        parents=_SHARED,
+        **kwargs,
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
+    shared = _shared_flags()
+    _SHARED[:] = [shared]
     parser = argparse.ArgumentParser(
         prog="tesmartctl",
         description="Control a TESmart 8x1 / 16x1 HDMI switch over LAN or RS232.",
         epilog="examples:\n" + format_examples(GLOBAL_EXAMPLES),
         formatter_class=_RAW,
+        parents=[shared],
     )
     conn = parser.add_argument_group(
         "connection",
@@ -864,8 +905,12 @@ def cmd_discover(args: argparse.Namespace) -> int:
     if args.json:
         emit(args, payload, "")
         return 0
+    from .debug import log
+    from .mdns import describe_listener
+
     lines = []
     for item in services:
+        log(f"browse {describe_listener(item)}")
         props = item.properties
         meta = " ".join(f"{key}={value}" for key, value in props.items()) if props else ""
         host = item.hostname or (item.addresses[0] if item.addresses else "?")
@@ -933,6 +978,11 @@ def cmd_kit(args: argparse.Namespace) -> int:
     height = args.height if args.height is not None else kit_window.DEFAULT_HEIGHT
     try:
         # Webview owns this process (Cocoa needs the main thread). Chromium returns.
+        from .debug import log
+
+        log(f"kit url {url} discover={discover}")
+        if getattr(args, "debug", False) or getattr(args, "netdebug", False):
+            kit_window._probe_live(url, timeout=max(float(args.timeout), 2.0))
         result = kit_window.open_kit_window(
             url,
             width=width,
@@ -940,6 +990,8 @@ def cmd_kit(args: argparse.Namespace) -> int:
             prefer=args.prefer,
             block=True,
             fresh=fresh,
+            debug=bool(getattr(args, "debug", False) or getattr(args, "netdebug", False)),
+            netdebug=bool(getattr(args, "netdebug", False)),
         )
     except kit_window.KitWindowError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -982,9 +1034,12 @@ def _kit_listener_base(args: argparse.Namespace) -> tuple[str | None, bool]:
             env_file=args.env_file,
             timeout=max(float(args.timeout), 2.0),
         )
-    except MdnsError:
+    except MdnsError as exc:
+        from .debug import log
+
         saved = (config.read_via_url(args.env_file) or "").strip().rstrip("/") or None
         where = f" ({saved})" if saved else ""
+        log(f"browse failed: {exc}; fallback {saved or 'none'}")
         print(
             "listener not advertising; the kit will stay open and attach when it appears"
             + where,
@@ -1207,6 +1262,20 @@ HANDLERS = {
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    from .debug import log, log_network, set_enabled, set_netdebug
+
+    netdebug = bool(getattr(args, "netdebug", False))
+    debugging = bool(getattr(args, "debug", False)) or netdebug
+    set_enabled(debugging)
+    set_netdebug(netdebug)
+    if debugging:
+        log(f"tesmartctl {package_version()} python {sys.version.split()[0]} {sys.platform}")
+    if netdebug:
+        log_network(
+            getattr(args, "env_file", None),
+            host=getattr(args, "host", None),
+            port=getattr(args, "port", None),
+        )
     try:
         if args.command == "config":
             return cmd_config(args)
