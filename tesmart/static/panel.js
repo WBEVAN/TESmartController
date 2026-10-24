@@ -1325,12 +1325,71 @@ class Explorer {
   }
 }
 
+/* Connection facts and copy-paste samples for this listener. */
+class ConnectGuide {
+  constructor(panel, toaster) {
+    this.panel = panel;
+    this.toaster = toaster;
+  }
+
+  start() {
+    const modal = document.getElementById("connect-modal");
+    const copy = document.getElementById("connect-copy");
+    if (!modal || !copy) return;
+    modal.addEventListener("show.bs.modal", () => this.fill());
+    copy.addEventListener("click", () => this.copy());
+  }
+
+  fill() {
+    const origin = window.location.origin;
+    const state = this.panel.state || {};
+    const endpoint = state.endpoint || "";
+    const mdns = (state.mdns_name || "").trim();
+    const mdnsArg = /[^A-Za-z0-9_.:@/+-]/.test(mdns) ? `"${mdns.replaceAll('"', '\\"')}"` : mdns;
+    document.getElementById("connect-listener").textContent = origin;
+    document.getElementById("connect-switch").textContent = endpoint || "waiting for the switch";
+    document.getElementById("connect-mdns").textContent = mdns || "not advertising";
+    const lines = [
+      `curl ${origin}/status`,
+      `curl ${origin}/input`,
+      `curl ${origin}/input/1`,
+      `${origin}/panel`,
+      `${origin}/kit`,
+      `tesmartctl --via ${origin} status`,
+      `tesmartctl --via ${origin} input 1`,
+      `tesmartctl kit "${origin}/kit?app=1"`,
+    ];
+    if (mdns) {
+      lines.push(
+        "tesmartctl discover",
+        `tesmartctl --via auto --mdns-name ${mdnsArg} status`,
+        `tesmartctl --via auto --mdns-name ${mdnsArg} input 1`,
+        `tesmartctl --via auto --mdns-name ${mdnsArg} kit`,
+      );
+    } else {
+      lines.push("tesmartctl discover    # when this listener is started with --mdns");
+    }
+    document.getElementById("connect-samples").textContent = lines.join("\n");
+  }
+
+  async copy() {
+    const text = document.getElementById("connect-samples").textContent || "";
+    try {
+      await navigator.clipboard.writeText(text);
+      this.toaster.success("Copied the connection samples");
+    } catch {
+      this.toaster.error("Could not copy. Select the samples and copy them yourself.");
+    }
+  }
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   const api = new Api();
   const toaster = new Toaster(document.getElementById("toasts"));
   const panel = new Panel(api, toaster);
   panel.start();
   new Explorer(api, () => panel.refresh(false)).start();
+  new ConnectGuide(panel, toaster).start();
 
   const floatingKit = document.getElementById("btn-floating-kit");
   if (floatingKit) {

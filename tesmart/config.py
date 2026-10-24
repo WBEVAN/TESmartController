@@ -48,6 +48,13 @@ BANNER_HISTORY_MAX = 10
 VIA_KEY = "TESMART_VIA"
 # Preferred mDNS instance name when several listeners are on the LAN.
 MDNS_NAME_KEY = "TESMART_MDNS_NAME"
+# HTTP listener saved by ``tesmartctl install`` and started by ``tesmartctl quickstart``.
+# A ``--http`` argument (``8080``, ``0.0.0.0:8080``, ``172.16.0.141:7272``), or ``off``.
+HTTP_KEY = "TESMART_HTTP"
+HTTP_OFF = "off"
+HTTP_PORT_KEY = "TESMART_HTTP_PORT"
+HTTP_PANEL_KEY = "TESMART_HTTP_PANEL"
+HTTP_MDNS_KEY = "TESMART_HTTP_MDNS"
 
 # setting name -> (env var, built-in default)
 SETTINGS: dict[str, tuple[str, str | None]] = {
@@ -527,3 +534,88 @@ def read_mdns_name(env_file: str | None = None) -> str | None:
 
 def write_mdns_name(name: str | None, env_file: str | None = None) -> Path:
     return _write_optional(MDNS_NAME_KEY, name, env_file)
+
+
+def read_http_spec(env_file: str | None = None) -> str | None:
+    """Saved ``--http`` argument, ``off``, or None when install has not stored one."""
+    return _read_optional(HTTP_KEY, env_file)
+
+
+def read_http_port(env_file: str | None = None) -> int | None:
+    """Saved HTTP listen port (``TESMART_HTTP_PORT``), or None when it is not recorded."""
+    raw = _read_optional(HTTP_PORT_KEY, env_file)
+    if raw and raw.isdigit() and 1 <= int(raw) <= 65535:
+        return int(raw)
+    return None
+
+
+def read_http_panel(env_file: str | None = None) -> bool | None:
+    """True, False, or None when install has not recorded the browser UI choice."""
+    raw = _read_optional(HTTP_PANEL_KEY, env_file)
+    if raw == "1":
+        return True
+    if raw == "0":
+        return False
+    return None
+
+
+def _port_from_http_spec(spec: str) -> str | None:
+    text = spec.strip()
+    if text.isdigit():
+        return text
+    _host, sep, port_text = text.rpartition(":")
+    if sep and port_text.isdigit() and 1 <= int(port_text) <= 65535:
+        return port_text
+    return None
+
+
+def read_http_mdns(env_file: str | None = None) -> bool | None:
+    """True, False, or None when install did not record an mDNS choice."""
+    raw = _read_optional(HTTP_MDNS_KEY, env_file)
+    if raw == "1":
+        return True
+    if raw == "0":
+        return False
+    return None
+
+
+def write_http_listener(
+    spec: str | None,
+    *,
+    panel: bool = False,
+    mdns: bool | None = None,
+    port: int | None = None,
+    env_file: str | None = None,
+) -> Path:
+    """Store the HTTP listener for ``tesmartctl quickstart``.
+
+    ``spec`` is the ``--http`` argument, ``off`` when the listener is disabled,
+    or None to remove the listener keys (a client configuration). The listen
+    port is stored in ``TESMART_HTTP_PORT`` and the browser UI choice in
+    ``TESMART_HTTP_PANEL`` (``1`` or ``0``).
+    """
+    path = env_file_path(env_file)
+    values = read_env_file(path)
+    if spec is None:
+        values.pop(HTTP_KEY, None)
+        values.pop(HTTP_PORT_KEY, None)
+        values.pop(HTTP_PANEL_KEY, None)
+        values.pop(HTTP_MDNS_KEY, None)
+    elif spec == HTTP_OFF:
+        values[HTTP_KEY] = HTTP_OFF
+        values.pop(HTTP_PANEL_KEY, None)
+        values.pop(HTTP_MDNS_KEY, None)
+    else:
+        values[HTTP_KEY] = spec.strip()
+        values[HTTP_PANEL_KEY] = "1" if panel else "0"
+        recorded = str(port) if port is not None else _port_from_http_spec(spec)
+        if recorded:
+            values[HTTP_PORT_KEY] = recorded
+        if mdns is True:
+            values[HTTP_MDNS_KEY] = "1"
+        elif mdns is False:
+            values[HTTP_MDNS_KEY] = "0"
+        else:
+            values.pop(HTTP_MDNS_KEY, None)
+    write_env_file(path, values)
+    return path

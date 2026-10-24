@@ -28,10 +28,11 @@ Browser kit/panel clients do **not** use this outbound POST path. They open `GET
 
 ## Prerequisites
 
-On a host Hubitat can reach, run a recent enough `tesmartctl` (this Hubitat package **1.6.0** checks `/compat` and requires **0.0.7.10+**):
+On a host Hubitat can reach, run a recent enough `tesmartctl` (this Hubitat package **1.6.0** checks `/compat` and requires **0.0.7.10+**). Configure that server first, and choose a listen address the hub can open:
 
 ```bash
-tesmartctl listen --http 0.0.0.0:8080
+tesmartctl install
+tesmartctl quickstart
 ```
 
 Confirm the server version:

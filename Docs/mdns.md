@@ -14,7 +14,9 @@ Without `zeroconf`, the listener still serves HTTP; it just does not advertise. 
 
 ## Advertise (server)
 
-Bind a LAN-reachable address and leave mDNS on (the default for non-loopback binds):
+On the server, run `tesmartctl install` first, then `tesmartctl quickstart`. Install asks whether to advertise, saves the listen address and mDNS name, and quickstart starts the listener with those options.
+
+The same advertisement, written out, binds a LAN-reachable address and leaves mDNS on (the default for non-loopback binds):
 
 ```bash
 tesmartctl listen --http 0.0.0.0:8080 --panel

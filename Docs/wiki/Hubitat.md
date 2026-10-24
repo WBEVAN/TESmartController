@@ -4,7 +4,7 @@ Drive the TESmart switch from Hubitat Elevation: one Manager app, one controller
 
 ## What you need
 
-1. A running `tesmartctl listen --http` **0.0.7.10+** (same host/port Hubitat can reach)
+1. A server started with `tesmartctl install`, then left running with `tesmartctl quickstart` (**0.0.7.10+**, on a host and port Hubitat can reach)
 2. The Hubitat package from this repo (`hubitat/`) — currently **1.6.0** (shown on the Manager screen)
 3. Network path from the Hub to the machine running the listener
 
@@ -35,7 +35,7 @@ Selecting an input child (or the controller command) issues HTTP to the listener
 So Hubitat reflects changes made from the kit, CLI, or Stream Deck:
 
 1. Point the listener’s Hubitat callback URL at the Manager / controller endpoint (see repo [Docs/hubitat.md](https://github.com/WBEVAN/TESmartController/blob/main/Docs/hubitat.md))
-2. Keep `listen --http` running whenever you want live sync
+2. Keep `tesmartctl quickstart` running whenever you want live sync
 
 ## Banner & peek follow (controller device)
 

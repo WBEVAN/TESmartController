@@ -27,7 +27,7 @@ If Uninstall already lists a package named **`null`**, uninstall that entry firs
 
 ## Server requirement
 
-This Hubitat package expects a recent **`tesmartctl listen --http`** on a host the hub can reach.
+This Hubitat package expects a recent tesmartctl server on a host the hub can reach. On that computer run `tesmartctl install`, then leave `tesmartctl quickstart` running.
 
 - Minimum server: **0.0.7.10+** (Manager checks `POST /compat` on connection test)
 - Hubitat package version: **1.6.0** (shown on the Manager main screen)

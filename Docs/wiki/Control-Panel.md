@@ -1,19 +1,17 @@
 # Control panel
 
-The **panel** is the full-size Bootstrap UI at `/panel`: status, input grid, network settings, peek, cycle, names, and an API explorer. Use it when you want everything on one page; use the [floating kit](Floating-Kit) for a compact always-on window.
+The **panel** at `/panel` is the browser-only control panel: status, input grid, network settings, peek, cycle, names, and an API explorer. The [floating kit](Floating-Kit) at `/kit` is the floating UI application kit.
 
 ## Open it
 
-```bash
-tesmartctl listen --http --panel
-open http://127.0.0.1:8765/panel
-```
-
-Or from the CLI helpers (if installed as documented in the README):
+On the server:
 
 ```bash
-tesmartctl panel
+tesmartctl install
+tesmartctl quickstart
 ```
+
+Then open `http://127.0.0.1:<port>/panel`. `<port>` is `TESMART_HTTP_PORT` from that install (the wizard default is `8080`).
 
 ## What’s on the page
 
@@ -28,9 +26,10 @@ tesmartctl panel
 
 | | Kit `/kit` | Panel `/panel` |
 | --- | --- | --- |
+| What it is | Floating UI application kit | Browser-only control panel |
 | Size | Compact switcher | Full control surface |
 | Themes | Body / LCD / glass | Standard Bootstrap panel |
-| macOS app | `tesmartctl kit` | Browser (or embed) |
+| How it opens | `tesmartctl kit`, or a browser | A browser (or an embedded page) |
 | Best for | Desk / always visible | Setup, debugging, full config |
 
 Both share the same listener state (active input, banners, peek). They subscribe to `GET /api/events` (Server-Sent Events) so input, name, and banner changes show up immediately. A slower `/api/state` poll remains as a fallback (~30s online; ~2s while the switch is unreachable so reconnect feels quick). Hubitat uses separate outbound HTTP callbacks, not this browser stream.

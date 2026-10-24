@@ -104,6 +104,17 @@ EXAMPLES: dict[str, list[tuple[str, str]]] = {
         ),
         ("tesmartctl net set --ip 192.168.1.50 --yes --save-default", "and update the CLI default host"),
     ],
+    "install": [
+        ("tesmartctl install", "answer the server or client questions; nothing is saved until the last yes"),
+        ("tesmartctl --host 192.168.1.50 install", "start from that switch address instead of the saved one"),
+        ("tesmartctl --env-file ./tesmart.env install", "read and write a configuration file in this directory"),
+        ("tesmartctl quickstart", "after a server install, start the listener from the saved address"),
+    ],
+    "quickstart": [
+        ("tesmartctl install", "configure the server or a client; then start the server with quickstart"),
+        ("tesmartctl quickstart", "start the server from the address, port, browser UI, and mDNS options saved by install"),
+        ("tesmartctl --env-file ./tesmart.env quickstart", "use a configuration file in this directory"),
+    ],
     "config": [
         ("tesmartctl config show", "effective host/port/serial/inputs and where each came from"),
         ("tesmartctl config set host 192.168.1.50", "persist the switch address"),
@@ -205,6 +216,8 @@ GLOBAL_EXAMPLES: list[tuple[str, str]] = [
     ("tesmartctl input 3", "switch to HDMI 3"),
     ("tesmartctl rotate", "next input"),
     ("tesmartctl name set 2 Office", "label input 2 locally"),
+    ("tesmartctl install", "guided setup for a server or a client"),
+    ("tesmartctl quickstart", "start the listener from the address saved by install"),
     ("tesmartctl config set host 192.168.1.50", "save the switch address"),
     ("tesmartctl listen --http 8080", "control via http://127.0.0.1:8080/input/3"),
     ('tesmartctl banner "Door unlocked"', "LCD message on kit/panel (needs listen --http)"),
@@ -240,7 +253,7 @@ def all_examples_text() -> str:
     sections = []
     for command in (
         "status", "input", "rotate", "next", "previous", "peek", "cycle", "buzzer", "led", "autodetect",
-        "net", "config", "name", "banner", "raw", "monitor", "listen", "kit",
+        "net", "config", "install", "quickstart", "name", "banner", "raw", "monitor", "listen", "kit",
     ):
         sections.append(f"{command}\n{format_examples(EXAMPLES[command])}")
     return "\n\n".join(sections)

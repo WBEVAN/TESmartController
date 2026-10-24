@@ -354,6 +354,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     _add(sub, "examples", "print worked examples for every command (no connection needed)")
 
+    _add(
+        sub,
+        "install",
+        "ask the questions that set up a server or a client (writes the env file only after you confirm)",
+    )
+    _add(
+        sub,
+        "quickstart",
+        "start the HTTP listener from the address, panel, and mDNS options saved by install",
+    )
+
     p_listen = _add(sub, "listen", "stay running and accept commands to read or change the active input")
     listen_mode = p_listen.add_mutually_exclusive_group()
     listen_mode.add_argument(
@@ -843,6 +854,34 @@ def cmd_monitor(switch: TesmartSwitch, args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_quickstart(args: argparse.Namespace) -> int:
+    """Open the switch and serve HTTP using the listener saved by install.
+
+    When that listener is not saved, ask to run ``install`` and then start.
+    """
+    from .install import run_install
+    from .quickstart import Quickstart, run_quickstart
+
+    def configure() -> int:
+        return run_install(env_file=args.env_file, settings=resolve_settings(args))
+
+    def serve(ready: Quickstart) -> int:
+        settings = resolve_settings(args)
+        with open_transport(settings) as transport:
+            switch = TesmartSwitch(transport, input_count=settings.inputs, reply_timeout=args.timeout)
+            return serve_http(
+                switch,
+                ready.host,
+                ready.port,
+                args.env_file,
+                panel_enabled=ready.panel,
+                mdns=ready.mdns,
+                mdns_name=ready.mdns_name,
+            )
+
+    return run_quickstart(args.env_file, configure=configure, serve=serve)
+
+
 def cmd_listen(switch: TesmartSwitch, args: argparse.Namespace) -> int:
     if args.http is not None:
         host, port = args.http
@@ -1233,11 +1272,34 @@ def cmd_config(args: argparse.Namespace) -> int:
         return 0
     settings = resolve_settings(args)
     data = settings.to_dict()
-    width = max(len(name) for name in config.SETTINGS)
+    width = max(len(name) for name in (*config.SETTINGS, "listen", "http port", "panel", "mdns"))
     lines = [f"Env file: {settings.env_file}{'' if settings.env_file.exists() else ' (not present)'}"]
     for name in config.SETTINGS:
         value = data[name]
         lines.append(f"  {name:<{width}}  {value if value is not None else '-':<22} ({settings.sources[name]})")
+    spec = config.read_http_spec(args.env_file)
+    if spec:
+        data["listen"] = spec
+        lines.append(f"  {'listen':<{width}}  {spec}")
+        if spec != config.HTTP_OFF:
+            http_port = config.read_http_port(args.env_file)
+            if http_port is not None:
+                data["http_port"] = http_port
+                lines.append(f"  {'http port':<{width}}  {http_port}")
+            panel_choice = config.read_http_panel(args.env_file)
+            panel = "yes" if panel_choice is not False else "no"
+            mdns_choice = config.read_http_mdns(args.env_file)
+            mdns_name = config.read_mdns_name(args.env_file)
+            if mdns_choice and mdns_name:
+                mdns_text = mdns_name
+            elif mdns_choice is False:
+                mdns_text = "off"
+            else:
+                mdns_text = "-"
+            data["panel"] = panel
+            data["mdns"] = mdns_text
+            lines.append(f"  {'panel':<{width}}  {panel}")
+            lines.append(f"  {'mdns':<{width}}  {mdns_text}")
     emit(args, data, "\n".join(lines))
     return 0
 
@@ -1292,6 +1354,12 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "examples":
             print(all_examples_text())
             return 0
+        if args.command == "install":
+            from .install import run_install
+
+            return run_install(env_file=args.env_file, settings=resolve_settings(args))
+        if args.command == "quickstart":
+            return cmd_quickstart(args)
 
         if args.via:
             from . import via_client

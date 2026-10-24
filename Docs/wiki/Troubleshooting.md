@@ -2,7 +2,7 @@
 
 ## Kit / panel won’t load
 
-- Confirm `tesmartctl listen --http --panel` is running
+- Confirm the server is running: `tesmartctl install` once, then `tesmartctl quickstart`
 - Open `http://127.0.0.1:8765/kit` (or your `--host` / `--port`)
 - If another process holds port 8765, stop it or pick a free `--port`
 - After a UI upgrade, hard-refresh or open `/kit?fresh=1` / `/panel?fresh=1` so static JS reloads

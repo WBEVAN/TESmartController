@@ -1,18 +1,23 @@
 # Control panel and floating kit
 
-`tesmartctl listen --http PORT --panel` serves the browser UIs. It is off unless `--panel` is given. Without the flag, `/panel`, `/kit`, `/static/...`, and `/api/...` answer `404` with a short explanation.
+Start the server with `tesmartctl install`, then `tesmartctl quickstart`. Install turns the browser UI on by default and saves that choice. `quickstart` serves the pages.
+
+`/kit` is the floating UI application kit. `/panel` is the browser-only control panel. The pages are part of the HTTP listener (`tesmartctl listen --http PORT --panel`). Without `--panel`, `/panel`, `/kit`, `/static/...`, and `/api/...` answer `404` with a short explanation.
 
 ```bash
+tesmartctl install
+tesmartctl quickstart
+# the same start, written out:
 tesmartctl listen --http 8080 --panel
-# floating kit:  http://127.0.0.1:8080/kit
-# full panel:    http://127.0.0.1:8080/panel
+# floating UI application kit:  http://127.0.0.1:8080/kit
+# browser-only control panel:   http://127.0.0.1:8080/panel
 ```
 
 `--panel` on its own is an error: the pages are part of the HTTP listener. `--bind` and `--http` are still mutually exclusive. A bare port binds `127.0.0.1`. There is no authentication, same as the rest of the listener.
 
-### Floating UI kit (`/kit`)
+### Floating UI application kit (`/kit`)
 
-The floating kit is the primary day-to-day surface: HDMI-style deck, Setup door for peek/cycle, Compact mode, and a frameless desktop window via `tesmartctl kit`. It talks to the same `/api` routes as `/panel`, and both subscribe to `GET /api/events` (Server-Sent Events) for live input, name, and banner updates. A slower `/api/state` poll remains as a fallback; while the HDMI switch is offline the poll runs about every 2 seconds so the UI reconnects quickly. `tesmartctl --via auto kit` keeps browsing after the first connection. While the listener is stopped it loads the kit from the new host or port when the same mDNS name moves, without restarting the window. The same host and port still recovers through that poll when it advertises the mDNS name this client is using. A different name on that address fails the reconnect: the kit stays offline and does not drive that process. A typed `--via http://…` URL stays on that address.
+`/kit` is the floating UI application kit, the primary day-to-day surface: HDMI-style deck, Setup door for peek/cycle, Compact mode, and a frameless desktop window via `tesmartctl kit`. It talks to the same `/api` routes as `/panel`, and both subscribe to `GET /api/events` (Server-Sent Events) for live input, name, and banner updates. A slower `/api/state` poll remains as a fallback; while the HDMI switch is offline the poll runs about every 2 seconds so the UI reconnects quickly. `tesmartctl --via auto kit` keeps browsing after the first connection. While the listener is stopped it loads the kit from the new host or port when the same mDNS name moves, without restarting the window. The same host and port still recovers through that poll when it advertises the mDNS name this client is using. A different name on that address fails the reconnect: the kit stays offline and does not drive that process. A typed `--via http://…` URL stays on that address.
 
 ![Floating kit](images/kit.png)
 
@@ -102,6 +107,8 @@ Replace `192.168.1.20:8080` with the listener’s address. There is no authentic
 `/panel` remains available as the fuller Bootstrap UI (network wizard, API explorer, write-only settings). Outcomes appear as toasts. Changing the switch's address opens a three-step dialog; the browser's own alert and confirm dialogs are not used.
 
 ![Control panel](images/panel.png)
+
+**Connect info** in the top bar opens a dialog with this listener's address, the HDMI switch endpoint, the mDNS name when the process is advertising, and sample `curl` / `tesmartctl` commands. **Copy samples** puts that block on the clipboard. The same links are printed by `tesmartctl install` ([Docs/install.md](install.md)).
 
 **API** in the top bar opens a dialog that lists every `/api` route (`GET /api` returns the same list as `catalog`). Picking a route fills the path and a sample body; **Send** shows the status code and the raw body. `POST /api/network` is listed but not sent from there: address changes stay on **Change address**.
 

@@ -1,21 +1,26 @@
 # Floating kit
 
-The **kit** is the compact HDMI-switcher UI: input tiles, LCD banner, peek mode, cycle, and (in the app) a power switch.
+The **kit** at `/kit` is the floating UI application kit: input tiles, LCD banner, peek mode, cycle, and (in the app) a power switch. `/panel` is the browser-only control panel.
 
 ![Floating kit](https://raw.githubusercontent.com/WBEVAN/TESmartController/main/Docs/images/kit.png)
 
 ## Open it
 
-With the listener running (`tesmartctl listen --http --panel`):
+On the server, configure once and leave the listener running:
 
 ```bash
-# Browser (any platform)
-open http://127.0.0.1:8765/kit
+tesmartctl install
+tesmartctl quickstart
+```
 
-# macOS floating app (PyObjC + WKWebView)
+Then open the kit in a browser at `http://127.0.0.1:<port>/kit`, or as a frameless window:
+
+```bash
 tesmartctl kit
 tesmartctl kit --fresh    # ignore saved window prefs once
 ```
+
+`<port>` is `TESMART_HTTP_PORT` from that install (the wizard default is `8080`).
 
 App mode adds the red power switch (quits the kit) and persists appearance / window prefs on the Mac.
 

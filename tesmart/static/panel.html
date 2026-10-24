@@ -16,6 +16,7 @@
     <div class="d-flex align-items-center gap-3 small text-body-secondary">
       <a class="btn btn-outline-secondary btn-sm" href="/kit" id="btn-floating-kit"
          title="Open floating kit without browser chrome on this host">Floating kit</a>
+      <button type="button" class="btn btn-outline-secondary btn-sm" id="btn-connect" data-bs-toggle="modal" data-bs-target="#connect-modal">Connect info</button>
       <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#api-modal">API</button>
       <span id="endpoint" class="font-monospace">connecting…</span>
       <span id="link" class="badge rounded-pill text-bg-secondary" title="Connection to the switch">
@@ -310,6 +311,45 @@
         <button type="button" class="btn btn-warning" id="network-continue" disabled>Continue</button>
         <button type="button" class="btn btn-danger d-none" id="network-confirm" disabled>Write to switch</button>
         <button type="button" class="btn btn-primary d-none" id="network-done" data-bs-dismiss="modal">Done</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Connection samples -->
+<div class="modal fade" id="connect-modal" tabindex="-1" aria-labelledby="connect-modal-title" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h1 class="modal-title fs-5" id="connect-modal-title">Connect info</h1>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <dl class="row small mb-3" id="connect-facts">
+          <dt class="col-sm-3">Listener</dt>
+          <dd class="col-sm-9 font-monospace" id="connect-listener">—</dd>
+          <dt class="col-sm-3">HDMI switch</dt>
+          <dd class="col-sm-9 font-monospace" id="connect-switch">—</dd>
+          <dt class="col-sm-3">mDNS name</dt>
+          <dd class="col-sm-9 font-monospace" id="connect-mdns">—</dd>
+        </dl>
+        <div class="d-flex justify-content-between align-items-center mb-1">
+          <span class="fw-semibold">Samples</span>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="connect-copy">Copy samples</button>
+        </div>
+        <pre class="connect-samples mb-3" id="connect-samples"></pre>
+        <p class="small text-body-secondary">There is no authentication on the listener. Use these addresses only on a network you trust.</p>
+        <div class="small">
+          <div class="fw-semibold mb-1">Documentation</div>
+          <ul class="mb-0">
+            <li><a href="https://github.com/WBEVAN/TESmartController/blob/main/Docs/install.md" target="_blank" rel="noopener">Guided setup (tesmartctl install)</a></li>
+            <li><a href="https://github.com/WBEVAN/TESmartController/wiki/Setup" target="_blank" rel="noopener">Setup</a></li>
+            <li><a href="https://github.com/WBEVAN/TESmartController/wiki/Listener-and-HTTP" target="_blank" rel="noopener">Listener and HTTP</a></li>
+            <li><a href="https://github.com/WBEVAN/TESmartController/wiki/mDNS" target="_blank" rel="noopener">mDNS</a></li>
+            <li><a href="https://github.com/WBEVAN/TESmartController/wiki/Control-Panel" target="_blank" rel="noopener">Control panel</a></li>
+            <li><a href="https://github.com/WBEVAN/TESmartController#readme" target="_blank" rel="noopener">README</a></li>
+          </ul>
+        </div>
       </div>
     </div>
   </div>

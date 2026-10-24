@@ -7,7 +7,18 @@
 
 Both use the same device connection and the same one-second pacing described in [`protocol.md`](protocol.md). A reply can take about that long. Clients are serialized, so a second request waits until the first has finished talking to the switch.
 
-## Starting it
+## Starting the server
+
+On the computer that talks to the HDMI switch:
+
+```bash
+tesmartctl install
+tesmartctl quickstart
+```
+
+`install` saves the switch address, the HTTP listen address, the listen port, the browser UI choice, and mDNS. `quickstart` starts the listener from that file and leaves it running. `/kit` is the floating UI application kit. `/panel` is the browser-only control panel. When those saved values are missing, `quickstart` says so and offers to run `install`. Walk-through: [`install.md`](install.md).
+
+`quickstart` is `tesmartctl listen` with the saved options. The flags below are that same start written out, plus the line-protocol modes `quickstart` does not use:
 
 ```bash
 tesmartctl listen                    # commands on stdin
@@ -17,9 +28,11 @@ tesmartctl listen --json             # one JSON object per line (line protocol o
 tesmartctl listen --http 8080        # HTTP, this computer only (http://127.0.0.1:8080/)
 tesmartctl listen --http 0.0.0.0:8080 # HTTP on every interface (auto mDNS when zeroconf is installed)
 tesmartctl listen --http 0.0.0.0:8080 --mdns-name "Office Switch"
-tesmartctl listen --http 8080 --panel # also the control panel at /panel
+tesmartctl listen --http 8080 --panel # /kit floating UI application kit, /panel browser-only control panel
 tesmartctl listen --http 0.0.0.0:8080 --no-mdns  # LAN HTTP without advertising
 ```
+
+Those HTTP options are what `install` writes: `TESMART_HTTP`, `TESMART_HTTP_PORT`, `TESMART_HTTP_PANEL` (`1` or `0`), and `TESMART_HTTP_MDNS`. The switch address stays in `TESMART_HOST` / `TESMART_PORT` or `TESMART_SERIAL`.
 
 A bare port binds `127.0.0.1`, so only this computer can connect. `0.0.0.0` accepts every network interface. Other devices then use the address of the computer running `tesmartctl`, for example `http://192.168.1.20:8080/input/3`. There is no authentication. `--bind` and `--http` cannot be used together; start two processes to expose both. Ctrl-C prints `stopping.` and closes the socket, callback thread, and mDNS advertisement. Another Ctrl-C during that teardown is ignored so zeroconf's shutdown does not print a traceback. Connection flags (`--host`, `--serial`, `--inputs`, `--timeout`, `--env-file`) work the same way as the rest of `tesmartctl`; see the README.
 
@@ -163,7 +176,23 @@ curl -X POST http://127.0.0.1:8080/compat \
 
 ### Server-Sent Events (kit / panel)
 
-Browsers cannot register as outbound callback URLs. With `--panel`, the kit and control panel open `GET /api/events` (plain listener also exposes `GET /events`) and receive push frames as soon as the active input, local names, LCD banner, or peek-follow mode changes. Event bodies match the Hubitat callback JSON (`event`, `active_input`, `banner`, …); `banner` frames also include `banner_history` when available. Named SSE events: `hello` (on connect), `input_changed`, `names_changed`, `banner`, `peek_follow` (`mode` of `off`, `once`, or `always`, plus `seconds` when set). A `: keepalive` comment is sent about every 20 seconds. Feature tag: `sse`.
+Browsers cannot register as outbound callback URLs. With `--panel`, the kit and control panel open `GET /api/events` (plain listener also exposes `GET /events`) and receive push frames as soon as the active input, local names, LCD banner, or peek-follow mode changes. Event bodies match the Hubitat callback JSON (`event`, `active_input`, `banner`, …); `banner` frames also include `banner_history` when available. Named SSE events: `hello` (on connect), `input_changed`, `names_changed`, `banner`, `peek_follow`. A `: keepalive` comment is sent about every 20 seconds. Feature tag: `sse`.
+
+Setting the mode (`/peek/once`, `/peek/always`, `/peek/off`, or the panel control) sends `mode` and `peek_follow` (`off`, `once`, or `always`), plus `seconds` when a duration was stored. That frame has no `followed` and no `previous`.
+
+When an armed follow peek actually moves the switch, a second `peek_follow` goes out as soon as the return input is known, before a blocking peek waits for the switch to come back. `mode` and `peek_follow` are the mode after the claim (`off` for Once, `always` when Always stays armed). `followed` is what this peek consumed (`once` or `always`). `previous` is the input that will be restored. `active_input` is the input showing for the peek. `input_changed` is unchanged and still describes the move on its own.
+
+```json
+{
+  "event": "peek_follow",
+  "mode": "off",
+  "peek_follow": "off",
+  "followed": "once",
+  "previous": 1,
+  "active_input": 4,
+  "seconds": 8
+}
+```
 
 ```bash
 # watch frames (Ctrl-C to stop)

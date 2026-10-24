@@ -2,12 +2,18 @@
 
 The listener is the long-lived process that owns the switch TCP (or serial) session and serves HTTP for UIs and integrations.
 
-## Start
+## Start the server
+
+Configure the computer that talks to the HDMI switch, then leave the listener running:
 
 ```bash
-tesmartctl listen --http --panel
-# tesmartctl listen --http --panel --host 0.0.0.0 --port 8765
+tesmartctl install
+tesmartctl quickstart
 ```
+
+`install` saves the listen address (`TESMART_HTTP`), the listen port (`TESMART_HTTP_PORT`), and the browser UI (`TESMART_HTTP_PANEL`). `quickstart` starts the listener from those values. `/kit` is the floating UI application kit. `/panel` is the browser-only control panel.
+
+The same start, written out, is `tesmartctl listen --http HOST:PORT` with `--panel` when the browser UI is on. Walk-through: [Docs/install.md](https://github.com/WBEVAN/TESmartController/blob/main/Docs/install.md).
 
 Line-protocol mode (no HTTP) is also available for raw clients; see [Docs/listener.md](https://github.com/WBEVAN/TESmartController/blob/main/Docs/listener.md).
 

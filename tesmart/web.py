@@ -75,8 +75,8 @@ ROUTES = {
     "/banner": "GET last LCD message; POST {\"text\",\"seconds\"|\"sticky\":true}; POST {\"show\":true}|{\"dismiss\":true}|{\"clear\":true}",
     "/events": "Server-Sent Events stream (input_changed, names_changed, banner); kit/panel use /api/events",
     "/callbacks": "GET list; POST {\"url\",\"name\"} register; POST {\"timeout\":10}; GET|POST /health probe; DELETE remove",
-    "/panel": "browser control panel (only when started with --panel)",
-    "/kit": "alternate floating HDMI UI kit (Pop out = chrome-less window on listener host)",
+    "/panel": "browser-only control panel (only when started with --panel)",
+    "/kit": "floating UI application kit (only when started with --panel)",
     "?format=text": "add to any route for plain text instead of JSON",
 }
 
@@ -728,10 +728,10 @@ class WebServer(ThreadingHTTPServer):
         self.lock = threading.Lock()
         # Shared so a peek started from /peek or the panel is visible to /api/state.
         self.peeker = Peeker(switch, self.lock)
-        # Armed by /peek/once or /peek/always. The next plain input change peeks.
-        self.peek_follow = PeekFollow()
         # Browser kit/panel subscribe via GET /events or /api/events (SSE).
         self.events = EventHub()
+        # Armed by /peek/once or /peek/always. The next plain input change peeks.
+        self.peek_follow = PeekFollow(events=self.events)
         self.callbacks = callbacks.CallbackHub(switch, self.lock, env_file, events=self.events)
         # LCD banner + history (restored from env file so kit icons return on startup).
         self.banner = BannerBoard(
@@ -791,8 +791,8 @@ def serve_http(
     print(f"  http://{bound_host}:{bound_port}/rotate       next input", file=sys.stderr)
     print(f"  http://{bound_host}:{bound_port}/input?set=3  switch", file=sys.stderr)
     if panel_enabled:
-        print(f"  http://{bound_host}:{bound_port}/panel        control panel", file=sys.stderr)
-        print(f"  http://{bound_host}:{bound_port}/kit          floating UI kit (Pop out = chrome-less)", file=sys.stderr)
+        print(f"  http://{bound_host}:{bound_port}/panel        browser-only control panel", file=sys.stderr)
+        print(f"  http://{bound_host}:{bound_port}/kit          floating UI application kit", file=sys.stderr)
         print(f"  tesmartctl kit --listen {bound_port}          open /kit without browser chrome", file=sys.stderr)
     registered = callbacks.read_callback_urls(env_file)
     timeout = callbacks.read_timeout(env_file)

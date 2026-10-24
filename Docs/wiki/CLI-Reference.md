@@ -1,10 +1,12 @@
 # CLI reference
 
-Short everyday list. Full flags and behavior: [README](https://github.com/WBEVAN/TESmartController#readme).
+Short everyday list. On the server, run `tesmartctl install` first, then `tesmartctl quickstart`. Full flags and behavior: [README](https://github.com/WBEVAN/TESmartController#readme).
 
 ## Connection & config
 
 ```bash
+tesmartctl install
+tesmartctl quickstart
 tesmartctl status
 tesmartctl config set --host 192.168.1.50 --port 5000
 tesmartctl config path
@@ -34,6 +36,7 @@ tesmartctl rotate …
 ## Listener, kit, panel
 
 ```bash
+tesmartctl quickstart
 tesmartctl listen --http --panel
 tesmartctl kit
 tesmartctl kit --fresh

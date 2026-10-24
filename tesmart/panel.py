@@ -2,11 +2,11 @@
 
 Off unless ``--panel`` is given. It adds three things to the HTTP listener:
 
-* ``/panel`` – a single-page UI (Bootstrap) that replaces the vendor's
+* ``/panel`` – the browser-only control panel (Bootstrap) that replaces the vendor's
   Windows controller: input buttons, next/previous, buzzer, front-panel
   display timeout, auto input detection, LAN settings, local input names,
   and the local cycle.
-* ``/kit`` – an alternate floating HDMI UI kit (does not replace ``/panel``).
+* ``/kit`` – the floating UI application kit (does not replace ``/panel``).
   **Pop out** opens a chrome-less desktop window on the listener host
   (Chromium ``--app`` or optional ``pywebview``); ``tesmartctl kit`` does the same.
 * ``/static/...`` – panel and kit assets (including ``/static/kit/...``).

@@ -24,6 +24,7 @@ from contextlib import nullcontext
 from dataclasses import asdict, dataclass
 from typing import ContextManager
 
+from .events import EventHub
 from .switch import SwitchError, TesmartSwitch
 
 
@@ -51,10 +52,13 @@ class PeekFollow:
     in this process only; it is not written to the env file.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, events: EventHub | None = None) -> None:
         self._lock = threading.Lock()
         self._mode = "off"
         self._seconds: int | None = None
+        # Set on the HTTP listener so a claimed peek can tell other SSE clients
+        # which input is temporary. The line listener leaves this unset.
+        self.events = events
 
     def status(self) -> dict:
         with self._lock:
@@ -100,20 +104,63 @@ def apply_follow(
 
     ``block`` waits until the switch is back (the plain HTTP and line
     listeners). The panel passes ``False`` so it can show the countdown.
+
+    After ``start`` the return input is known. That is when other clients hear
+    ``peek_follow``, before a blocking ``wait`` returns the switch.
     """
     claim = follow.claim()
     if claim is None:
         return None
     seconds = claim["seconds"] if claim["seconds"] is not None else default_seconds
+    started = peeker.start(number, seconds)
+    if started is not None:
+        _publish_claimed_peek(follow, str(claim["mode"]), started, seconds)
     if block:
-        result = peeker.run(number, seconds).to_dict()
+        result = peeker.wait().to_dict()
     else:
-        started = peeker.start(number, seconds)
-        result = {"requested": number, "active_input": started["peeked"], "peek": started}
+        peeked = started["peeked"] if started is not None else number
+        result = {"requested": number, "active_input": peeked, "peek": started}
     result["requested"] = number
     result["followed"] = claim["mode"]
     result["peek_follow"] = follow.status()["mode"]
     return result
+
+
+def _real_input(value: object) -> int | None:
+    """A 1-based port. ``-1`` and other placeholders are not inputs."""
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        return None
+    return value
+
+
+def _publish_claimed_peek(follow: PeekFollow, followed: str, started: dict, seconds: float) -> None:
+    """SSE ``peek_follow`` for a peek that just moved the switch.
+
+    ``mode`` is the mode after the claim (``off`` for Once, ``always`` when
+    Always stays armed). ``followed`` is the mode this peek consumed.
+    ``previous`` is restored when the timer ends. ``active_input`` is the
+    input showing now. Presses of Off use a shorter event and do not come
+    through here.
+    """
+    hub = follow.events
+    if hub is None:
+        return
+    previous = _real_input(started.get("previous"))
+    active = _real_input(started.get("peeked"))
+    if previous is None or active is None:
+        return
+    mode = str(follow.status()["mode"])
+    hub.publish(
+        {
+            "event": "peek_follow",
+            "mode": mode,
+            "peek_follow": mode,
+            "followed": followed,
+            "previous": previous,
+            "active_input": active,
+            "seconds": seconds,
+        }
+    )
 
 
 class Peeker:

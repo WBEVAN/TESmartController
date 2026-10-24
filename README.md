@@ -74,20 +74,21 @@ application capable of making an HTTP request.
 | Address | Change the switch's IP, port, gateway, and mask, with two warnings and a read-back. Applied only after a power cycle |
 | Listen | Keep one connection open: a line protocol on stdin or TCP, or HTTP URLs for Stream Deck, Companion, Home Assistant, and similar |
 | mDNS | Optional zeroconf advertise/browse (`tesmartctl[mdns]`): clients use `discover` or `--via auto` to reach the listener; see [`Docs/mdns.md`](Docs/mdns.md) |
-| Panel / kit | Optional browser UIs with `--panel`: floating `/kit` (frameless via `tesmartctl kit`) and full `/panel` with API explorer |
+| Panel / kit | `/kit` is the floating UI application kit (`tesmartctl kit`). `/panel` is the browser-only control panel. `tesmartctl install` turns both on by default; `tesmartctl quickstart` serves them |
 | Banner | Brief LCD message on kit/panel via `tesmartctl banner` or `POST /banner` (needs `listen --http`) |
 
 The switch cannot say which HDMI inputs have a signal. A cycle is the list you configure, stored on this computer, not in the switch. Local input names are stored the same way.
 
 | Document | What it covers |
 | --- | --- |
-| This file | Install, configuration, every command |
+| This file | Package install, server setup, every command |
+| [`Docs/install.md`](Docs/install.md) | `tesmartctl install`, then `tesmartctl quickstart` on the server |
 | [Project site](https://wbevan.github.io/TESmartController/) | GitHub Pages landing (install + doc links) |
 | [Wiki](https://github.com/WBEVAN/TESmartController/wiki) | Setup → kit → Hubitat → panel (source: `Docs/wiki/`) |
 | [`Docs/protocol.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/protocol.md) | Byte protocol the switch speaks |
 | [`Docs/listener.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/listener.md) | Long-running line protocol and HTTP URLs |
 | [`Docs/mdns.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/mdns.md) | mDNS advertise / discover / `--via auto`, limitations, connection fallbacks |
-| [`Docs/panel.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/panel.md) | Floating kit (`/kit`) and full panel (`/panel`), including remote launch |
+| [`Docs/panel.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/panel.md) | Floating UI application kit (`/kit`) and browser-only control panel (`/panel`) |
 | [`Docs/embed.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/embed.md) | Input buttons on a page you already have |
 | [`Docs/hubitat.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/hubitat.md) | Hubitat drivers (`hubitat/`) over the REST listener |
 
@@ -120,6 +121,17 @@ python3 -m tesmart status
 ```
 
 If the shell cannot find `tesmartctl` after install, open a new shell, or rehash your version manager. Requires Python 3.10 or newer.
+
+## Set up the server
+
+On the computer that talks to the HDMI switch, configure once, then start the listener:
+
+```bash
+tesmartctl install
+tesmartctl quickstart
+```
+
+`install` asks whether this computer is the server or a client. It starts from a saved env file when one exists, and from the built-in defaults otherwise, and it does not write that file until you confirm. A server install stores the switch address, the HTTP listen address (`TESMART_HTTP`), the listen port (`TESMART_HTTP_PORT`), and the browser UI choice (`TESMART_HTTP_PANEL`). `quickstart` starts that listener. `/kit` is the floating UI application kit. `/panel` is the browser-only control panel. Both are on by default. If those saved values are missing, `quickstart` offers to run `install`. See [`Docs/install.md`](Docs/install.md).
 
 ## Help and examples
 
@@ -364,7 +376,7 @@ tesmartctl raw AA BB 03 10 00 EE
 
 ## Listener
 
-`listen` keeps one connection open. Use it when something else (a script, `nc`, a browser, a home-automation "open URL" action) needs to change inputs without starting a new process each time. Full detail is in [`Docs/listener.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/listener.md).
+The usual way to run the server is `tesmartctl install`, then `tesmartctl quickstart`. `quickstart` is `listen` with the address, port, browser UI, and mDNS options that install saved. The commands below are that same listener written out, including the line protocol `quickstart` does not start. Full detail is in [`Docs/listener.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/listener.md).
 
 ```bash
 tesmartctl listen                         # one command per line on stdin
@@ -381,7 +393,7 @@ tesmartctl listen --http 0.0.0.0:8080 --panel
 
 `--bind` and `--http` cannot be combined. Run two processes if you want both. A port number alone binds `127.0.0.1`, so only this computer can connect. `0.0.0.0` accepts every network interface. Other devices then use the address of the computer running `tesmartctl`, for example `http://192.168.1.20:8080/input/3`. There is no authentication, so only do this on a network you trust.
 
-`--panel` is off unless you add it. It serves the floating HDMI kit at `/kit` and the full Bootstrap panel at `/panel` (buzzer, display timeout, auto-detect, LAN address, API explorer). Both UIs subscribe to `GET /api/events` (Server-Sent Events) so input, name, and banner changes appear immediately; a slower `/api/state` poll remains as a fallback. Detail — including how to open the kit from another machine — is in [`Docs/panel.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/panel.md).
+`--panel` is off unless you add it. `tesmartctl install` turns it on by default. It serves the floating UI application kit at `/kit` and the browser-only control panel at `/panel` (buzzer, display timeout, auto-detect, LAN address, API explorer). Both UIs subscribe to `GET /api/events` (Server-Sent Events) so input, name, and banner changes appear immediately; a slower `/api/state` poll remains as a fallback. Detail — including how to open the kit from another machine — is in [`Docs/panel.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/panel.md).
 
 ```bash
 pip install 'tesmartctl[kit]'

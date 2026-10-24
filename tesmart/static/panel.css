@@ -97,8 +97,20 @@
 }
 
 .api-body,
-.api-response {
+.api-response,
+.connect-samples {
   font-size: 0.8rem;
+}
+
+.connect-samples {
+  background: var(--bs-tertiary-bg);
+  border-radius: var(--bs-border-radius);
+  margin-bottom: 0;
+  max-height: 22rem;
+  overflow: auto;
+  padding: 0.75rem;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .api-response {

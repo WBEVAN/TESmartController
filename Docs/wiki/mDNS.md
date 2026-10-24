@@ -4,10 +4,16 @@ Find the HTTP listener on the LAN without typing its IP — then fall back to a 
 
 ## Quick start
 
+On the server, `tesmartctl install` saves the listen address and mDNS name. `tesmartctl quickstart` starts that listener.
+
 ```bash
 pip install 'tesmartctl[mdns]'
 
-# listener host
+# server
+tesmartctl install
+tesmartctl quickstart
+
+# the same listener, written out
 tesmartctl listen --http 0.0.0.0:8080 --panel --mdns-name OfficeHDMI
 
 # any client on the same LAN
