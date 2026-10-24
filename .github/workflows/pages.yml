@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "site/**"
+      - "streamdeck/**"
       - "tesmart/static/kit/**"
       - "Docs/images/readme-banner.png"
       - "Docs/images/kit.png"
@@ -31,9 +32,10 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p _site/assets _site/kit
-          cp site/index.html site/site.css site/site.js _site/
+          cp site/index.html site/streamdeck.html site/site.css site/site.js _site/
           cp site/kit-demo.html site/kit-demo.css site/kit-demo.js site/architecture.svg _site/
           cp Docs/images/readme-banner.png Docs/images/kit.png _site/assets/
+          cp streamdeck/StreamDeckPlugin.gif _site/assets/
 
           # Ship kit look-and-feel (CSS + SVG icons) for the interactive demo.
           rsync -a --include='*/' \
