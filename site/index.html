@@ -39,10 +39,11 @@
         <pre class="install hero-install"><code><span class="cmt"># install / upgrade from PyPI</span>
 <span class="cmt"># core only — add [mdns], [serial], or [kit] if needed</span>
 <span class="cmd">pip install -U tesmartctl</span>
-<span class="cmt"># start the TESmart HTTP server</span>
-<span class="cmt"># owns the switch; serves API + panel</span>
-<span class="cmd">tesmartctl listen --http --panel</span>
-<span class="cmt"># floating kit via mDNS</span>
+<span class="cmt"># server: save the switch and the listener</span>
+<span class="cmd">tesmartctl install</span>
+<span class="cmt"># server: start from that saved configuration</span>
+<span class="cmd">tesmartctl quickstart</span>
+<span class="cmt"># client: floating kit via mDNS</span>
 <span class="cmt"># or open /panel in a browser</span>
 <span class="cmd">tesmartctl --via auto kit</span></code></pre>
       </div>
@@ -92,7 +93,7 @@
         <p class="section-lede">
           One listener owns the switch session and fans out to every client you already use.
         </p>
-        <div class="arch-flow" role="img" aria-label="TESmart HDMI or KVM over TCP or RS232 to tesmartctl listen, then to kit, panel, Hubitat, and other HTTP clients">
+        <div class="arch-flow" role="img" aria-label="TESmart HDMI or KVM over TCP or RS232 to tesmartctl quickstart, then to kit, panel, Hubitat, and other HTTP clients">
           <article class="arch-node arch-switch">
             <h3>TESmart HDMI / KVM</h3>
             <p>Switch hardware</p>
@@ -101,7 +102,7 @@
           <div class="arch-arrow" aria-hidden="true"><span>protocol</span></div>
           <article class="arch-node arch-server">
             <h3>tesmartctl</h3>
-            <p>listen --http --panel</p>
+            <p>install, then quickstart</p>
             <p class="arch-meta">/api · /events · /banner</p>
             <p class="arch-meta">callbacks → Hubitat</p>
           </article>
@@ -119,6 +120,12 @@
         <h2>Documentation</h2>
         <p class="section-lede">Start on GitHub, then dig into the guides that match how you run the switch.</p>
         <ul class="card-list">
+          <li>
+            <a href="https://github.com/WBEVAN/TESmartController/blob/main/Docs/install.md">
+              <span class="label">Guided setup</span>
+              <span class="hint">install, then quickstart on the server</span>
+            </a>
+          </li>
           <li>
             <a href="https://github.com/WBEVAN/TESmartController#readme">
               <span class="label">README</span>

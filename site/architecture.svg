@@ -26,7 +26,7 @@
   <!-- Server -->
   <rect x="292" y="96" width="210" height="128" rx="12" fill="url(#box)" stroke="#e8b84a" stroke-opacity="0.7"/>
   <text x="397" y="138" text-anchor="middle" fill="#e8f0ea" font-family="Syne, system-ui, sans-serif" font-size="15" font-weight="700">tesmartctl</text>
-  <text x="397" y="160" text-anchor="middle" fill="#c8d4cc" font-family="IBM Plex Sans, system-ui, sans-serif" font-size="12">listen --http --panel</text>
+  <text x="397" y="160" text-anchor="middle" fill="#c8d4cc" font-family="IBM Plex Sans, system-ui, sans-serif" font-size="12">install, then quickstart</text>
   <text x="397" y="182" text-anchor="middle" fill="#e8b84a" font-family="IBM Plex Sans, system-ui, sans-serif" font-size="11">/api · /events · /banner</text>
   <text x="397" y="202" text-anchor="middle" fill="#c8d4cc" font-family="IBM Plex Sans, system-ui, sans-serif" font-size="11">callbacks ’ Hubitat</text>
 
