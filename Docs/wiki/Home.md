@@ -6,14 +6,16 @@ Control TESmart 8- and 16-port HDMI / KVM switches over LAN or RS232 — CLI, HT
 
 ## Start here
 
-1. [Setup](Setup) — `tesmartctl install`, then `tesmartctl quickstart` on the server
-2. [Floating kit](Floating-Kit) — floating UI application kit (`/kit`, `tesmartctl kit`)
-3. [Hubitat](Hubitat) — Manager app, controller, child inputs, push callbacks
-4. [Control panel](Control-Panel) — browser-only control panel at `/panel`
-5. [Listener & HTTP](Listener-and-HTTP) — URLs, SSE vs Hubitat callbacks, Stream Deck / Companion
-6. [mDNS](mDNS) — advertise / discover / `--via auto`, limits, typed-URL fallback
-7. [CLI reference](CLI-Reference) — everyday commands (input, peek, cycle, banner, names)
-8. [Troubleshooting](Troubleshooting) — offline kit, reconnect, banners, `--fresh`
+1. [Setup](Setup) — install the package and reach the switch
+2. [Quick start](Quickstart) — `tesmartctl install`, then `tesmartctl quickstart` on the server
+3. [Client install](Client-Install) — `tesmartctl install` on another computer, then `tesmartctl --via auto kit`
+4. [Floating kit](Floating-Kit) — floating UI application kit (`/kit`, `tesmartctl kit`)
+5. [Hubitat](Hubitat) — Manager app, controller, child inputs, push callbacks
+6. [Control panel](Control-Panel) — browser-only control panel at `/panel`
+7. [Listener & HTTP](Listener-and-HTTP) — URLs, SSE vs Hubitat callbacks, Stream Deck / Companion
+8. [mDNS](mDNS) — advertise / discover / `--via auto`, limits, typed-URL fallback
+9. [CLI reference](CLI-Reference) — everyday commands (input, peek, cycle, banner, names)
+10. [Troubleshooting](Troubleshooting) — offline kit, reconnect, banners, `--fresh`
 
 ## Also in the repo
 

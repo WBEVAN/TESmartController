@@ -42,9 +42,9 @@ tesmartctl quickstart
 Use this on a computer that talks to a listener already running somewhere else. It does not open the HDMI switch itself.
 
 1. Find the listener with mDNS (`tesmartctl --via auto`) or type its `http://host:port` URL.
-2. mDNS checks for `zeroconf` the same way the server does, then asks for the instance name the server is advertising.
-3. Optional check: browse the LAN, or GET `/version` on the URL you typed.
-4. Optional local kit window (`pywebview`, with Chrome or Edge as the fallback).
+2. mDNS checks for `zeroconf` the same way the server does, then scans the network and lists the listeners it finds. Pick one, or type a different mDNS name when the server you want is not in the list.
+3. When no listener is advertising yet, the wizard still asks for the instance name and can look again. A typed URL is checked with GET `/version`.
+4. Optional local kit window (`pywebview`, with Chrome or Edge as the fallback). The usual client command after that is `tesmartctl --via auto kit`.
 
 The same `startup.txt` offer lists the client commands. Confirming saves `TESMART_VIA` and `TESMART_MDNS_NAME`.
 
@@ -53,6 +53,8 @@ The same `startup.txt` offer lists the client commands. Confirming saves `TESMAR
 The wizard prints these links at the start and again when it finishes:
 
 - [Setup](https://github.com/WBEVAN/TESmartController/wiki/Setup)
+- [Quick start](https://github.com/WBEVAN/TESmartController/wiki/Quickstart)
+- [Client install](https://github.com/WBEVAN/TESmartController/wiki/Client-Install)
 - [Listener and HTTP](https://github.com/WBEVAN/TESmartController/wiki/Listener-and-HTTP)
 - [mDNS](https://github.com/WBEVAN/TESmartController/wiki/mDNS)
 - [Control panel](https://github.com/WBEVAN/TESmartController/wiki/Control-Panel)

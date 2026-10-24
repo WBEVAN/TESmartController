@@ -16,7 +16,11 @@ tesmartctl quickstart
 # the same listener, written out
 tesmartctl listen --http 0.0.0.0:8080 --panel --mdns-name OfficeHDMI
 
-# any client on the same LAN
+# another computer: tesmartctl install, choose Client
+# the wizard scans and lists the listeners on the network
+tesmartctl --via auto kit
+
+# the same client, written out
 tesmartctl discover
 tesmartctl --via auto --mdns-name OfficeHDMI input 3
 tesmartctl --via auto kit --fresh

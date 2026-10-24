@@ -21,7 +21,7 @@ tesmartctl install
 tesmartctl quickstart
 ```
 
-Full walk-through: [Docs/install.md](https://github.com/WBEVAN/TESmartController/blob/main/Docs/install.md).
+Full walk-through: [Docs/install.md](https://github.com/WBEVAN/TESmartController/blob/main/Docs/install.md). Server start: [Quick start](Quickstart). Another computer: [Client install](Client-Install).
 
 ## Reach the switch
 
@@ -62,7 +62,7 @@ tesmartctl quickstart
 
 `install` saves the switch address, the HTTP listen address (`TESMART_HTTP`), the listen port (`TESMART_HTTP_PORT`), and the browser UI choice (`TESMART_HTTP_PANEL`). `quickstart` starts that listener and leaves it running. `/kit` is the floating UI application kit. `/panel` is the browser-only control panel. Both are on by default.
 
-Leave `quickstart` running. CLI one-shots, Stream Deck HTTP, the kit, the panel, and Hubitat all talk through it (or open their own short-lived TCP sessions for one-shots). `quickstart` is the same process as `tesmartctl listen` with the options `install` saved. The wizard also prints that longer command. Walk-through: [Docs/install.md](https://github.com/WBEVAN/TESmartController/blob/main/Docs/install.md).
+Leave `quickstart` running. CLI one-shots, Stream Deck HTTP, the kit, the panel, and Hubitat all talk through it (or open their own short-lived TCP sessions for one-shots). `quickstart` is the same process as `tesmartctl listen` with the options `install` saved. The wizard also prints that longer command. Page: [Quick start](Quickstart). Walk-through: [Docs/install.md](https://github.com/WBEVAN/TESmartController/blob/main/Docs/install.md).
 
 Optional LAN discovery (`pip install 'tesmartctl[mdns]'`): during `install`, choose a listen address other computers can open, then from another machine use `tesmartctl --via auto …`. Limits and typed-URL fallback: [mDNS](mDNS).
 
@@ -76,8 +76,31 @@ tesmartctl name list
 tesmartctl input Office
 ```
 
+## Quick start
+
+On the server:
+
+```bash
+tesmartctl install
+tesmartctl quickstart
+```
+
+Details, including what happens when the saved listener is missing: [Quick start](Quickstart).
+
+## Client install
+
+On another computer, run `tesmartctl install` and choose Client. Choosing mDNS scans the network and lists the listeners it finds. After that:
+
+```bash
+tesmartctl --via auto kit
+```
+
+Details: [Client install](Client-Install).
+
 ## Next
 
+- [Quick start](Quickstart) — `install`, then `quickstart` on the server
+- [Client install](Client-Install) — another computer, then `tesmartctl --via auto kit`
 - [Floating kit](Floating-Kit) — floating UI application kit at `/kit`
 - [Hubitat](Hubitat) — smart-home drivers
 - [Control panel](Control-Panel) — browser-only control panel at `/panel`

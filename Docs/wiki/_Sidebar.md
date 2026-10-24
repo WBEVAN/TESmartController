@@ -1,6 +1,8 @@
 **Getting started**
 * [Home](Home)
 * [Setup](Setup)
+* [Quick start](Quickstart)
+* [Client install](Client-Install)
 * [Floating kit](Floating-Kit)
 * [Hubitat](Hubitat)
 * [Control panel](Control-Panel)

@@ -5,8 +5,9 @@ Short everyday list. On the server, run `tesmartctl install` first, then `tesmar
 ## Connection & config
 
 ```bash
-tesmartctl install
-tesmartctl quickstart
+tesmartctl install          # server, or a client on another computer
+tesmartctl quickstart       # server: start the listener saved by install
+tesmartctl --via auto kit   # client: floating kit, after a client install
 tesmartctl status
 tesmartctl config set --host 192.168.1.50 --port 5000
 tesmartctl config path
