@@ -992,6 +992,29 @@ body.kit-float.is-transparent .panel {
   font-size: 12px;
 }
 
+.kit-float .theme-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.kit-float .input.is-disabled,
+.kit-float .input.is-disabled:hover,
+.kit-float .input.is-disabled:active,
+.kit-float .compact .input.is-disabled,
+.kit-float .compact .input.is-disabled:hover,
+.kit-float .compact .input.is-disabled:active {
+  background-image: url(/static/kit/svg/button-face-idle.svg);
+  cursor: not-allowed;
+  color: #9aa3ab;
+}
+
+.kit-float .input.is-disabled::before,
+.kit-float .compact .input.is-disabled::before {
+  opacity: 0.45;
+}
+
 .kit-float .theme-row > span {
   min-width: 4.5rem;
   color: var(--kit-face-muted);

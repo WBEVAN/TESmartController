@@ -53,7 +53,11 @@
     bannerTimer: 0,
     history: [],
     nextId: 1,
+    showNames: false,
+    hideDisabled: false,
   };
+
+  const DISABLED = new Set([6]);
 
   function postHeight() {
     const height = Math.ceil(document.documentElement.scrollHeight);
@@ -199,18 +203,35 @@
     }
     digits.textContent = "--";
 
+    bodyEl.classList.toggle("show-names", state.showNames);
     grid.replaceChildren();
     for (let n = 1; n <= state.count; n++) {
+      const skipped = DISABLED.has(n);
+      if (state.hideDisabled && skipped) continue;
+      const named = NAMES[n] || "";
       const b = document.createElement("button");
       b.type = "button";
-      b.className = "input" + (n === state.active ? " selected" : "");
-      b.textContent = String(n);
+      b.className = "input" + (n === state.active ? " selected" : "") + (skipped ? " is-disabled" : "");
+      const face = document.createElement("span");
+      face.className = "input-face";
+      face.textContent = state.showNames && named ? named : String(n);
+      b.append(face);
       b.setAttribute("aria-pressed", String(n === state.active));
-      b.setAttribute("aria-label", `Input ${n}: ${NAMES[n] || "HDMI " + n}`);
-      b.addEventListener("click", () => {
-        state.active = n;
-        draw();
-      });
+      b.setAttribute("aria-disabled", String(skipped));
+      b.setAttribute("aria-label", `Input ${n}: ${named || "HDMI " + n}`);
+      b.title = skipped
+        ? state.showNames && named
+          ? `${named} (input ${n}, disabled)`
+          : `Input ${n} (disabled)`
+        : state.showNames && named
+          ? `${named} (input ${n})`
+          : named || `Input ${n}`;
+      if (!skipped) {
+        b.addEventListener("click", () => {
+          state.active = n;
+          draw();
+        });
+      }
       grid.append(b);
     }
     postHeight();
@@ -252,21 +273,20 @@
     if (event.target === historyDialog) closeHistory();
   });
 
-  $("#service-door").addEventListener("click", () => {
-    const bay = $("#service-bay");
-    const open = bay.dataset.open !== "true";
-    bay.dataset.open = String(open);
-    $("#service-bay-inner").hidden = !open;
-    $("#service-door").setAttribute("aria-expanded", String(open));
-    postHeight();
-  });
-
   window.addEventListener("message", (event) => {
     const data = event.data;
     if (!data || typeof data !== "object") return;
     if (data.type === "kit-demo-view") setView(data.view);
     if (data.type === "kit-demo-body") setBody(data.body);
     if (data.type === "kit-demo-lcd") setLcd(data.lcd);
+    if (data.type === "kit-demo-names") {
+      state.showNames = Boolean(data.on);
+      draw();
+    }
+    if (data.type === "kit-demo-hide-disabled") {
+      state.hideDisabled = Boolean(data.on);
+      draw();
+    }
     if (data.type === "kit-demo-banner") {
       showBanner(data.text, { sticky: data.sticky, seconds: data.seconds });
     }

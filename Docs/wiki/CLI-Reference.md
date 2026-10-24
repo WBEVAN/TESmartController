@@ -24,7 +24,12 @@ tesmartctl input
 tesmartctl name set 2 Office
 tesmartctl name list
 tesmartctl name unset 1
+tesmartctl disable 4
+tesmartctl disable Office
+tesmartctl enable 4
 ```
+
+`disable` and `enable` take an input number or a local name. A disabled input is ignored for selection, peek, and next/previous. It can stay in a saved cycle. At least one input must stay enabled. Inputs are enabled unless you disable them.
 
 ## Peek, cycle, rotate
 

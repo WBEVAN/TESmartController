@@ -12,6 +12,8 @@ file next to the env file instead (``~/.config/tesmartctl/kit.json``):
 * ``lcd`` — ``green`` (default), ``blue``, ``red``, or dark ``amber`` (orange phosphor)
 * ``highlight`` — optional ``#RRGGBB`` key/chrome highlight; omit for LCD default
 * ``lcd_glass`` — ``matrix`` (default mesh), ``phosphor`` (mesh + bleed), or ``off``
+* ``hide_disabled`` — omit disabled inputs from the key grid
+* ``show_names`` — show each input's local name on its key instead of the number
 
 ``fresh=True`` ignores whatever is saved for this launch (defaults only); new
 changes made in that session are saved as normal, replacing the old file.
@@ -72,6 +74,10 @@ def _clean(data: Any) -> dict[str, Any]:
     highlight = data.get("highlight")
     if isinstance(highlight, str) and _HEX_COLOR.fullmatch(highlight.strip()):
         out["highlight"] = highlight.strip().lower()
+    if isinstance(data.get("hide_disabled"), bool):
+        out["hide_disabled"] = data["hide_disabled"]
+    if isinstance(data.get("show_names"), bool):
+        out["show_names"] = data["show_names"]
     return out
 
 

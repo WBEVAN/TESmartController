@@ -10,7 +10,7 @@ from __future__ import annotations
 # command -> list of (invocation, what it does)
 EXAMPLES: dict[str, list[tuple[str, str]]] = {
     "status": [
-        ("tesmartctl status", "active input, local names, saved IP/port/gateway/mask"),
+        ("tesmartctl status", "active input, which inputs are enabled or disabled, local names, saved LAN settings"),
         ("tesmartctl status --no-network", "active input only; skips the four LAN queries"),
         ("tesmartctl --json status", "same data as one JSON object"),
         ("tesmartctl --host 192.168.1.10 status", "ask a switch at a different address"),
@@ -128,6 +128,14 @@ EXAMPLES: dict[str, list[tuple[str, str]]] = {
         ("tesmartctl config set port 5000", "TCP port of the switch"),
         ("tesmartctl config set inputs 16", "for a 16x1 switch"),
         ("tesmartctl config set serial /dev/tty.usbserial-A1", "use RS232 instead of LAN"),
+    ],
+    "disable": [
+        ("tesmartctl disable 4", "ignore input 4 for selection, peek, and next/previous"),
+        ("tesmartctl disable Office", "same, by the local name"),
+    ],
+    "enable": [
+        ("tesmartctl enable 4", "allow input 4 again"),
+        ("tesmartctl enable Office", "same, by the local name"),
     ],
     "name": [
         ("tesmartctl name set 2 Office", "label input 2 (stored locally, not on the switch)"),

@@ -18,6 +18,11 @@
 .compact .input{height:53px;padding:28px 3px 4px;background:url(svg/button-idle.svg) center/100% 100% no-repeat;border:0;border-radius:10px;font-size:16px;line-height:19px}
 .compact .input:hover{background-image:url(svg/button-hover.svg)}.compact .input:active{background-image:url(svg/button-pressed.svg)}
 .compact .input.selected{background-image:url(svg/button-selected.svg);border:0;color:#35dafa}
+.input.is-disabled,.input.is-disabled:hover,.input.is-disabled:active,.compact .input.is-disabled,.compact .input.is-disabled:hover,.compact .input.is-disabled:active{background-image:url(svg/button-idle.svg);cursor:not-allowed;color:#9aa3ab}
+.input.is-disabled::before,.compact .input.is-disabled::before{opacity:.45}
+body.show-names .input{padding-left:6px;padding-right:6px}
+body.show-names .input-face{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;font-size:12px;line-height:1.1;letter-spacing:0;white-space:normal;max-width:100%}
+body.show-names .compact .input-face,body.show-names.preview-16 .input-face{font-size:11px}
 .compact .input.peeking{background-image:url(svg/button-peek.svg);border:0;color:#ffc45c}
 
 .action-icon{width:18px;height:18px;vertical-align:middle;flex-shrink:0}.controls button,.view-toggle,.cycle-controls button{display:inline-flex;align-items:center;justify-content:center;gap:4px}

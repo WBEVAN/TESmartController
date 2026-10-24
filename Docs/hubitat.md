@@ -22,7 +22,7 @@ App and drivers use the Hubitat namespace **`wbevan_tesmart`**. If you previousl
 
 ### Push notifications (callbacks)
 
-With a recent `tesmartctl listen --http`, **TESmart Manager** can register this hub as a named callback (`name` like `Hubitat <location>`). When the switch input changes, or when local input names are updated on the server, the listener POSTs JSON (`event`: `input_changed` or `names_changed`) to Hubitat so the controller and child labels update without waiting for the next poll. The same channel receives `event: banner` when an LCD message is shown or cleared (`POST /banner` / `POST /api/banner` / `tesmartctl banner`); the controller updates `bannerText` / `bannerShowing` / `bannerMode`. `GET /callbacks/health` on the server can probe the hub with `event: health_check` (acknowledged without changing devices). Turn this on under **Push notifications** in the Manager app (requires OAuth enabled for the app — HPM sets this when `oauth` is true in the package).
+With a recent `tesmartctl listen --http`, **TESmart Manager** can register this hub as a named callback (`name` like `Hubitat <location>`). When the switch input changes, or when local input names are updated on the server, the listener POSTs JSON (`event`: `input_changed` or `names_changed`) to Hubitat so the controller and child labels update without waiting for the next poll. Enabling or disabling an input from the panel also posts `event`: `enabled_changed` (`disabled`, `names`, `input_count`). The current Hubitat drivers leave the devices as they are when that event arrives. The same channel receives `event: banner` when an LCD message is shown or cleared (`POST /banner` / `POST /api/banner` / `tesmartctl banner`); the controller updates `bannerText` / `bannerShowing` / `bannerMode`. `GET /callbacks/health` on the server can probe the hub with `event: health_check` (acknowledged without changing devices). Turn this on under **Push notifications** in the Manager app (requires OAuth enabled for the app — HPM sets this when `oauth` is true in the package).
 
 Browser kit/panel clients do **not** use this outbound POST path. They open `GET /api/events` (Server-Sent Events) for the same logical events. See [`listener.md`](listener.md#server-sent-events-kit--panel).
 
@@ -173,7 +173,7 @@ Add child devices as Switch tiles. The lit tile is the active input.
 | Banner | `POST /banner` (`text` / `sticky` / `dismiss` / `show` / `clear`) |
 | Load / save port names | `GET /names`, `POST /names` |
 | Register / remove push URL | `POST /callbacks`, `POST /callbacks/remove` |
-| Server → Hubitat push | `POST` to Manager `/tesmart-event` (`input_changed`, `names_changed`, `banner`, `health_check`) |
+| Server → Hubitat push | `POST` to Manager `/tesmart-event` (`input_changed`, `names_changed`, `enabled_changed`, `banner`, `health_check`). The current drivers apply input, name, and banner events. `enabled_changed` is delivered and left unused. |
 
 Full route list: [`listener.md`](listener.md).
 

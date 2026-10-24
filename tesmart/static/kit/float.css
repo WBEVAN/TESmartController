@@ -212,6 +212,28 @@ body.kit-float.preview-16 .panel.compact .input {
   cursor: default;
 }
 
+.kit-float.show-names .input {
+  padding-left: 6px;
+  padding-right: 6px;
+}
+
+.kit-float.show-names .input-face {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 1.1;
+  letter-spacing: 0;
+  white-space: normal;
+  max-width: 100%;
+}
+
+.kit-float.show-names.preview-16 .input-face,
+.kit-float.show-names .panel.compact .input-face {
+  font-size: 11px;
+}
+
 /* View size is a cycle — LCD highlight colour on hover / keyboard focus. */
 .kit-float .view-toggle:hover,
 .kit-float .view-toggle:focus-visible {

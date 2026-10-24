@@ -37,6 +37,18 @@
   box-shadow: 0 0 0 0.2rem rgba(var(--bs-warning-rgb), 0.6);
 }
 
+.input-btn.is-disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.names-enabled {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  white-space: nowrap;
+}
+
 .peek-seconds {
   width: 5.5rem;
 }

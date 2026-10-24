@@ -26,7 +26,7 @@ Base: `http://127.0.0.1:8765` (or your bind host/port)
 | `GET /status` | Connection + active input |
 | `GET` / `POST /input` | Query or select input |
 | `POST /banner` | Show / dismiss / clear banners |
-| `GET /events` | Server-Sent Events (input / names / banner push) |
+| `GET /events` | Server-Sent Events (input, names, enable/disable, banner push) |
 | `GET /api/events` | Same stream for kit / panel (`--panel`) |
 | `GET /kit` | Floating kit UI |
 | `GET /panel` | Full panel UI |
@@ -42,7 +42,7 @@ Exact query/body shapes live in the repo listener doc — prefer that as the sou
 | Hubitat | Outbound `POST` to registered `/callbacks` URLs (+ its own poll) |
 | Stream Deck / Companion / curl | Usually one-shot HTTP; optional `curl -N /events` to watch |
 
-SSE event names: `hello`, `input_changed`, `names_changed`, `banner`. Same JSON shape as Hubitat callback bodies.
+SSE event names: `hello`, `input_changed`, `names_changed`, `enabled_changed`, `banner`, `peek_follow`. Same JSON shape as callback bodies. `enabled_changed` is sent when an input is enabled or disabled from the panel.
 
 ## Who uses it
 

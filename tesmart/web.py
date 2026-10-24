@@ -57,7 +57,7 @@ ROUTES = {
     "/get": "same as /input",
     "/set?input=N": "same as /input?set=N",
     "/set/N": "same as /input?set=N",
-    "/status": "active input plus saved IP, port, gateway, and mask",
+    "/status": "active input, enabled and disabled inputs, plus saved IP, port, gateway, and mask",
     "/status?network=0": "active input only (skips the LAN queries)",
     "/version": "tesmartctl package version and feature tags",
     "/compat": "GET/POST {\"min_server\":\"0.0.7.9\",\"features\":[\"callbacks\"]} → compatible?",
@@ -208,6 +208,14 @@ def _status_text(payload: dict) -> str:
     for key in ("ip", "port", "gateway", "mask"):
         if key in network:
             lines.append(f"{key}: {network[key]}")
+    if "enabled" in payload or "disabled" in payload:
+        enabled_text, disabled_text = config.format_input_enablement(
+            payload.get("enabled") or [],
+            payload.get("disabled") or [],
+            payload.get("names"),
+        )
+        lines.append(f"enabled: {enabled_text}")
+        lines.append(f"disabled: {disabled_text}")
     names = payload.get("names") or {}
     if names:
         lines.append("names:")
@@ -393,6 +401,7 @@ class _Handler(BaseHTTPRequestHandler):
         if request.verb == "status":
             payload["version"] = pkg_version.package_version()
             payload["mdns_name"] = getattr(self.server, "mdns_name", None)
+            payload.update(config.input_enablement(self.server.switch.input_count, self.server.env_file))
             payload["rotate"] = config.rotate_info(self.server.env_file, input_count=self.server.switch.input_count)
             payload["peek"] = config.peek_info(self.server.env_file)
             payload["peek"]["follow"] = self.server.peek_follow.status()["mode"]
@@ -638,7 +647,9 @@ class _Handler(BaseHTTPRequestHandler):
     def _peek(self, request: WebRequest) -> dict:
         """Blocks until the switch is back. The device lock is held only while talking to it."""
         seconds = request.seconds if request.seconds is not None else config.read_peek_seconds(self.server.env_file)
-        return self.server.peeker.run(self._resolve(request), seconds).to_dict()
+        number = self._resolve(request)
+        config.require_enabled(number, self.server.env_file)
+        return self.server.peeker.run(number, seconds).to_dict()
 
     def _followed(self, number: int) -> dict | None:
         """Peek at ``number`` when follow mode is armed. The request waits until back."""
@@ -654,6 +665,7 @@ class _Handler(BaseHTTPRequestHandler):
         switch = self.server.switch
         if request.verb in {"rotate", "previous"}:
             only = request.only if request.only is not None else config.read_rotate(self.server.env_file)
+            only = config.enabled_cycle(switch.input_count, only, self.server.env_file)
             direction = -1 if request.verb == "previous" else 1
             with self.server.lock:
                 current = switch.get_active_input()
@@ -669,6 +681,7 @@ class _Handler(BaseHTTPRequestHandler):
             return {"previous": current, "requested": reported, "active_input": reported}
         if request.verb == "set":
             number = self._resolve(request)
+            config.require_enabled(number, self.server.env_file)
             followed = self._followed(number)
             if followed is not None:
                 return followed
@@ -686,6 +699,7 @@ class _Handler(BaseHTTPRequestHandler):
             if request.verb == "get":
                 return {"active_input": switch.get_active_input()}
             number = self._resolve(request)
+            config.require_enabled(number, self.server.env_file)
             return {"active_input": switch.set_input(number, verify=True), "requested": number}
 
     def _send(self, status: HTTPStatus, payload: dict, as_text: bool, text: str | None = None) -> None:

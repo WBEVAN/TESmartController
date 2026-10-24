@@ -85,6 +85,7 @@ API_CATALOG: list[dict[str, Any]] = [
         "blocked": True,
     },
     {"method": "POST", "path": "/api/names", "summary": "set local names; an empty string removes one", "sample": {"names": {"1": "Office", "2": ""}}},
+    {"method": "POST", "path": "/api/enabled", "summary": "enable or disable an input for selection, peek, and next/previous", "sample": {"input": 4, "enabled": False}},
     {
         "method": "GET",
         "path": "/api/banner",
@@ -262,8 +263,15 @@ def build_state(handler: "_Handler", include_network: bool) -> dict[str, Any]:
     status["peek"]["follow"] = server.peek_follow.status()["mode"]
     # Prefer the live in-memory copy (updated on each write); fall back to env file.
     status["last_sent"] = dict(server.last_sent) if server.last_sent else config.read_last_sent(server.env_file)
+    disabled = config.read_disabled(server.env_file)
+    status["disabled"] = sorted(number for number in disabled if 1 <= number <= switch.input_count)
     status["inputs"] = [
-        {"number": number, "name": names.get(number)} for number in range(1, switch.input_count + 1)
+        {
+            "number": number,
+            "name": names.get(number),
+            "enabled": number not in disabled,
+        }
+        for number in range(1, switch.input_count + 1)
     ]
     status["callbacks"] = callbacks.list_callbacks(server.env_file).get("callbacks", [])
     banner_payload = server.banner.payload()
@@ -320,6 +328,7 @@ def _action_input(handler: "_Handler", body: dict[str, Any]) -> dict[str, Any]:
         raise PanelError('"input" is required')
     names = config.read_names(server.env_file)
     number = config.resolve_named_input(str(raw), input_count=server.switch.input_count, names=names)
+    config.require_enabled(number, server.env_file)
     followed = _follow_or_stick(handler, number)
     if followed is not None:
         _note_input_change(handler, followed)
@@ -338,7 +347,7 @@ def _action_input(handler: "_Handler", body: dict[str, Any]) -> dict[str, Any]:
 
 def _action_step(handler: "_Handler", direction: int) -> dict[str, Any]:
     server = handler.server
-    only = config.read_rotate(server.env_file)
+    only = config.enabled_cycle(server.switch.input_count, config.read_rotate(server.env_file), server.env_file)
     with server.lock:
         current = server.switch.get_active_input()
         step = previous_input if direction < 0 else next_input
@@ -365,6 +374,7 @@ def _action_peek(handler: "_Handler", body: dict[str, Any]) -> dict[str, Any]:
         raise PanelError('"input" is required')
     names = config.read_names(server.env_file)
     number = config.resolve_named_input(str(raw), input_count=server.switch.input_count, names=names)
+    config.require_enabled(number, server.env_file)
     seconds = body.get("seconds")
     if seconds is None:
         seconds = config.read_peek_seconds(server.env_file)
@@ -510,6 +520,40 @@ def _action_names(handler: "_Handler", body: dict[str, Any]) -> dict[str, Any]:
     return {"names": {str(number): label for number, label in names.items()}}
 
 
+def _inputs_payload(handler: "_Handler") -> list[dict[str, Any]]:
+    env = handler.server.env_file
+    names = config.read_names(env)
+    disabled = config.read_disabled(env)
+    count = handler.server.switch.input_count
+    return [
+        {"number": number, "name": names.get(number), "enabled": number not in disabled}
+        for number in range(1, count + 1)
+    ]
+
+
+def _action_enabled(handler: "_Handler", body: dict[str, Any]) -> dict[str, Any]:
+    raw = body.get("input")
+    if isinstance(raw, bool) or not isinstance(raw, int) and not (isinstance(raw, str) and raw.isdigit()):
+        raise PanelError('"input" must be an input number')
+    if not isinstance(body.get("enabled"), bool):
+        raise PanelError('"enabled" must be true or false')
+    number = int(raw)
+    config.set_input_enabled(
+        number,
+        body["enabled"],
+        handler.server.env_file,
+        input_count=handler.server.switch.input_count,
+    )
+    hub = getattr(handler.server, "callbacks", None)
+    if hub is not None:
+        hub.note_enabled(source="command")
+    disabled = sorted(
+        item for item in config.read_disabled(handler.server.env_file)
+        if 1 <= item <= handler.server.switch.input_count
+    )
+    return {"input": number, "enabled": body["enabled"], "disabled": disabled, "inputs": _inputs_payload(handler)}
+
+
 def _action_cycle(handler: "_Handler", body: dict[str, Any]) -> dict[str, Any]:
     server = handler.server
     count = server.switch.input_count
@@ -634,7 +678,7 @@ def _api(handler: "_Handler", method: str, segments: list[str], query_text: str)
 
     writable = {
         "input", "next", "previous", "peek", "peek-default", "peek-follow",
-        "buzzer", "led", "autodetect", "network", "names", "cycle", "kit-window",
+        "buzzer", "led", "autodetect", "network", "names", "enabled", "cycle", "kit-window",
     }
     if name not in writable:
         raise PanelError("not supported", HTTPStatus.NOT_FOUND)
@@ -653,6 +697,7 @@ def _api(handler: "_Handler", method: str, segments: list[str], query_text: str)
         "autodetect": lambda: _action_autodetect(handler, body),
         "network": lambda: _action_network_set(handler, body),
         "names": lambda: _action_names(handler, body),
+        "enabled": lambda: _action_enabled(handler, body),
         "cycle": lambda: _action_cycle(handler, body),
         "kit-window": lambda: _action_kit_window(handler, body),
     }

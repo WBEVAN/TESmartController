@@ -30,6 +30,8 @@ from .version import package_version
 DOC_LINKS: tuple[tuple[str, str], ...] = (
     ("Guided setup", "https://github.com/WBEVAN/TESmartController/blob/main/Docs/install.md"),
     ("Setup", "https://github.com/WBEVAN/TESmartController/wiki/Setup"),
+    ("Quick start", "https://github.com/WBEVAN/TESmartController/wiki/Quickstart"),
+    ("Client install", "https://github.com/WBEVAN/TESmartController/wiki/Client-Install"),
     ("Listener and HTTP", "https://github.com/WBEVAN/TESmartController/wiki/Listener-and-HTTP"),
     ("mDNS", "https://github.com/WBEVAN/TESmartController/wiki/mDNS"),
     ("Control panel", "https://github.com/WBEVAN/TESmartController/wiki/Control-Panel"),
@@ -50,6 +52,8 @@ STARTUP_NAME = "startup.txt"
 _CONFIG_KEYS = tuple(config.SETTINGS[name][0] for name in config.SETTINGS) + (
     config.MDNS_NAME_KEY,
     config.VIA_KEY,
+    config.CLIENT_MDNS_NAME_KEY,
+    config.CLIENT_VIA_KEY,
     config.HTTP_KEY,
     config.HTTP_PORT_KEY,
     config.HTTP_PANEL_KEY,
@@ -608,29 +612,101 @@ def serial_port_names() -> list[str]:
         return []
 
 
+# Selecting input 9 distinguishes an 8-port switch from a 16-port switch.
+PROBE_INPUT = 9
+PROBE_WIDE_INPUTS = 16
+PROBE_NARROW_INPUTS = 8
+
+
+@dataclass(frozen=True)
+class SwitchProbe:
+    """Result of opening the switch and, when it answers, counting its inputs."""
+
+    ok: bool
+    summary: str
+    inputs: int | None = None
+    previous: int | None = None
+    restored_to: int | None = None
+
+
+class _InputProbe(Protocol):
+    def get_active_input(self) -> int: ...
+
+    def set_input(self, number: int, verify: bool = ...) -> int | None: ...
+
+
+def measure_input_count(switch: _InputProbe) -> SwitchProbe:
+    """Read the active input, select input 9, then return to the original input.
+
+    Input 9 staying active means 16 ports. Any other active input means 8.
+    The original input is selected again even when the probe does not land on 9.
+    """
+    from .switch import SwitchError
+    from .transport import TransportError
+
+    try:
+        previous = switch.get_active_input()
+    except (SwitchError, TransportError, OSError) as exc:
+        return SwitchProbe(False, str(exc))
+
+    after: int | None = None
+    try:
+        after = switch.set_input(PROBE_INPUT, verify=True)
+    except (SwitchError, TransportError, OSError):
+        try:
+            after = switch.get_active_input()
+        except (SwitchError, TransportError, OSError):
+            after = None
+
+    restored_to: int | None = None
+    try:
+        restored_to = switch.set_input(previous, verify=True)
+    except (SwitchError, TransportError, OSError):
+        try:
+            restored_to = switch.get_active_input()
+        except (SwitchError, TransportError, OSError):
+            restored_to = None
+
+    if after is None:
+        return SwitchProbe(
+            False,
+            "Could not read the input after selecting input 9.",
+            previous=previous,
+            restored_to=restored_to,
+        )
+    inputs = PROBE_WIDE_INPUTS if after == PROBE_INPUT else PROBE_NARROW_INPUTS
+    return SwitchProbe(True, "", inputs=inputs, previous=previous, restored_to=restored_to)
+
+
 def probe_switch(
     *,
     host: str,
     port: int,
     serial: str | None,
-    inputs: int,
+    inputs: int = PROBE_WIDE_INPUTS,
     timeout: float = 3.0,
-) -> tuple[bool, str]:
-    """Open the switch and read the active input. Returns ``(ok, message)``."""
+) -> SwitchProbe:
+    """Open the switch, count its inputs, and return to the input that was active."""
     from .switch import SwitchError, TesmartSwitch
     from .transport import SerialTransport, TcpTransport, TransportError
 
     try:
-        transport = SerialTransport(serial, DEFAULT_BAUD_RATE) if serial else TcpTransport(host, port, connect_timeout=timeout)
-        with TesmartSwitch(transport, input_count=inputs, reply_timeout=timeout) as switch:
-            active = switch.get_active_input()
+        transport = (
+            SerialTransport(serial, DEFAULT_BAUD_RATE)
+            if serial
+            else TcpTransport(host, port, connect_timeout=timeout)
+        )
+        with TesmartSwitch(transport, input_count=PROBE_WIDE_INPUTS, reply_timeout=timeout) as switch:
+            measured = measure_input_count(switch)
     except (TransportError, SwitchError, OSError) as exc:
-        return False, str(exc)
+        return SwitchProbe(False, str(exc))
+    if not measured.ok:
+        return measured
     where = server_switch_summary(
         ServerPlan(
             host=host,
             port=port,
-            inputs=inputs,
+            inputs=measured.inputs or inputs,
             serial=serial,
             tested=True,
             http=False,
@@ -641,7 +717,13 @@ def probe_switch(
             bind="127.0.0.1",
         )
     )
-    return True, f"Connected to {where}. Active input is {active}."
+    return SwitchProbe(
+        True,
+        f"Connected to {where}.",
+        inputs=measured.inputs,
+        previous=measured.previous,
+        restored_to=measured.restored_to,
+    )
 
 
 def probe_listener(url: str, timeout: float = 3.0) -> tuple[bool, str]:
@@ -659,14 +741,66 @@ def probe_listener(url: str, timeout: float = 3.0) -> tuple[bool, str]:
 
 def probe_mdns(name: str | None, timeout: float = 2.0) -> tuple[bool, str, str | None]:
     """Browse for a listener. Returns ``(ok, message, base_url)``."""
-    from .mdns import MdnsError, browse, pick_listener
+    from .mdns import MdnsError, pick_listener
 
     try:
-        services = browse(timeout=timeout)
+        services = list_mdns_servers(timeout=timeout)
         chosen = pick_listener(services, name=name)
     except MdnsError as exc:
         return False, str(exc), None
     return True, f"Found {chosen.instance_name} at {chosen.base_url}.", chosen.base_url
+
+
+def list_mdns_servers(timeout: float = 2.0):
+    """Browse for ``_wbevan-tesmart._tcp`` listeners. Raises ``MdnsError`` when zeroconf is missing."""
+    from .mdns import browse
+
+    return browse(timeout=timeout)
+
+
+def _scan_mdns_servers(prompter: Prompter, scan: Callable[[], list], saved_name: str | None):
+    """List listeners on the LAN and let the user pick one.
+
+    Returns ``(name, url, tested)`` when a listed server is chosen. Returns
+    None when the scan is empty, it fails, or the user will type a name.
+    """
+    from .mdns import MdnsError
+
+    say(prompter)
+    say(prompter, "Scanning the network for tesmartctl listeners...")
+    try:
+        services = list(scan())
+    except MdnsError as exc:
+        say(prompter, str(exc), style="warn")
+        return None
+    if not services:
+        say(prompter, "No tesmartctl listeners were found on the network.", style="warn")
+        say(
+            prompter,
+            "You can still save the mDNS name the server advertises and connect when it is running.",
+        )
+        return None
+
+    type_key = "\0"
+    options = [(item.instance_name, f"{item.instance_name}  {item.base_url}") for item in services]
+    options.append((type_key, "Type a different mDNS name"))
+    wanted = (saved_name or "").casefold()
+    default = next(
+        (item.instance_name for item in services if item.instance_name.casefold() == wanted),
+        services[0].instance_name,
+    )
+    choice = _choose(
+        prompter,
+        "Servers on the network. Which one should this client use?",
+        options,
+        default=default,
+    )
+    if choice == type_key:
+        return None
+    chosen = next(item for item in services if item.instance_name == choice)
+    say(prompter)
+    say(prompter, f"Using {chosen.instance_name} at {chosen.base_url}.", style="ok")
+    return chosen.instance_name, chosen.base_url, True
 
 
 def ensure_extra(name: str, prompter: Prompter) -> bool:
@@ -846,12 +980,12 @@ def _save_server(plan: ServerPlan, env_file: str | None) -> Path:
 
 
 def _save_client(plan: ClientPlan, env_file: str | None) -> Path:
-    path = config.env_file_path(env_file)
-    if plan.via_url:
-        path = config.write_via_url(plan.via_url, env_file)
-    path = config.write_mdns_name(plan.mdns_name if plan.use_mdns else None, env_file)
-    config.write_http_listener(None, env_file=env_file)
-    return path
+    """Save the client connection beside any server listener in the same file."""
+    return config.write_client_connection(
+        plan.via_url,
+        plan.mdns_name if plan.use_mdns else None,
+        env_file,
+    )
 
 
 def _write_startup(directory: Path, text: str, prompter: Prompter) -> Path | None:
@@ -890,26 +1024,72 @@ def _saved_http(env_file: str) -> tuple[bool | None, int | None, bool | None, bo
     return True, saved_port or port, config.read_http_panel(env_file), config.read_http_mdns(env_file), choice
 
 
+def _show_switch_probe(prompter: Prompter, result: SwitchProbe) -> None:
+    """Print a connection check. Success is green. A missed restore is a warning."""
+    say(prompter)
+    if result.summary:
+        say(prompter, result.summary, style="ok" if result.ok else "warn")
+    if result.previous is not None:
+        say(prompter, f"Active input was {result.previous}.", style="ok")
+    if result.inputs == PROBE_WIDE_INPUTS:
+        say(prompter, "Input 9 became active. This is a 16-port switch.", style="ok")
+    elif result.inputs == PROBE_NARROW_INPUTS:
+        say(prompter, "Input 9 did not become active. This is an 8-port switch.", style="ok")
+    if result.previous is not None and result.restored_to == result.previous:
+        say(prompter, f"Active input is back on {result.previous}.", style="ok")
+    elif result.previous is not None:
+        where = result.restored_to if result.restored_to is not None else "unknown"
+        say(
+            prompter,
+            f"Could not return to input {result.previous}. The switch is on input {where}.",
+            style="warn",
+        )
+
+
+def _ask_inputs(
+    prompter: Prompter,
+    settings: config.Settings,
+    *,
+    lead: str,
+    default: int | None = None,
+) -> int:
+    heading(prompter, "HDMI inputs")
+    say(prompter, lead)
+    shown = settings.inputs if default is None else default
+    source = (
+        _source_label(settings.sources.get("inputs", "default"))
+        if default is None
+        else "connection test"
+    )
+    return int(
+        _ask_text(
+            prompter,
+            "How many HDMI inputs does the switch have? Usual models are 8 or 16",
+            default=str(shown),
+            source=source,
+            validate=_valid_inputs,
+        )
+    )
+
+
+def _coerce_probe(result: SwitchProbe | tuple) -> SwitchProbe:
+    if isinstance(result, SwitchProbe):
+        return result
+    inputs = result[2] if len(result) > 2 else None
+    return SwitchProbe(bool(result[0]), str(result[1]), inputs=inputs if isinstance(inputs, int) else None)
+
+
 def _gather_server(
     prompter: Prompter,
     settings: config.Settings,
     *,
     nics: list[Nic],
-    probe: Callable[..., tuple[bool, str]],
+    probe: Callable[..., SwitchProbe | tuple],
     ensure: Callable[[str, Prompter], bool],
 ) -> ServerPlan | None:
     saved_http, saved_port, saved_panel, saved_mdns, saved_bind = _saved_http(str(settings.env_file))
     while True:
         heading(prompter, "HDMI switch")
-        inputs = int(
-            _ask_text(
-                prompter,
-                "How many HDMI inputs does the switch have? Usual models are 8 or 16",
-                default=str(settings.inputs),
-                source=_source_label(settings.sources.get("inputs", "default")),
-                validate=_valid_inputs,
-            )
-        )
         transport = _choose(
             prompter,
             "How should this computer connect to the switch?",
@@ -968,19 +1148,58 @@ def _gather_server(
             )
 
         tested = False
-        if _ask_yes(prompter, "Test this connection now?", default=True):
-            ok, message = probe(host=host, port=port, serial=serial, inputs=inputs)
-            if ok:
-                say(prompter)
-                say(prompter, message, style="ok")
+        heading(prompter, "Connection check")
+        say(prompter, "This will test connectivity to the switch and determine if the switch is 8 or 16 ports.")
+        say(
+            prompter,
+            "During this test the active input will change and revert back to its current setting.",
+            style="warn",
+        )
+        if _ask_yes(prompter, "Do you wish to test and auto determine the input count?", default=True):
+            result = _coerce_probe(probe(host=host, port=port, serial=serial, inputs=PROBE_WIDE_INPUTS))
+            _show_switch_probe(prompter, result)
+            if result.ok and result.inputs is not None:
                 tested = True
+                if _ask_yes(
+                    prompter,
+                    "Would you like to modify the supported input count?",
+                    default=False,
+                ):
+                    inputs = _ask_inputs(
+                        prompter,
+                        settings,
+                        lead=f"The test found {result.inputs} HDMI inputs.",
+                        default=result.inputs,
+                    )
+                else:
+                    inputs = result.inputs
             else:
-                action = _after_failed_check(prompter, message)
+                action = _choose(
+                    prompter,
+                    "The check did not succeed.",
+                    [
+                        ("retry", "Enter the details again and retry"),
+                        ("continue", "Continue with these details anyway"),
+                        ("quit", "Quit without saving"),
+                    ],
+                    default="retry",
+                )
                 if action == "quit":
                     return None
                 if action == "retry":
                     continue
                 tested = False
+                inputs = _ask_inputs(
+                    prompter,
+                    settings,
+                    lead="The connection check did not finish, so confirm the number of HDMI inputs yourself.",
+                )
+        else:
+            inputs = _ask_inputs(
+                prompter,
+                settings,
+                lead="The connection was not tested, so confirm the number of HDMI inputs yourself.",
+            )
         break
 
     heading(prompter, "Discovery")
@@ -1118,14 +1337,15 @@ def _gather_client(
     ensure: Callable[[str, Prompter], bool],
     probe_url: Callable[[str], tuple[bool, str]],
     probe_name: Callable[[str | None], tuple[bool, str, str | None]],
+    scan: Callable[[], list],
 ) -> ClientPlan | None:
-    heading(prompter, "Listener")
-    saved_via = config.read_via_url(str(settings.env_file))
-    saved_name = config.read_mdns_name(str(settings.env_file))
+    heading(prompter, "Connect to Server")
+    saved_via = config.read_client_via_url(str(settings.env_file))
+    saved_name = config.read_client_mdns_name(str(settings.env_file))
     default_mode = "url" if saved_via and not saved_name else "mdns"
     mode = _choose(
         prompter,
-        "How should this client find the listener?",
+        "How should this client find and connect to the listener server?",
         [
             ("mdns", "mDNS / zeroconf (tesmartctl --via auto)"),
             ("url", "A listener URL (http://host:port)"),
@@ -1149,35 +1369,40 @@ def _gather_client(
                 return None
             use_mdns = False
         else:
-            current = (saved_name or default_instance_name())[:63]
-            mdns_name = " ".join(
-                _ask_text(
-                    prompter,
-                    "mDNS name to attach to (the name the server is advertising)",
-                    default=current,
-                    source="saved configuration" if saved_name else "this computer's hostname",
-                    validate=_valid_mdns,
-                ).split()
-            )
-            if _ask_yes(prompter, "Look for that listener on the LAN now?", default=True):
-                ok, message, found = probe_name(mdns_name)
-                if ok:
-                    say(prompter)
-                    say(prompter, message, style="ok")
-                    tested = True
-                    via_url = found or via_url
-                else:
-                    action = _after_failed_check(prompter, message)
-                    if action == "quit":
-                        return None
-                    if action == "retry":
-                        return _gather_client(
-                            prompter,
-                            settings,
-                            ensure=ensure,
-                            probe_url=probe_url,
-                            probe_name=probe_name,
-                        )
+            picked = _scan_mdns_servers(prompter, scan, saved_name)
+            if picked is None:
+                current = (saved_name or default_instance_name())[:63]
+                mdns_name = " ".join(
+                    _ask_text(
+                        prompter,
+                        "mDNS name to attach to (the name the server is advertising)",
+                        default=current,
+                        source="saved configuration" if saved_name else "this computer's hostname",
+                        validate=_valid_mdns,
+                    ).split()
+                )
+                if _ask_yes(prompter, "Look for that listener on the LAN now?", default=True):
+                    ok, message, found = probe_name(mdns_name)
+                    if ok:
+                        say(prompter)
+                        say(prompter, message, style="ok")
+                        tested = True
+                        via_url = found or via_url
+                    else:
+                        action = _after_failed_check(prompter, message)
+                        if action == "quit":
+                            return None
+                        if action == "retry":
+                            return _gather_client(
+                                prompter,
+                                settings,
+                                ensure=ensure,
+                                probe_url=probe_url,
+                                probe_name=probe_name,
+                                scan=scan,
+                            )
+            else:
+                mdns_name, via_url, tested = picked
 
     if not use_mdns:
         via_url = _ask_text(
@@ -1204,13 +1429,14 @@ def _gather_client(
                         ensure=ensure,
                         probe_url=probe_url,
                         probe_name=probe_name,
+                        scan=scan,
                     )
 
-    heading(prompter, "Kit")
+    heading(prompter, "Floating UI Kit")
     kit = _ask_yes(
         prompter,
-        "Install the local UI kit so `tesmartctl kit` can open a frameless window on this computer?",
-        default=False,
+        "Install the Floating UI Kit so `tesmartctl kit` can open a frameless window on this computer?",
+        default=True,
     )
     if kit:
         say(prompter)
@@ -1231,9 +1457,10 @@ def run_install(
     interactive: bool | None = None,
     directory: Path | None = None,
     nics: list[Nic] | None = None,
-    probe: Callable[..., tuple[bool, str]] | None = None,
+    probe: Callable[..., SwitchProbe | tuple] | None = None,
     probe_url: Callable[[str], tuple[bool, str]] | None = None,
     probe_name: Callable[[str | None], tuple[bool, str, str | None]] | None = None,
+    scan: Callable[[], list] | None = None,
     ensure: Callable[[str, Prompter], bool] | None = None,
 ) -> int:
     """Run the questionnaire. Returns a process status code."""
@@ -1255,6 +1482,7 @@ def run_install(
     check_switch = probe or probe_switch
     check_url = probe_url or probe_listener
     check_name = probe_name or probe_mdns
+    check_scan = scan or list_mdns_servers
     check_extra = ensure or ensure_extra
 
     try:
@@ -1319,6 +1547,7 @@ def run_install(
                 ensure=check_extra,
                 probe_url=check_url,
                 probe_name=check_name,
+                scan=check_scan,
             )
             if plan_client is None:
                 say(prompter, "Install cancelled. The configuration file was not changed.", style="warn")
@@ -1374,6 +1603,10 @@ def run_install(
             if plan.via_url:
                 say(prompter, f"  via:  {plan.via_url}")
             say(prompter, f"  kit dependency requested:  {'yes' if plan.kit else 'no'}")
+            server_listener = config.read_http_spec(str(resolved.env_file))
+            if server_listener and server_listener != config.HTTP_OFF:
+                say(prompter, "The server listener in this file stays as it is.")
+                say(prompter, "This client connection is saved in its own values.")
         if not _ask_yes(prompter, "Write this configuration now?", default=True):
             say(prompter, "The configuration file was not changed.")
             write_documentation(prompter)

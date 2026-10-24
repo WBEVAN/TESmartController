@@ -28,7 +28,7 @@ App mode adds the red power switch (quits the kit) and persists appearance / win
 
 | Control | Action |
 | --- | --- |
-| Input tiles | Select that input |
+| Input buttons | Select that input. A disabled input is shown as disabled and is not selectable. Right-click still renames it. **Display names** puts the local name on the button. An input with no name keeps its number. **Hide disabled inputs** shows the enabled inputs only, in number order. |
 | Cycle Inputs | Open the cycle list (silver chrome), then start cycling |
 | PEEK (LCD) | Cycle Off → Once → Always |
 | Banner area | Shows sticky / timed messages from `tesmartctl banner` or Hubitat (pushed over SSE) |
@@ -39,7 +39,7 @@ Defaults: **black body**, **green LCD**, olive highlight when using silver+green
 
 ## Live updates
 
-The kit opens `GET /api/events` (Server-Sent Events) so input changes, name edits, and banners appear as soon as the listener knows about them. A background `/api/state` poll is only a fallback (~30s while online). If the HDMI switch is powered off, the LED goes offline; when it comes back the kit probes about every **2 seconds** until connected again (SSE to the listener stays up even while the switch is down).
+The kit opens `GET /api/events` (Server-Sent Events) so input changes, name edits, enable and disable changes, and banners appear as soon as the listener knows about them. A background `/api/state` poll is only a fallback (~30s while online). If the HDMI switch is powered off, the LED goes offline; when it comes back the kit probes about every **2 seconds** until connected again (SSE to the listener stays up even while the switch is down).
 
 ## Send a banner to the kit
 
@@ -61,6 +61,7 @@ The macOS kit remembers:
 
 - Window size / position
 - Body, LCD, highlight, and glass choices
+- Hide disabled inputs, and display names on the buttons
 - Cycle list selection
 
 Use `tesmartctl kit --fresh` if prefs get in the way.

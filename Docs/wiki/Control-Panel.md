@@ -16,7 +16,7 @@ Then open `http://127.0.0.1:<port>/panel`. `<port>` is `TESMART_HTTP_PORT` from 
 ## What’s on the page
 
 - Live connection / active input
-- Input buttons (and local names when set)
+- Input buttons (and local names when set). Each name row has an **Enabled** checkbox. Unchecked inputs are ignored for selection, peek, and next/previous. At least one input stays enabled.
 - Peek mode, cycle, buzzer / LED helpers where exposed
 - Banner controls (same store as the kit)
 - Network fields (LAN changes need a switch power cycle)

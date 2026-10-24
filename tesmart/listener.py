@@ -199,6 +199,7 @@ def dispatch(
         direction = -1 if verb == "previous" else 1
         current = switch.get_active_input()
         step = previous_input if direction < 0 else next_input
+        only = config.enabled_cycle(switch.input_count, only, env_file)
         target = step(current, switch.input_count, only)
         if follow is not None and peeker is not None:
             followed = apply_follow(
@@ -212,6 +213,8 @@ def dispatch(
         return format_reply(active=reported, requested=reported, previous=current, as_json=as_json, names=names)
     if label:
         number = config.resolve_named_input(label, input_count=switch.input_count, names=config.read_names(env_file))
+    if number is not None and verb in {"peek", "set"}:
+        config.require_enabled(number, env_file)
     if verb == "peek":
         seconds = only[0] if only else config.read_peek_seconds(env_file)
         worker = peeker if peeker is not None else Peeker(switch)

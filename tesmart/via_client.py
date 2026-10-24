@@ -56,17 +56,19 @@ def resolve_base_url(
     if target != "auto":
         log(f"via {target}")
         if remember:
-            config.write_via_url(target, env_file)
+            config.remember_client_listener(target, env_file)
         return target
 
-    name = (mdns_name or config.read_mdns_name(env_file) or "").strip() or None
-    prefer = config.read_via_url(env_file)
+    name = (mdns_name or config.read_client_mdns_name(env_file) or "").strip() or None
+    prefer = config.read_client_via_url(env_file)
     service = resolve_listener(name=name, prefer_url=prefer, timeout=timeout)
     base = service.base_url
     if remember:
-        config.write_via_url(base, env_file)
-        if name:
-            config.write_mdns_name(service.instance_name, env_file)
+        config.remember_client_listener(
+            base,
+            env_file,
+            mdns_name=service.instance_name if name else None,
+        )
     return base
 
 
@@ -161,6 +163,14 @@ def _render_via_status(status: dict[str, Any], base: str) -> str:
         f"Active input:  {_named(status.get('active_input'), status.get('active_name'))}"
         + (f" of {status['input_count']}" if status.get("input_count") is not None else "")
     )
+    if "enabled" in status or "disabled" in status:
+        enabled_text, disabled_text = config.format_input_enablement(
+            status.get("enabled") or [],
+            status.get("disabled") or [],
+            status.get("names"),
+        )
+        lines.append(f"Enabled:       {enabled_text}")
+        lines.append(f"Disabled:      {disabled_text}")
     names = status.get("names") or {}
     if names:
         lines.append("Input names (from listener):")

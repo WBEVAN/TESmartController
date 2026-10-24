@@ -95,6 +95,9 @@ def log_network(
         )
     log(f"network via={config.read_via_url(env_file) or '-'}")
     log(f"network mdns_name={config.read_mdns_name(env_file) or '-'}")
+    if config.client_connection_active(env_file):
+        log(f"network client via={config.read_client_via_url(env_file) or '-'}")
+        log(f"network client mdns_name={config.read_client_mdns_name(env_file) or '-'}")
     log(f"network default source {default_source()}")
     for line in local_interface_lines():
         log(f"network {line}")

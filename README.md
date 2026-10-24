@@ -51,10 +51,11 @@ switch through:
 
 - REST/HTTP
 - Web browser
+- Webview Kit (`tesmartctl[kit]`)
 - Python
 - Command line
 - TCP
-- RS232
+- RS232 (`tesmartctl[serial]`)
 - mDNS discovery (`tesmartctl[mdns]`)
 
 This allows a TESmart switch to be controlled from Home Assistant,
@@ -68,6 +69,7 @@ application capable of making an HTTP request.
 | --- | --- |
 | Read | Active input, and the IP, port, gateway, and mask stored in the switch |
 | Switch | Select an input by number or by a local name, or step next and previous through a list you choose |
+| Enable | Enable or disable an input on this computer. A disabled input is skipped for selection, peek, and next/previous |
 | Peek | Show another input for a few seconds, then return. Not a cycle |
 | Cycle | Walk a chosen list by hand (`next` / `previous`) or on a timer (`cycle run`) |
 | Settings | Buzzer, front-panel display timeout, auto input detection. The switch cannot report these back |
@@ -85,6 +87,7 @@ The switch cannot say which HDMI inputs have a signal. A cycle is the list you c
 | [`Docs/install.md`](Docs/install.md) | `tesmartctl install`, then `tesmartctl quickstart` on the server |
 | [Project site](https://wbevan.github.io/TESmartController/) | GitHub Pages landing (install + doc links) |
 | [Wiki](https://github.com/WBEVAN/TESmartController/wiki) | Setup → kit → Hubitat → panel (source: `Docs/wiki/`) |
+| [Windows](https://github.com/WBEVAN/TESmartController/wiki/Windows) | Python and pip, Command Prompt quotes, `start` for the server and a client |
 | [`Docs/protocol.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/protocol.md) | Byte protocol the switch speaks |
 | [`Docs/listener.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/listener.md) | Long-running line protocol and HTTP URLs |
 | [`Docs/mdns.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/mdns.md) | mDNS advertise / discover / `--via auto`, limitations, connection fallbacks |
@@ -122,6 +125,49 @@ python3 -m tesmart status
 
 If the shell cannot find `tesmartctl` after install, open a new shell, or rehash your version manager. Requires Python 3.10 or newer.
 
+## Windows
+
+Confirm Python and pip before `pip install` or `tesmartctl install`. In Command Prompt, both of these must print a version:
+
+```cmd
+python --version
+python -m pip --version
+```
+
+If `python` is not the interpreter you installed, try the Python launcher and use that same command for pip:
+
+```cmd
+py -3 --version
+py -3 -m pip --version
+```
+
+Python 3.10 or newer is required. `python -m pip` (or `py -3 -m pip`) installs into that same Python, which is the one that provides `tesmartctl`. If `python` opens the Microsoft Store instead of printing a version, install Python from [python.org](https://www.python.org/downloads/windows/) with **Add python.exe to PATH** selected, then run the checks again.
+
+Command Prompt keeps single quotes as part of the text. When a pip command in this README is wrapped in single quotes, type it with double quotes:
+
+```cmd
+pip install "tesmartctl[serial]"
+pip install "tesmartctl[mdns]"
+pip install "tesmartctl[kit]"
+pip install -e ".[serial]"
+```
+
+`tesmartctl quickstart` stays in its window for as long as the server runs. Open the server and a client in separate Command Prompt windows with [`start`](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/start). The first quoted string is the window title. The command follows it:
+
+```cmd
+start "TESmart server" tesmartctl quickstart
+start "TESmart client" tesmartctl --via auto kit
+```
+
+[`/b`](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/start) keeps the command in this console instead of opening a new window. The first quoted string is still the window title, so leave it empty. With `/b`, Ctrl+C is ignored; use Ctrl+Break to stop the command.
+
+```cmd
+start /b "" tesmartctl quickstart
+start /b "" tesmartctl --via auto kit
+```
+
+The same notes are on the [Windows wiki page](https://github.com/WBEVAN/TESmartController/wiki/Windows).
+
 ## Set up the server
 
 On the computer that talks to the HDMI switch, configure once, then start the listener:
@@ -131,7 +177,9 @@ tesmartctl install
 tesmartctl quickstart
 ```
 
-`install` asks whether this computer is the server or a client. It starts from a saved env file when one exists, and from the built-in defaults otherwise, and it does not write that file until you confirm. A server install stores the switch address, the HTTP listen address (`TESMART_HTTP`), the listen port (`TESMART_HTTP_PORT`), and the browser UI choice (`TESMART_HTTP_PANEL`). `quickstart` starts that listener. `/kit` is the floating UI application kit. `/panel` is the browser-only control panel. Both are on by default. If those saved values are missing, `quickstart` offers to run `install`. See [`Docs/install.md`](Docs/install.md).
+`install` asks whether this computer is the server or a client. It starts from a saved env file when one exists, and from the built-in defaults otherwise, and it does not write that file until you confirm. A server install stores the switch address, the HTTP listen address (`TESMART_HTTP`), the listen port (`TESMART_HTTP_PORT`), and the browser UI choice (`TESMART_HTTP_PANEL`). During that install, the connection test can select input 9 and then return to the input that was active. If input 9 comes up, the switch is saved as 16 inputs. Otherwise it is saved as 8. You can keep that count or enter your own. `quickstart` starts that listener. `/kit` is the floating UI application kit. `/panel` is the browser-only control panel. Both are on by default. If those saved values are missing, `quickstart` offers to run `install`.
+
+A client install on this same computer saves its listener as `TESMART_CLIENT_VIA` and `TESMART_CLIENT_MDNS_NAME`. The server listener settings stay as they are. With no client connection saved, client commands use `TESMART_VIA` and `TESMART_MDNS_NAME`. See [`Docs/install.md`](Docs/install.md).
 
 ## Help and examples
 
@@ -241,6 +289,14 @@ tesmartctl name unset 1
 tesmartctl input Office          # select by the local name
 ```
 
+An input is enabled unless you disable it. A disabled input is ignored for selection, peek, and next/previous. It can stay in a saved cycle; the step skips it. At least one input must stay enabled. The panel names list has a checkbox for the same setting. The floating kit shows a disabled input as not selectable. **Hide disabled inputs** leaves only the enabled inputs on the layout, in number order. **Display names** shows the local name on the button. Both are saved with the other kit preferences.
+
+```bash
+tesmartctl disable 4
+tesmartctl disable Office
+tesmartctl enable 4
+```
+
 LCD banner messages need a running `tesmartctl listen --http` (add `--panel` for kit/panel). They are not sent to the switch; kits and the browser panel show them.
 
 ```bash
@@ -291,6 +347,8 @@ tesmartctl monitor                # print the input whenever it changes
 ```text
 Endpoint:      tcp://192.168.1.50:5000
 Active input:  2 (Office) of 8
+Enabled:       1 (Living room), 2 (Office), 3, 5, 6, 7, 8
+Disabled:      4
 Input names (stored locally, not on the switch):
   1  Living room
   2  Office

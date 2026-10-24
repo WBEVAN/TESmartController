@@ -447,7 +447,8 @@ main {
   gap: 0.75rem;
 }
 
-.card-list a {
+.card-list a,
+.card-list .card-soon {
   display: block;
   height: 100%;
   padding: 1rem 1.1rem;

@@ -55,7 +55,10 @@ def test_auto_kit_still_discovers_when_the_first_browse_is_empty(monkeypatch) ->
         raise MdnsError("none")
 
     monkeypatch.setattr("tesmart.via_client.resolve_base_url", resolve)
-    monkeypatch.setattr("tesmart.config.read_via_url", lambda _env_file=None: "http://192.0.2.10:8080")
+    monkeypatch.setattr(
+        "tesmart.config.read_client_via_url",
+        lambda _env_file=None: "http://192.0.2.10:8080",
+    )
     args = SimpleNamespace(
         via="auto",
         mdns_name="OfficeHDMI",

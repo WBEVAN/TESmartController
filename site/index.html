@@ -20,7 +20,7 @@
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Syne:wght@600;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="site.css?v=10" />
+    <link rel="stylesheet" href="site.css?v=11" />
   </head>
   <body>
     <header class="hero">
@@ -66,6 +66,10 @@
             <button type="button" class="chip lcd-chip" data-kit-lcd="red" aria-pressed="false">Red</button>
             <button type="button" class="chip lcd-chip" data-kit-lcd="amber" aria-pressed="false">Amber</button>
           </div>
+          <div class="control-group" role="group" aria-label="Input keys">
+            <button type="button" class="chip" data-kit-toggle="names" aria-pressed="false">Display names</button>
+            <button type="button" class="chip" data-kit-toggle="hide-disabled" aria-pressed="false">Hide disabled inputs</button>
+          </div>
           <div class="control-group" role="group" aria-label="Hubitat banners">
             <button type="button" class="chip" data-kit-banner="door">Door unlocked</button>
             <button type="button" class="chip" data-kit-banner="meeting">Meeting in 5</button>
@@ -78,11 +82,11 @@
             id="kit-frame"
             class="kit-frame"
             title="Interactive tesmartctl floating kit demo"
-            src="kit-demo.html?v=9"
+            src="kit-demo.html?v=12"
           ></iframe>
         </div>
         <p class="preview-note">
-          Interactive demo — same UI as <code>tesmartctl kit</code>. Try size, body/LCD colour, and Hubitat-style banners.
+          Interactive demo — same UI as <code>tesmartctl kit</code>. Try size, colour, names, hiding a disabled input, and Hubitat-style banners.
         </p>
       </div>
     </header>
@@ -145,15 +149,15 @@
             </a>
           </li>
           <li>
-            <a href="https://github.com/WBEVAN/TESmartController/blob/main/Docs/hubitat.md">
-              <span class="label">Hubitat</span>
-              <span class="hint">Manager app, controller, push notifications</span>
-            </a>
-          </li>
-          <li>
             <a href="https://github.com/WBEVAN/TESmartController/wiki">
               <span class="label">Wiki</span>
               <span class="hint">Setup → kit → Hubitat → panel</span>
+            </a>
+          </li>
+          <li>
+            <a href="https://github.com/WBEVAN/TESmartController/blob/main/Docs/hubitat.md">
+              <span class="label">Hubitat</span>
+              <span class="hint">Manager app, controller, push notifications</span>
             </a>
           </li>
           <li>
@@ -161,6 +165,12 @@
               <span class="label">Hubitat community</span>
               <span class="hint">Release thread and HPM discussion</span>
             </a>
+          </li>
+          <li>
+            <div class="card-soon">
+              <span class="label">Elgato Stream Deck</span>
+              <span class="hint">Native Plugin - Coming Soon</span>
+            </div>
           </li>
           <li>
             <a href="https://github.com/WBEVAN/TESmartController/releases">
@@ -178,6 +188,6 @@
         <a href="https://github.com/WBEVAN/TESmartController/blob/main/LICENSE">MIT License</a>
       </p>
     </footer>
-    <script src="site.js?v=9"></script>
+    <script src="site.js?v=12"></script>
   </body>
 </html>

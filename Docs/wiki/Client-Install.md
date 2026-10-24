@@ -9,7 +9,7 @@ python3 -m pip install --upgrade tesmartctl
 tesmartctl install
 ```
 
-Choose **Client**. Then choose how this computer finds the listener.
+Choose **Client**. The wizard continues under **Connect to Server**. Then choose how this computer finds the listener.
 
 ## mDNS
 
@@ -25,7 +25,7 @@ Servers on the network. Which one should this client use?
   3) Type a different mDNS name
 ```
 
-Pick the server. Press Enter to accept the one in brackets (a saved name when it is in the list, otherwise the first server). The chosen name is saved as `TESMART_MDNS_NAME`. The address from the scan is saved as `TESMART_VIA`, and later commands use it when a browse does not answer.
+Pick the server. Press Enter to accept the one in brackets (a saved name when it is in the list, otherwise the first server). The chosen name is saved as `TESMART_CLIENT_MDNS_NAME`. The address from the scan is saved as `TESMART_CLIENT_VIA`, and later commands use it when a browse does not answer.
 
 When this is the only server on the network, clients may omit the mDNS name:
 
@@ -53,8 +53,8 @@ tesmartctl kit 'http://192.168.1.20:8080/kit?app=1'
 
 ## After install
 
-The wizard can write `startup.txt` in the current directory for future reference. Confirming saves the client settings and clears server HTTP keys on this computer, so this machine does not try to start its own listener.
+The wizard can write `startup.txt` in the current directory for future reference. Confirming saves the client connection in `TESMART_CLIENT_VIA` and `TESMART_CLIENT_MDNS_NAME`. A server listener already in that same file stays as it is, including its mDNS name. When those `CLIENT_` values are absent, client commands still use `TESMART_VIA` and `TESMART_MDNS_NAME`.
 
-Optional: install the local UI kit (`pywebview`) so `tesmartctl kit` opens a frameless window here. Chrome or Edge still open the kit if that package is not installed. The server still has to be serving `/kit`.
+The Floating UI Kit question defaults to Yes. Confirming installs `pywebview` so `tesmartctl kit` opens a frameless window here. Chrome or Edge still open the kit if that package is not installed. The server still has to be serving `/kit`.
 
 Discovery limits: [mDNS](mDNS). The questionnaire in full: [Docs/install.md](https://github.com/WBEVAN/TESmartController/blob/main/Docs/install.md).

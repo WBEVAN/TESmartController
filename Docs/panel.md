@@ -47,6 +47,8 @@ The kit remembers, per machine:
 | LCD colour | Green (default), blue, red, or dark with orange phosphor |
 | Highlight colour | Optional custom `#RRGGBB`; **Default** in Setup restores the LCD match |
 | LCD glass | **Matrix** (default mesh), **Phosphor** (mesh + colour bleed in glyphs), or **Off** |
+| Hide disabled inputs | When on, the layout shows enabled inputs only, in number order |
+| Display names | When on, each button shows its local name. An unnamed input keeps its number |
 
 The active input key keeps the metal face artwork and shows an inset ring plus numeral and monitor glyph in the highlight colour (LCD match by default, or a custom colour from Setup). Setup toggles and theme swatches use that same colour. On the silver body, chrome and input keys are raised brushed metal with dark ink so they stay readable on the fascia. LCD **Glass** in Setup chooses the look: **Matrix** is a visible pixel grill over solid type; **Phosphor** adds a soft LCD-colour glow on the text; **Off** is plain glass. Glyphs are never punched into dots (that went unreadable when the window was large).
 
@@ -124,7 +126,7 @@ Replace `192.168.1.20:8080` with the listener’s address. There is no authentic
 | Peek | With Peek on, an input button shows that input for the number of seconds beside it and then returns. The header shows a countdown and **Back now**. Changing the seconds saves the default. | This listener times it; the duration is in the env file |
 | Auto cycle | Steps to the next cycle input on the saved interval while Auto cycle is switched on. Stops when the tab is hidden or Auto cycle is switched off. | This browser tab only |
 | Buzzer, display timeout, auto input detection | The same three write-only settings as the vendor General page | Sent to the switch and remembered in the listener env file (`last_sent`). Other clients can read them from `/status` or `/api/state`. |
-| Input names | Local labels, saved when you leave the field. Empty clears a name. | The env file on this computer |
+| Input names | Local labels, saved when you leave the field. Empty clears a name. Each row has an **Enabled** checkbox. Unchecked inputs are ignored for selection, peek, and next/previous. At least one input must stay enabled. Inputs are enabled unless the box is cleared or `tesmartctl disable` says otherwise. | The env file on this computer |
 | Cycle | Which inputs Previous, Next, and Auto cycle walk, plus manual or automatic and the interval. Saved on every change. | The env file |
 | Network | Shows the address stored in the switch. Query reads it again. Apply writes IP, port, gateway, or mask after two separate acknowledgements, then reads the values back. | The switch. Used only after a power cycle. |
 
@@ -153,11 +155,11 @@ The page talks to JSON routes under `/api`. `GET /api` lists them. Errors are `{
 
 | Method and path | Body | Result |
 | --- | --- | --- |
-| `GET /api/state` | | Active input, names, cycle, LAN settings, `last_sent`, and `version` |
+| `GET /api/state` | | Active input, names, which inputs are enabled, cycle, LAN settings, `last_sent`, and `version` |
 | `GET /api/version` | | Package version and feature tags |
 | `GET` / `POST /api/compat` | `{"min_server":"0.0.7.9","features":["callbacks"]}` | Whether this server meets the client’s requirements |
 | `GET /api/state?network=0` | | Same, without the four LAN queries. First load, and a fallback poll (~30s online with SSE; ~2s while the switch is unreachable). |
-| `GET /api/events` | | Server-Sent Events stream (`hello`, `input_changed`, `names_changed`, `banner`). Kit and panel subscribe here for live updates. Same payloads as Hubitat callbacks; `banner` includes `banner_history`. |
+| `GET /api/events` | | Server-Sent Events stream (`hello`, `input_changed`, `names_changed`, `enabled_changed`, `banner`, `peek_follow`). Kit and panel subscribe here for live updates. Same payloads as registered callbacks; `banner` includes `banner_history`. |
 | `POST /api/input` | `{"input": 3}` or `{"input": "Office"}` | `active_input` after the switch reports it |
 | `POST /api/next`, `POST /api/previous` | | Next or previous input in the saved cycle |
 | `POST /api/peek` | `{"input": 3, "seconds": 5}` | Switches now and returns at once. `/api/state` carries `peek.active` with `previous`, `peeked`, `seconds`, `remaining` until the listener has returned. |
@@ -171,6 +173,7 @@ The page talks to JSON routes under `/api`. `GET /api` lists them. Errors are `{
 | `GET /api/network/notice` | | Risk and liability wording as `risks`, `liability`, `after_write` |
 | `POST /api/network` | `{"ip": "192.168.1.50", "confirm": true, "accept_risk": true}` | Writes, reads back, returns `requested`, `acknowledged`, `stored`, `verified`, `all_verified` |
 | `POST /api/names` | `{"names": {"1": "Office", "2": ""}}` | Empty string removes that name |
+| `POST /api/enabled` | `{"input": 4, "enabled": false}` | Enable or disable an input. Rejected when it would leave zero inputs enabled |
 | `GET /api/callbacks` | | Registered callbacks (`url`, optional `name`, optional `last`) and POST `timeout` |
 | `POST /api/callbacks` | `{"url": "http://…", "name": "Hubitat"}` | Register (same URL twice updates the name); name changes also fire `names_changed` callbacks |
 | `POST /api/callbacks` | `{"timeout": 10}` | Set how long each callback POST may wait (default 10; API only, not a panel control) |

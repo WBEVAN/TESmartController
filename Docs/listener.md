@@ -135,7 +135,7 @@ JSON is the default. Add `format=text` to get plain text: a bare input number, o
 | `/status` | active input and saved LAN settings | see below (includes `"version"`) |
 | `/status?network=0` | active input only | `"network": null` plus `"version"` |
 | `/banner` | last LCD message + history for kit / panel / callbacks (also `tesmartctl banner`) | GET `banner` + `banner_history` (≤10, with `at` / `at_iso`); POST `{"text","seconds"}` or `{"sticky":true}`; POST `{"show":true}` / `{"dismiss":true}` / `{"clear":true}` |
-| `/events` | Server-Sent Events for browser clients (same payloads as callbacks) | long-lived `text/event-stream`; named events `hello`, `input_changed`, `names_changed`, `banner`, `peek_follow` |
+| `/events` | Server-Sent Events for browser clients (same payloads as callbacks) | long-lived `text/event-stream`; named events `hello`, `input_changed`, `names_changed`, `enabled_changed`, `banner`, `peek_follow` |
 | `/version` | package name, version, feature tags, and `mdns_name` (the instance this process is advertising, or `null`) | `{"name":"tesmartctl","version":"0.0.7.9","features":[…],"mdns_name":"OfficeHDMI"}` |
 | `/compat` | GET or POST compatibility check | `{"min_server":"0.0.7.9","features":["callbacks"]}` → `{"compatible":true,…}` |
 | `/names` | GET local input names | `{"names": {"2": "Office"}}` |
@@ -176,7 +176,7 @@ curl -X POST http://127.0.0.1:8080/compat \
 
 ### Server-Sent Events (kit / panel)
 
-Browsers cannot register as outbound callback URLs. With `--panel`, the kit and control panel open `GET /api/events` (plain listener also exposes `GET /events`) and receive push frames as soon as the active input, local names, LCD banner, or peek-follow mode changes. Event bodies match the Hubitat callback JSON (`event`, `active_input`, `banner`, …); `banner` frames also include `banner_history` when available. Named SSE events: `hello` (on connect), `input_changed`, `names_changed`, `banner`, `peek_follow`. A `: keepalive` comment is sent about every 20 seconds. Feature tag: `sse`.
+Browsers cannot register as outbound callback URLs. With `--panel`, the kit and control panel open `GET /api/events` (plain listener also exposes `GET /events`) and receive push frames as soon as the active input, local names, enablement, LCD banner, or peek-follow mode changes. Event bodies match the callback JSON (`event`, `active_input`, `banner`, …); `banner` frames also include `banner_history` when available. Named SSE events: `hello` (on connect), `input_changed`, `names_changed`, `enabled_changed`, `banner`, `peek_follow`. A `: keepalive` comment is sent about every 20 seconds. Feature tag: `sse`.
 
 Setting the mode (`/peek/once`, `/peek/always`, `/peek/off`, or the panel control) sends `mode` and `peek_follow` (`off`, `once`, or `always`), plus `seconds` when a duration was stored. That frame has no `followed` and no `previous`.
 
@@ -248,6 +248,18 @@ Name change (panel, Hubitat Manager, or `POST /names`):
 }
 ```
 
+Enable or disable from the panel (`POST /api/enabled`). `tesmartctl enable` and `tesmartctl disable` write the env file on this computer and do not send this event to a listener that is already running.
+
+```json
+{
+  "event": "enabled_changed",
+  "disabled": [4, 5],
+  "names": {"1": "Old Mac", "2": "Den"},
+  "input_count": 8,
+  "source": "command"
+}
+```
+
 LCD banner (`POST /banner`, `POST /api/banner`, or `tesmartctl banner "…"`; Hubitat updates banner attributes on this event):
 
 ```json
@@ -299,6 +311,8 @@ With `--panel`, manage callbacks from the **API** dialog (`GET` / `POST` / `DELE
   },
   "unsolicited_reports": [],
   "names": {"1": "Living room", "2": "Office"},
+  "enabled": [1, 2, 3, 5, 6, 7, 8],
+  "disabled": [4],
   "rotate": {"supported": true, "configured": true, "mode": "manual", "seconds": null, "cycle": [1, 2, 4]},
   "peek": {"supported": true, "seconds": 5},
   "last_sent": {"buzzer": false, "led_timeout": "30s", "auto_detect": true}

@@ -37,6 +37,8 @@ So Hubitat reflects changes made from the kit, CLI, or Stream Deck:
 1. Point the listener’s Hubitat callback URL at the Manager / controller endpoint (see repo [Docs/hubitat.md](https://github.com/WBEVAN/TESmartController/blob/main/Docs/hubitat.md))
 2. Keep `tesmartctl quickstart` running whenever you want live sync
 
+The listener also posts `enabled_changed` when an input is enabled or disabled from the panel. The current Hubitat drivers leave the devices as they are when that event arrives.
+
 ## Banner & peek follow (controller device)
 
 On **TESmart Controller** (package 1.6.0+):

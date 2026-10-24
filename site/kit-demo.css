@@ -61,3 +61,10 @@ html[data-kit-shell="demo"] body.kit-float.is-popup .panel.mini {
   height: 20px;
 }
 
+/* Closed setup door stays in the picture. The page chips cover size, colour, and banners. */
+html[data-kit-shell="demo"] .service-door {
+  pointer-events: none;
+  cursor: default;
+  opacity: 1;
+}
+

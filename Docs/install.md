@@ -20,12 +20,11 @@ Flags still win for the value they set. `tesmartctl --host 192.168.1.50 install`
 
 Use this on the computer that will own the connection to the switch.
 
-1. Input count (8 or 16 on current models).
-2. TCP (the usual LAN connection) or serial RS232. Serial checks for `pyserial` (`pip install "tesmartctl[serial]"`). The wizard can install that with the same Python that is running `tesmartctl`, on Windows, macOS, and Linux.
-3. Optional connection test. A successful read of the active input is required before the next questions, unless you choose to continue anyway.
-4. Zeroconf / mDNS. If you say yes and `zeroconf` is missing, the wizard offers to install `tesmartctl[mdns]`, then asks for the instance name. The current saved name, or this computer's hostname, is the default.
-5. HTTP, so curl, Hubitat, Stream Deck, Companion, the kit, and the panel can connect. The browser UI is on by default. `/kit` is the floating UI application kit (`tesmartctl kit`). `/panel` is the browser-only control panel. The pages need no extra package. The frameless kit window checks for `pywebview` (`tesmartctl[kit]`); Chrome or Edge still open the kit if that package is not installed.
-6. Where the listener accepts connections: this computer only (`127.0.0.1`), every interface (`0.0.0.0`), or one address from the list of IPv4 interfaces. mDNS with localhost is called out, because other computers cannot connect to `127.0.0.1`.
+1. TCP (the usual LAN connection) or serial RS232. Serial checks for `pyserial` (`pip install "tesmartctl[serial]"`). The wizard can install that with the same Python that is running `tesmartctl`, on Windows, macOS, and Linux.
+2. Optional connection test, after the address is entered. It tests connectivity and determines whether the switch is 8 or 16 ports. During the test the active input changes, then reverts to its current setting. After a successful test you can modify that count; the default is to keep it. Skipping the test, or continuing after a failed check, asks you to confirm the input count yourself.
+3. Zeroconf / mDNS. If you say yes and `zeroconf` is missing, the wizard offers to install `tesmartctl[mdns]`, then asks for the instance name. The current saved name, or this computer's hostname, is the default.
+4. HTTP, so curl, Hubitat, Stream Deck, Companion, the kit, and the panel can connect. The browser UI is on by default. `/kit` is the floating UI application kit (`tesmartctl kit`). `/panel` is the browser-only control panel. The pages need no extra package. The frameless kit window checks for `pywebview` (`tesmartctl[kit]`); Chrome or Edge still open the kit if that package is not installed.
+5. Where the listener accepts connections: this computer only (`127.0.0.1`), every interface (`0.0.0.0`), or one address from the list of IPv4 interfaces. mDNS with localhost is called out, because other computers cannot connect to `127.0.0.1`.
 
 The wizard then prints `tesmartctl quickstart` and the same start written out as `tesmartctl listen ...`, plus the client checks (curl, and `tesmartctl --via auto` when zeroconf is on). When this is the only server on the network, those client commands may omit `--mdns-name`. It can write that text to `startup.txt` in the current directory for future reference. Confirming writes the env file and the command exits.
 
@@ -39,14 +38,14 @@ tesmartctl quickstart
 
 ## Client
 
-Use this on a computer that talks to a listener already running somewhere else. It does not open the HDMI switch itself.
+Use this on a computer that talks to a listener already running somewhere else. It does not open the HDMI switch itself. The wizard heading for this part is **Connect to Server**.
 
 1. Find the listener with mDNS (`tesmartctl --via auto`) or type its `http://host:port` URL.
 2. mDNS checks for `zeroconf` the same way the server does, then scans the network and lists the listeners it finds. Pick one, or type a different mDNS name when the server you want is not in the list.
 3. When no listener is advertising yet, the wizard still asks for the instance name and can look again. A typed URL is checked with GET `/version`.
-4. Optional local kit window (`pywebview`, with Chrome or Edge as the fallback). The usual client command after that is `tesmartctl --via auto kit`.
+4. Floating UI Kit. The question defaults to Yes. Confirming installs `pywebview` (`tesmartctl[kit]`) so `tesmartctl kit` can open a frameless window. Chrome or Edge still open the kit if that package is not installed. The usual client command after that is `tesmartctl --via auto kit`.
 
-The same `startup.txt` offer lists the client commands. Confirming saves `TESMART_VIA` and `TESMART_MDNS_NAME`.
+The same `startup.txt` offer lists the client commands. Confirming saves that connection as `TESMART_CLIENT_VIA` and `TESMART_CLIENT_MDNS_NAME` in the same env file the server uses. The server listener (`TESMART_HTTP`, its port, the browser UI, and `TESMART_MDNS_NAME`) stays as it is. When those `CLIENT_` values are absent, a client command still reads `TESMART_VIA` and `TESMART_MDNS_NAME`.
 
 ## Documentation
 

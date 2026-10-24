@@ -8,15 +8,18 @@ import pytest
 
 from tesmart import config
 from tesmart.cli import build_parser
+from tesmart.mdns import DiscoveredListener
 from tesmart.version import package_version
 from tesmart.quickstart import prepare, prompt_to_configure, run_quickstart
 from tesmart.install import (
     Nic,
     ServerPlan,
+    SwitchProbe,
     ansi_supported,
     describe_configuration,
     format_command,
     listen_command,
+    measure_input_count,
     paint,
     parse_ifconfig,
     parse_ip_addr,
@@ -33,6 +36,8 @@ _ENV_KEYS = (
     "TESMART_ENV_FILE",
     "TESMART_MDNS_NAME",
     "TESMART_VIA",
+    "TESMART_CLIENT_MDNS_NAME",
+    "TESMART_CLIENT_VIA",
 )
 
 
@@ -183,16 +188,22 @@ def test_server_install_saves_switch_and_startup(tmp_path, clean_env):
 
     def probe(**kwargs):
         seen.update(kwargs)
-        return True, "Connected. Active input is 2."
+        return SwitchProbe(
+            True,
+            "Connected to 10.1.2.3:5001.",
+            inputs=16,
+            previous=2,
+            restored_to=2,
+        )
 
     prompter = ScriptedPrompter(
         [
             "1",
-            "16",
             "",
             "10.1.2.3",
             "5001",
             "y",
+            "n",
             "y",
             "OfficeHDMI",
             "y",
@@ -233,6 +244,11 @@ def test_server_install_saves_switch_and_startup(tmp_path, clean_env):
     assert "If this is the only server on the network, clients may omit the mDNS name:" in startup
     assert "tesmartctl --via auto status" in startup
     transcript = prompter.text()
+    assert "During this test the active input will change and revert back to its current setting." in transcript
+    assert "Do you wish to test and auto determine the input count?" in transcript
+    assert "Would you like to modify the supported input count? [y/N]" in transcript
+    assert "Input 9 became active. This is a 16-port switch." in transcript
+    assert "Active input is back on 2." in transcript
     assert "\n\nHDMI switch\n" in transcript
     assert "\n\nDiscovery\n" in transcript
     assert "\n\nHTTP\n" in transcript
@@ -252,11 +268,11 @@ def test_server_reuses_saved_host_and_can_decline(tmp_path, clean_env):
     prompter = ScriptedPrompter(
         [
             "1",  # server
-            "",  # inputs, saved/built-in
             "1",  # TCP, even though a serial device is saved
             "",  # host stays 10.9.9.9
             "",  # port
             "n",  # skip the connection test
+            "",  # confirm the input count manually
             "n",  # no mDNS
             "n",  # no HTTP listener
             "n",  # do not write startup.txt
@@ -287,7 +303,7 @@ def test_serial_without_pyserial_can_quit(tmp_path, clean_env):
         assert name == "serial"
         return False
 
-    prompter = ScriptedPrompter(["1", "", "2", "2"])
+    prompter = ScriptedPrompter(["1", "2", "2"])
     code = run_install(
         settings=_settings(env),
         prompter=prompter,
@@ -300,6 +316,53 @@ def test_serial_without_pyserial_can_quit(tmp_path, clean_env):
     assert not env.exists()
 
 
+class _FakeSwitch:
+    def __init__(self, replies: list[int], *, reject: int | None = None):
+        self.replies = list(replies)
+        self.selected: list[int] = []
+        self.reject = reject
+
+    def get_active_input(self) -> int:
+        return self.replies.pop(0)
+
+    def set_input(self, number: int, verify: bool = True) -> int:
+        self.selected.append(number)
+        if number == self.reject:
+            from tesmart.switch import SwitchError
+
+            raise SwitchError("rejected")
+        return self.replies.pop(0)
+
+
+def test_input_probe_uses_port_9_and_returns_to_the_original_input():
+    eight = _FakeSwitch([3, 3, 3])
+    result = measure_input_count(eight)
+    assert result.ok is True
+    assert result.inputs == 8
+    assert result.previous == 3
+    assert result.restored_to == 3
+    assert eight.selected == [9, 3]
+
+    sixteen = _FakeSwitch([2, 9, 2])
+    result = measure_input_count(sixteen)
+    assert result.inputs == 16
+    assert result.restored_to == 2
+    assert sixteen.selected == [9, 2]
+
+    already = _FakeSwitch([9, 9, 9])
+    result = measure_input_count(already)
+    assert result.inputs == 16
+    assert result.restored_to == 9
+    assert already.selected == [9, 9]
+
+    rejected = _FakeSwitch([4, 4, 4], reject=9)
+    result = measure_input_count(rejected)
+    assert result.inputs == 8
+    assert result.previous == 4
+    assert result.restored_to == 4
+    assert rejected.selected == [9, 4]
+
+
 def test_client_install_saves_mdns_name(tmp_path, clean_env):
     env = tmp_path / "env"
     calls: list[str] = []
@@ -309,24 +372,56 @@ def test_client_install_saves_mdns_name(tmp_path, clean_env):
         prompter=prompter,
         directory=tmp_path,
         nics=[],
+        scan=lambda: [],
         probe_name=lambda _name: (_ for _ in ()).throw(AssertionError("browse should not run")),
         ensure=_ensure_ok(calls),
     )
     assert code == 0, prompter.text()
     assert calls == ["mdns"]
     values = config.read_env_file(env)
-    assert values["TESMART_MDNS_NAME"] == "OfficeHDMI"
+    assert values["TESMART_CLIENT_MDNS_NAME"] == "OfficeHDMI"
+    assert "TESMART_MDNS_NAME" not in values
+    assert "TESMART_CLIENT_VIA" not in values
     assert "TESMART_VIA" not in values
     assert "TESMART_HTTP" not in values
     transcript = prompter.text()
-    assert "\n\nListener\n" in transcript
-    assert "\n\nKit\n" in transcript
+    assert "\n\nConnect to Server\n" in transcript
+    assert "\n\nFloating UI Kit\n" in transcript
     assert "\n\nClient command\n" in transcript
     assert "tesmartctl --via auto --mdns-name OfficeHDMI status" in transcript
     assert "If this is the only server on the network, clients may omit the mDNS name:" in transcript
+    assert "Scanning the network for tesmartctl listeners..." in transcript
+    assert "No tesmartctl listeners were found on the network." in transcript
 
 
-def test_client_url_replaces_a_saved_name(tmp_path, clean_env):
+def test_client_install_lists_mdns_servers(tmp_path, clean_env):
+    env = tmp_path / "env"
+    office = DiscoveredListener("OfficeHDMI", 8080, ("192.168.1.20",))
+    living = DiscoveredListener("LivingRoom", 9090, ("10.0.0.4",))
+    prompter = ScriptedPrompter(["2", "1", "2", "n", "n", "y"])
+    code = run_install(
+        settings=_settings(env),
+        prompter=prompter,
+        directory=tmp_path,
+        nics=[],
+        scan=lambda: [office, living],
+        probe_name=lambda _name: (_ for _ in ()).throw(AssertionError("browse should not run")),
+        ensure=_ensure_ok([]),
+    )
+    assert code == 0, prompter.text()
+    values = config.read_env_file(env)
+    assert values["TESMART_CLIENT_MDNS_NAME"] == "LivingRoom"
+    assert values["TESMART_CLIENT_VIA"] == "http://10.0.0.4:9090"
+    assert "TESMART_MDNS_NAME" not in values
+    assert "TESMART_VIA" not in values
+    transcript = prompter.text()
+    assert "Servers on the network. Which one should this client use?" in transcript
+    assert "OfficeHDMI  http://192.168.1.20:8080" in transcript
+    assert "LivingRoom  http://10.0.0.4:9090" in transcript
+    assert "Using LivingRoom at http://10.0.0.4:9090." in transcript
+
+
+def test_client_url_is_stored_apart_from_server_values(tmp_path, clean_env):
     env = tmp_path / "env"
     env.write_text("TESMART_MDNS_NAME=Old\nTESMART_VIA=http://10.0.0.1:8080\n", encoding="utf-8")
     prompter = ScriptedPrompter(
@@ -341,8 +436,73 @@ def test_client_url_replaces_a_saved_name(tmp_path, clean_env):
     )
     assert code == 0, prompter.text()
     values = config.read_env_file(env)
-    assert values["TESMART_VIA"] == "http://192.168.4.4:8080"
-    assert "TESMART_MDNS_NAME" not in values
+    assert values["TESMART_MDNS_NAME"] == "Old"
+    assert values["TESMART_VIA"] == "http://10.0.0.1:8080"
+    assert values["TESMART_CLIENT_VIA"] == "http://192.168.4.4:8080"
+    assert "TESMART_CLIENT_MDNS_NAME" not in values
+    assert config.read_client_via_url(str(env)) == "http://192.168.4.4:8080"
+    assert config.read_client_mdns_name(str(env)) is None
+
+
+def test_client_install_leaves_a_server_listener_in_place(tmp_path, clean_env):
+    env = tmp_path / "env"
+    env.write_text(
+        "TESMART_HOST=10.1.2.3\n"
+        "TESMART_HTTP=0.0.0.0:8080\n"
+        "TESMART_HTTP_PORT=8080\n"
+        "TESMART_HTTP_PANEL=1\n"
+        "TESMART_HTTP_MDNS=1\n"
+        "TESMART_MDNS_NAME=OfficeHDMI\n",
+        encoding="utf-8",
+    )
+    office = DiscoveredListener("OfficeHDMI", 8080, ("192.168.1.20",))
+    living = DiscoveredListener("LivingRoom", 9090, ("10.0.0.4",))
+    prompter = ScriptedPrompter(["2", "1", "2", "n", "n", "y"])
+    code = run_install(
+        settings=_settings(env),
+        prompter=prompter,
+        directory=tmp_path,
+        nics=[],
+        scan=lambda: [office, living],
+        ensure=_ensure_ok([]),
+    )
+    assert code == 0, prompter.text()
+    values = config.read_env_file(env)
+    assert values["TESMART_HTTP"] == "0.0.0.0:8080"
+    assert values["TESMART_HTTP_PORT"] == "8080"
+    assert values["TESMART_HTTP_PANEL"] == "1"
+    assert values["TESMART_HTTP_MDNS"] == "1"
+    assert values["TESMART_MDNS_NAME"] == "OfficeHDMI"
+    assert values["TESMART_HOST"] == "10.1.2.3"
+    assert "TESMART_VIA" not in values
+    assert values["TESMART_CLIENT_MDNS_NAME"] == "LivingRoom"
+    assert values["TESMART_CLIENT_VIA"] == "http://10.0.0.4:9090"
+    assert "The server listener in this file stays as it is." in prompter.text()
+    ready = prepare(str(env))
+    assert (ready.host, ready.port, ready.mdns_name) == ("0.0.0.0", 8080, "OfficeHDMI")
+
+
+def test_client_without_its_own_values_reads_the_server_connection(tmp_path, clean_env):
+    env = tmp_path / "env"
+    env.write_text(
+        "TESMART_MDNS_NAME=OfficeHDMI\nTESMART_VIA=http://192.168.1.20:8080\n",
+        encoding="utf-8",
+    )
+    assert config.client_connection_active(str(env)) is False
+    assert config.read_client_mdns_name(str(env)) == "OfficeHDMI"
+    assert config.read_client_via_url(str(env)) == "http://192.168.1.20:8080"
+    config.remember_client_listener("http://192.168.1.20:9090", str(env), mdns_name="OfficeHDMI")
+    values = config.read_env_file(env)
+    assert values["TESMART_VIA"] == "http://192.168.1.20:9090"
+    assert "TESMART_CLIENT_VIA" not in values
+
+    config.write_client_connection("http://10.0.0.4:9090", "LivingRoom", str(env))
+    config.remember_client_listener("http://10.0.0.4:9091", str(env))
+    values = config.read_env_file(env)
+    assert values["TESMART_VIA"] == "http://192.168.1.20:9090"
+    assert values["TESMART_MDNS_NAME"] == "OfficeHDMI"
+    assert values["TESMART_CLIENT_VIA"] == "http://10.0.0.4:9091"
+    assert values["TESMART_CLIENT_MDNS_NAME"] == "LivingRoom"
 
 
 def test_http_listener_records_port_and_panel_choice(tmp_path, clean_env):
@@ -479,20 +639,20 @@ def test_install_reuses_the_saved_listener_address(tmp_path, clean_env):
     )
     prompter = ScriptedPrompter(
         [
-            "1",
-            "",
-            "",
-            "",
-            "",
-            "n",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "n",
-            "y",
+            "1",  # server
+            "",  # TCP
+            "",  # host
+            "",  # port
+            "n",  # skip the connection test
+            "",  # confirm the input count manually
+            "",  # keep mDNS
+            "",  # keep the mDNS name
+            "",  # keep HTTP
+            "",  # keep the listen port
+            "",  # keep the browser UI
+            "",  # keep the saved NIC address
+            "n",  # do not write startup.txt
+            "y",  # save
         ]
     )
     code = run_install(
@@ -500,6 +660,7 @@ def test_install_reuses_the_saved_listener_address(tmp_path, clean_env):
         prompter=prompter,
         directory=tmp_path,
         nics=[Nic("en0", "10.1.2.9")],
+        probe=lambda **_kwargs: (_ for _ in ()).throw(AssertionError("probe should not run")),
         ensure=_ensure_ok([]),
     )
     assert code == 0, prompter.text()

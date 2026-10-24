@@ -632,11 +632,11 @@ def _discover_listener_base(name: str | None = None) -> str | None:
         from .mdns import MdnsError, resolve_listener
     except ImportError:
         return None
-    chosen = (name or "").strip() or (config.read_mdns_name() or "").strip() or None
+    chosen = (name or "").strip() or (config.read_client_mdns_name() or "").strip() or None
     try:
         service = resolve_listener(
             name=chosen,
-            prefer_url=config.read_via_url(),
+            prefer_url=config.read_client_via_url(),
             timeout=1.2,
         )
     except MdnsError:
@@ -652,9 +652,9 @@ def _remember_via(base: str) -> None:
     try:
         from . import config
 
-        current = (config.read_via_url() or "").rstrip("/")
+        current = (config.read_client_via_url() or "").rstrip("/")
         if new != current:
-            config.write_via_url(new)
+            config.remember_client_listener(new)
     except Exception:
         return
 
@@ -958,7 +958,10 @@ def run_webview(
             return data
 
         def set_prefs(self, values: dict) -> dict:
-            allowed = {"view", "peek_follow", "peek_seconds", "body", "lcd"}
+            allowed = {
+                "view", "peek_follow", "peek_seconds", "body", "lcd", "lcd_glass", "highlight",
+                "hide_disabled", "show_names",
+            }
             prefs.update({k: v for k, v in dict(values or {}).items() if k in allowed})
             return self.get_prefs()
 

@@ -1,6 +1,7 @@
 **Getting started**
 * [Home](Home)
 * [Setup](Setup)
+* [Windows](Windows)
 * [Quick start](Quickstart)
 * [Client install](Client-Install)
 * [Floating kit](Floating-Kit)

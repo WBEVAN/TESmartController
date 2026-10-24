@@ -18,6 +18,7 @@ tesmartctl listen --http 0.0.0.0:8080 --panel --mdns-name OfficeHDMI
 
 # another computer: tesmartctl install, choose Client
 # the wizard scans and lists the listeners on the network
+# that choice is saved as TESMART_CLIENT_VIA and TESMART_CLIENT_MDNS_NAME
 tesmartctl --via auto kit
 
 # the same client, written out

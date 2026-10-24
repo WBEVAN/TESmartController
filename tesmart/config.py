@@ -28,6 +28,9 @@ DEFAULT_ENV_FILE = Path.home() / ".config" / "tesmartctl" / "env"
 
 # Local input labels. The switch has no field for these; they live only in the env file.
 NAME_PREFIX = "TESMART_NAME_"
+# Inputs this computer skips for selection, peek, and next/previous.
+# Missing means every input is enabled. The switch is not told.
+DISABLED_KEY = "TESMART_DISABLED"
 # Local rotate cycle. Empty means "every input". The switch has no rotate command.
 ROTATE_KEY = "TESMART_ROTATE"
 CYCLE_MODE_KEY = "TESMART_CYCLE_MODE"
@@ -47,7 +50,12 @@ BANNER_HISTORY_MAX = 10
 # Last discovered / preferred HTTP listener (for --via auto). Not a switch address.
 VIA_KEY = "TESMART_VIA"
 # Preferred mDNS instance name when several listeners are on the LAN.
+# On a server this is the name quickstart advertises.
 MDNS_NAME_KEY = "TESMART_MDNS_NAME"
+# Listener this account's client commands attach to. Same env file as the
+# server. Absent means a client still reads VIA_KEY and MDNS_NAME_KEY.
+CLIENT_VIA_KEY = "TESMART_CLIENT_VIA"
+CLIENT_MDNS_NAME_KEY = "TESMART_CLIENT_MDNS_NAME"
 # HTTP listener saved by ``tesmartctl install`` and started by ``tesmartctl quickstart``.
 # A ``--http`` argument (``8080``, ``0.0.0.0:8080``, ``172.16.0.141:7272``), or ``off``.
 HTTP_KEY = "TESMART_HTTP"
@@ -223,6 +231,110 @@ def unset_input_name(number: int, env_file: str | None = None) -> Path:
     values.pop(name_key(number), None)
     write_env_file(path, values)
     return path
+
+
+def read_disabled(env_file: str | None = None) -> frozenset[int]:
+    """Input numbers skipped for selection, peek, and next/previous.
+
+    An absent key means every input is enabled.
+    """
+    raw = read_env_file(env_file_path(env_file)).get(DISABLED_KEY, "").strip()
+    if not raw:
+        return frozenset()
+    numbers: list[int] = []
+    for part in raw.split(","):
+        piece = part.strip()
+        if piece.isdigit():
+            numbers.append(int(piece))
+    return frozenset(numbers)
+
+
+def input_is_enabled(number: int, env_file: str | None = None) -> bool:
+    return number not in read_disabled(env_file)
+
+
+def input_enablement(input_count: int, env_file: str | None = None) -> dict[str, list[int]]:
+    """Enabled and disabled input numbers from 1 through ``input_count``.
+
+    Missing ``TESMART_DISABLED`` means every input is enabled.
+    """
+    disabled = sorted(number for number in read_disabled(env_file) if 1 <= number <= input_count)
+    skipped = set(disabled)
+    enabled = [number for number in range(1, input_count + 1) if number not in skipped]
+    return {"enabled": enabled, "disabled": disabled}
+
+
+def format_input_enablement(
+    enabled: list[int] | tuple[int, ...],
+    disabled: list[int] | tuple[int, ...],
+    names: dict | None = None,
+) -> tuple[str, str]:
+    """One phrase each for the enabled list and the disabled list."""
+
+    def label(number: int) -> str:
+        raw = None
+        if names:
+            raw = names.get(number)
+            if raw is None:
+                raw = names.get(str(number))
+        return f"{number} ({raw})" if raw else str(number)
+
+    enabled_text = ", ".join(label(int(number)) for number in enabled) or "none"
+    disabled_text = ", ".join(label(int(number)) for number in disabled) or "none"
+    return enabled_text, disabled_text
+
+
+def require_enabled(number: int, env_file: str | None = None) -> None:
+    """Raise when ``number`` must not be selected or peeked."""
+    if not input_is_enabled(number, env_file):
+        raise ConfigError(f"input {number} is disabled")
+
+
+def set_input_enabled(
+    number: int,
+    enabled: bool,
+    env_file: str | None = None,
+    *,
+    input_count: int = DEFAULT_INPUTS,
+) -> Path:
+    """Remember whether ``number`` can be selected. At least one input stays enabled."""
+    if not 1 <= number <= input_count:
+        raise ConfigError(f"input must be between 1 and {input_count}, got {number}")
+    disabled = set(read_disabled(env_file))
+    if enabled:
+        disabled.discard(number)
+    else:
+        disabled.add(number)
+        remaining = [n for n in range(1, input_count + 1) if n not in disabled]
+        if not remaining:
+            raise ConfigError("at least one input must stay enabled")
+    path = env_file_path(env_file)
+    values = read_env_file(path)
+    kept = sorted(n for n in disabled if n >= 1)
+    if kept:
+        values[DISABLED_KEY] = ",".join(str(n) for n in kept)
+    else:
+        values.pop(DISABLED_KEY, None)
+    write_env_file(path, values)
+    return path
+
+
+def enabled_cycle(
+    input_count: int,
+    only: tuple[int, ...] | list[int] | None,
+    env_file: str | None = None,
+) -> tuple[int, ...]:
+    """Inputs next/previous may land on.
+
+    ``only`` is the saved cycle, kept as stored. Disabled members are skipped
+    for this step. With no saved cycle, the walk is every enabled input.
+    """
+    pool = tuple(only) if only else tuple(range(1, input_count + 1))
+    disabled = read_disabled(env_file)
+    kept = tuple(number for number in pool if 1 <= number <= input_count and number not in disabled)
+    if not kept:
+        raise ConfigError("every input in this cycle is disabled")
+    return kept
 
 
 def read_rotate(env_file: str | None = None) -> tuple[int, ...] | None:
@@ -534,6 +646,68 @@ def read_mdns_name(env_file: str | None = None) -> str | None:
 
 def write_mdns_name(name: str | None, env_file: str | None = None) -> Path:
     return _write_optional(MDNS_NAME_KEY, name, env_file)
+
+
+def client_connection_active(env_file: str | None = None) -> bool:
+    """True when this account has its own client listener connection."""
+    return bool(
+        _read_optional(CLIENT_VIA_KEY, env_file) or _read_optional(CLIENT_MDNS_NAME_KEY, env_file)
+    )
+
+
+def read_client_via_url(env_file: str | None = None) -> str | None:
+    """Listener URL a client should use.
+
+    ``TESMART_CLIENT_VIA`` when a client connection is saved. Otherwise
+    ``TESMART_VIA``, which is what a client used before it had its own values.
+    """
+    if client_connection_active(env_file):
+        return _read_optional(CLIENT_VIA_KEY, env_file)
+    return read_via_url(env_file)
+
+
+def read_client_mdns_name(env_file: str | None = None) -> str | None:
+    """mDNS name a client should attach to.
+
+    ``TESMART_CLIENT_MDNS_NAME`` when a client connection is saved, including
+    when that connection is a URL and has no name. Otherwise
+    ``TESMART_MDNS_NAME``.
+    """
+    if client_connection_active(env_file):
+        return _read_optional(CLIENT_MDNS_NAME_KEY, env_file)
+    return read_mdns_name(env_file)
+
+
+def write_client_connection(
+    via: str | None,
+    mdns_name: str | None,
+    env_file: str | None = None,
+) -> Path:
+    """Store the listener a client uses. Server listener keys stay as they are."""
+    path = _write_optional(CLIENT_VIA_KEY, via, env_file)
+    return _write_optional(CLIENT_MDNS_NAME_KEY, mdns_name, env_file)
+
+
+def remember_client_listener(
+    url: str,
+    env_file: str | None = None,
+    *,
+    mdns_name: str | None = None,
+) -> Path:
+    """Remember a listener a client attached to.
+
+    A saved client connection is updated in the ``CLIENT_`` keys. With no
+    client connection, ``TESMART_VIA`` and ``TESMART_MDNS_NAME`` are updated.
+    """
+    if client_connection_active(env_file):
+        path = _write_optional(CLIENT_VIA_KEY, url, env_file)
+        if mdns_name:
+            path = _write_optional(CLIENT_MDNS_NAME_KEY, mdns_name, env_file)
+        return path
+    path = write_via_url(url, env_file)
+    if mdns_name:
+        path = write_mdns_name(mdns_name, env_file)
+    return path
 
 
 def read_http_spec(env_file: str | None = None) -> str | None:

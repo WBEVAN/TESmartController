@@ -36,7 +36,7 @@ Important asymmetry: the *set input* command is 1-based (`0x01` = PC1) but the *
 
 The only state the hex protocol can read back is the active input (`0x10` -> `0x11`). Buzzer, LED timeout, and auto-detect have no query command; the switch will accept the set commands but there is no way to confirm their current value remotely.
 
-Input names are not part of the protocol. `tesmartctl name` stores them in the local env file and adds them to status output. The switch never sees the label.
+Input names are not part of the protocol. `tesmartctl name` stores them in the local env file and adds them to status output. The switch never sees the label. Enablement is local the same way: `status` lists which inputs are enabled and which are disabled. The switch is not told.
 
 There is also no command that reports which inputs have a signal. Auto-detect (`0x81`) can be turned on or off, and the switch will move to a live input on its own, but it never sends a bitmap of connected inputs. `tesmartctl rotate` therefore cycles `1..N` (or an `--only` list the user supplies). It does not discover connected sources.
 

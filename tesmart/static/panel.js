@@ -399,7 +399,7 @@ class Panel {
         /* ignore malformed frames */
       }
     };
-    ["hello", "input_changed", "names_changed", "banner", "peek_follow"].forEach((name) => {
+    ["hello", "input_changed", "names_changed", "enabled_changed", "banner", "peek_follow"].forEach((name) => {
       es.addEventListener(name, onNamed);
     });
     es.onerror = () => {
@@ -436,6 +436,16 @@ class Panel {
     }
     if (kind === "names_changed") {
       if (data.names && typeof data.names === "object") this.state.names = data.names;
+      this.render();
+      return;
+    }
+    if (kind === "enabled_changed") {
+      const disabled = new Set((data.disabled || []).map((number) => Number(number)));
+      this.state.disabled = [...disabled];
+      (this.state.inputs || []).forEach((item) => {
+        item.enabled = !disabled.has(Number(item.number));
+      });
+      this.namesSnapshot = null;
       this.render();
       return;
     }
@@ -568,6 +578,8 @@ class Panel {
   }
 
   async selectInput(number) {
+    const row = (this.state.inputs || []).find((item) => Number(item.number) === Number(number));
+    if (row && row.enabled === false) return;
     const banner = this.state && this.state.banner;
     if (
       banner &&
@@ -1009,7 +1021,9 @@ class Panel {
       button.classList.toggle("btn-primary", isActive);
       button.classList.toggle("is-active", isActive);
       button.classList.toggle("is-peek", isActive && item.number === peeked);
+      button.classList.toggle("is-disabled", item.enabled === false);
       button.classList.toggle("btn-outline-secondary", !isActive);
+      button.setAttribute("aria-disabled", String(item.enabled === false));
       button.setAttribute("aria-pressed", String(isActive));
       button.querySelector(".input-name").textContent = item.name || `Input ${item.number}`;
     });
@@ -1091,14 +1105,19 @@ class Panel {
     // Rebuild only when the saved names change (a save here, or an edit from the CLI).
     // Otherwise leave the fields alone so the periodic refresh cannot discard typing.
     const inputs = this.state.inputs || [];
-    const snapshot = JSON.stringify(inputs.map((item) => [item.number, item.name || ""]));
+    const snapshot = JSON.stringify(
+      inputs.map((item) => [item.number, item.name || "", item.enabled !== false]),
+    );
     if (snapshot === this.namesSnapshot) return;
     this.namesSnapshot = snapshot;
-    if (this.el.namesForm.childElementCount === inputs.length) {
+    const hasBoxes = this.el.namesForm.querySelector("input[data-enabled]");
+    if (this.el.namesForm.childElementCount === inputs.length && hasBoxes) {
       // Update in place; never touch the field being typed in.
       inputs.forEach((item) => {
         const field = this.el.namesForm.querySelector(`input[data-number="${item.number}"]`);
         if (field && document.activeElement !== field) field.value = item.name || "";
+        const box = this.el.namesForm.querySelector(`input[data-enabled="${item.number}"]`);
+        if (box && document.activeElement !== box) box.checked = item.enabled !== false;
       });
       return;
     }
@@ -1116,10 +1135,35 @@ class Panel {
       field.placeholder = `Input ${item.number}`;
       field.maxLength = 40;
       field.setAttribute("aria-label", `Name for input ${item.number}`);
-      group.append(prefix, field);
+      const enabledLabel = document.createElement("label");
+      enabledLabel.className = "input-group-text names-enabled";
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.className = "form-check-input mt-0";
+      box.checked = item.enabled !== false;
+      box.dataset.enabled = String(item.number);
+      box.setAttribute("aria-label", `Enabled for input ${item.number}`);
+      box.addEventListener("change", () => this.setEnabled(item.number, box.checked, box));
+      const caption = document.createElement("span");
+      caption.textContent = "Enabled";
+      enabledLabel.append(box, caption);
+      group.append(prefix, field, enabledLabel);
       return group;
     });
     this.el.namesForm.replaceChildren(...rows);
+  }
+
+  async setEnabled(number, enabled, box) {
+    const result = await this.#call(() => this.api.post("/api/enabled", { input: number, enabled }));
+    if (!result) {
+      box.checked = !enabled;
+      return;
+    }
+    if (Array.isArray(result.inputs)) this.state.inputs = result.inputs;
+    if (Array.isArray(result.disabled)) this.state.disabled = result.disabled;
+    this.namesSnapshot = null;
+    this.renderNames();
+    this.renderInputs();
   }
 
   renderCycle() {

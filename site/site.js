@@ -41,6 +41,17 @@
     });
   });
 
+  document.querySelectorAll("[data-kit-toggle]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const on = btn.getAttribute("aria-pressed") !== "true";
+      btn.setAttribute("aria-pressed", String(on));
+      btn.classList.toggle("is-active", on);
+      const which = btn.getAttribute("data-kit-toggle");
+      if (which === "names") send({ type: "kit-demo-names", on });
+      if (which === "hide-disabled") send({ type: "kit-demo-hide-disabled", on });
+    });
+  });
+
   document.querySelectorAll("[data-kit-banner]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const kind = btn.getAttribute("data-kit-banner");
@@ -68,6 +79,12 @@
 
   frame.addEventListener("load", () => {
     send({ type: "kit-demo-ping" });
+    document.querySelectorAll("[data-kit-toggle]").forEach((btn) => {
+      const on = btn.getAttribute("aria-pressed") === "true";
+      const which = btn.getAttribute("data-kit-toggle");
+      if (which === "names") send({ type: "kit-demo-names", on });
+      if (which === "hide-disabled") send({ type: "kit-demo-hide-disabled", on });
+    });
     setPressed("view", "compact");
     setPressed("body", "black");
     setPressed("lcd", "green");

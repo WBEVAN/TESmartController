@@ -555,6 +555,21 @@ class CallbackHub:
             return
         self._fanout(payload)
 
+    def note_enabled(self, *, source: str = "command") -> None:
+        """Notify browsers that an input was enabled or disabled on this listener."""
+        count = self.switch.input_count
+        disabled = sorted(number for number in config.read_disabled(self.env_file) if 1 <= number <= count)
+        names = config.read_names(self.env_file)
+        self._fanout(
+            {
+                "event": "enabled_changed",
+                "disabled": disabled,
+                "names": {str(number): label for number, label in names.items()},
+                "input_count": count,
+                "source": source,
+            }
+        )
+
     def note_banner(
         self,
         banner: dict[str, Any] | None,

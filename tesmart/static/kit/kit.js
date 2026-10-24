@@ -34,6 +34,7 @@
     // From URL ?ports=16 (tesmartctl kit --ports 16); display-only override.
     forcedPorts: 0,
     names: {},
+    disabled: new Set(),
     endpoint: "",
     mode: "off",
     peekSeconds: 5,
@@ -123,30 +124,64 @@
     return state.forcedPorts || state.realCount || state.count || 8;
   }
 
+  function hidingDisabled() {
+    return prefs.get("hide_disabled") === true;
+  }
+
+  function showingNames() {
+    return prefs.get("show_names") === true;
+  }
+
+  function visibleInputs() {
+    const shown = displayCount();
+    const numbers = [];
+    for (let n = 1; n <= shown; n++) numbers.push(n);
+    if (!hidingDisabled()) return numbers;
+    const kept = numbers.filter((n) => n > state.realCount || !state.disabled.has(n));
+    return kept.length ? kept : numbers;
+  }
+
   function draw() {
     const grid = $("#grid");
     if (!grid) return;
     grid.replaceChildren();
-    const shown = displayCount();
-    for (let n = 1; n <= shown; n++) {
+    for (const n of visibleInputs()) {
       const b = document.createElement("button");
       const beyond = n > state.realCount;
+      const skipped = !beyond && state.disabled.has(n);
       b.className =
         "input" +
         (n === state.active ? " selected" : "") +
         (state.peek && n === state.peek.target ? " peeking" : "") +
         (state.peek && n === state.peek.origin ? " returning" : "") +
-        (beyond ? " preview-only" : "");
-      b.textContent = String(n);
+        (beyond ? " preview-only" : "") +
+        (skipped ? " is-disabled" : "");
       const named = state.names[String(n)] || state.names[n] || "";
       const label = named || `Input ${n}`;
-      // Native tooltip, same as the header icons — the key face only shows the number.
-      b.title = beyond ? `Input ${n} (preview only)` : label;
+      const faceName = showingNames() && named;
+      const face = document.createElement("span");
+      face.className = "input-face";
+      face.textContent = faceName ? named : String(n);
+      b.append(face);
+      // Native tooltip. The face shows either the number or the name; the tip carries both.
+      b.title = beyond
+        ? `Input ${n} (preview only)`
+        : faceName
+          ? skipped
+            ? `${named} (input ${n}, disabled)`
+            : `${named} (input ${n})`
+          : skipped
+            ? `${label} (disabled)`
+            : label;
       b.setAttribute("aria-label", beyond ? `Input ${n} (preview only)` : `Input ${n}: ${label}`);
+      b.setAttribute("aria-disabled", String(skipped));
       b.setAttribute("aria-pressed", String(n === state.active));
-      b.disabled = beyond || !state.online || state.busy || !!state.peek;
+      // A native disabled button swallows the right-click rename.
+      b.disabled = !skipped && (beyond || !state.online || state.busy || !!state.peek);
       if (!beyond) {
-        b.onclick = () => selectInput(n);
+        b.onclick = () => {
+          if (!skipped) selectInput(n);
+        };
         b.oncontextmenu = (e) => {
           e.preventDefault();
           renameInput(n);
@@ -155,6 +190,7 @@
       grid.append(b);
     }
     document.body.classList.toggle("preview-16", displayCount() >= 16);
+    document.body.classList.toggle("show-names", showingNames());
     layoutInputGrid();
 
     const nameRoot = $("#name");
@@ -249,6 +285,9 @@
       state.realCount = data.input_count ?? data.inputCount ?? state.realCount;
       state.count = displayCount();
       state.names = data.names || {};
+      state.disabled = new Set(
+        (Array.isArray(data.disabled) ? data.disabled : []).map((number) => Number(number)),
+      );
       state.endpoint = data.endpoint || "";
       const peek = data.peek || {};
       if (typeof peek.seconds === "number") {
@@ -308,6 +347,11 @@
     }
     if (kind === "names_changed") {
       if (data.names && typeof data.names === "object") state.names = data.names;
+      draw();
+      return;
+    }
+    if (kind === "enabled_changed") {
+      state.disabled = new Set((data.disabled || []).map((number) => Number(number)));
       draw();
       return;
     }
@@ -417,7 +461,7 @@
         /* ignore malformed frames */
       }
     };
-    ["hello", "input_changed", "names_changed", "banner", "peek_follow"].forEach((name) => {
+    ["hello", "input_changed", "names_changed", "enabled_changed", "banner", "peek_follow"].forEach((name) => {
       es.addEventListener(name, onNamed);
     });
     es.onerror = () => {
@@ -872,7 +916,7 @@
   }
 
   async function selectInput(n) {
-    if (!state.online || state.busy || state.peek) return;
+    if (!state.online || state.busy || state.peek || state.disabled.has(Number(n))) return;
     if (n === state.active) {
       const banner = liveBanner();
       if (banner && banner.showing && banner.mode === "sticky") {
@@ -1475,7 +1519,7 @@
     const grid = $("#grid");
     const deck = $("#deck");
     if (!grid || !deck || deck.classList.contains("mini")) return;
-    const count = Math.max(1, displayCount() || grid.children.length || 8);
+    const count = Math.max(1, grid.children.length || displayCount() || 8);
     const cs = getComputedStyle(deck);
     const btn = parseFloat(cs.getPropertyValue("--kit-btn")) || 156;
     const gap = parseFloat(cs.getPropertyValue("--kit-gap")) || 12;
@@ -1955,6 +1999,23 @@
       applyLcdTheme(prefs.get("lcd") || "green");
       applyLcdGlass(prefs.get("lcd_glass") || "matrix");
       applyHighlight(prefs.get("highlight"));
+      const hideDisabled = $("#hide-disabled");
+      if (hideDisabled) {
+        hideDisabled.checked = prefs.get("hide_disabled") === true;
+        hideDisabled.addEventListener("change", () => {
+          prefs.save({ hide_disabled: hideDisabled.checked });
+          draw();
+        });
+      }
+      const showNames = $("#show-names");
+      if (showNames) {
+        showNames.checked = prefs.get("show_names") === true;
+        showNames.addEventListener("change", () => {
+          prefs.save({ show_names: showNames.checked });
+          draw();
+        });
+      }
+      if ((hideDisabled && hideDisabled.checked) || (showNames && showNames.checked)) draw();
       const view = prefs.get("view");
       if (VIEW_MODES.includes(view) && view !== viewMode()) {
         setViewMode(view, { resizeWindow: true });

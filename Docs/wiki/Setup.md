@@ -10,11 +10,11 @@ python3 -m pip install --upgrade tesmartctl
 python3 -m pip install -e .
 ```
 
-Entry point: `tesmartctl`. Requires Python 3.9+.
+Entry point: `tesmartctl`. Requires Python 3.10+. On Windows, confirm Python and pip first: [Windows](Windows).
 
 ## Guided setup
 
-`tesmartctl install` asks whether this computer is the server or a client, then the switch or listener details. A saved env file is used as the defaults and the wizard says so; otherwise it starts from the built-in defaults. Nothing is written until you confirm. A server install stores the HTTP listen address (`TESMART_HTTP`) with the panel and mDNS choices. It can also save `startup.txt` in the current directory for future reference, with `tesmartctl quickstart` and the client checks.
+`tesmartctl install` asks whether this computer is the server or a client, then the switch or listener details. A saved env file is used as the defaults and the wizard says so; otherwise it starts from the built-in defaults. Nothing is written until you confirm. A server install stores the HTTP listen address (`TESMART_HTTP`) with the panel and mDNS choices. Its connection test can select input 9 and then return to the input that was active. If input 9 comes up, the switch is saved as 16 inputs. Otherwise it is saved as 8. You can keep that count or enter your own. A client install is headed **Connect to Server** and saves that listener separately, so a server listener already on this computer stays as it is. The Floating UI Kit question defaults to Yes. The wizard can also save `startup.txt` in the current directory for future reference, with `tesmartctl quickstart` and the client checks.
 
 ```bash
 tesmartctl install
@@ -99,6 +99,7 @@ Details: [Client install](Client-Install).
 
 ## Next
 
+- [Windows](Windows) — Python and pip, double quotes on pip commands, `start` for a server and a client
 - [Quick start](Quickstart) — `install`, then `quickstart` on the server
 - [Client install](Client-Install) — another computer, then `tesmartctl --via auto kit`
 - [Floating kit](Floating-Kit) — floating UI application kit at `/kit`

@@ -222,6 +222,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_peek.add_argument("--save", action="store_true", help="store --seconds as the default for later peeks")
 
+    p_disable = _add(sub, "disable", "ignore an input for selection, peek, and next/previous")
+    p_disable.add_argument("input", help="input number (1-N) or a local name")
+    p_enable = _add(sub, "enable", "allow an input for selection, peek, and next/previous")
+    p_enable.add_argument("input", help="input number (1-N) or a local name")
+
     p_cycle = _add(sub, "cycle", "choose the inputs to cycle and whether that happens automatically or by next/previous")
     cycle_sub = p_cycle.add_subparsers(dest="cycle_command", required=True, metavar="<show|inputs|mode|clear|run>")
     cycle_sub.add_parser("show", help="print the saved cycle, mode, and interval")
@@ -518,6 +523,14 @@ def _render_status(status: dict[str, Any]) -> str:
     lines.append(
         f"Active input:  {_named(status['active_input'], status.get('active_name'))} of {status['input_count']}"
     )
+    if "enabled" in status or "disabled" in status:
+        enabled_text, disabled_text = config.format_input_enablement(
+            status.get("enabled") or [],
+            status.get("disabled") or [],
+            status.get("names"),
+        )
+        lines.append(f"Enabled:       {enabled_text}")
+        lines.append(f"Disabled:      {disabled_text}")
     names = status.get("names") or {}
     if names:
         lines.append("Input names (stored locally, not on the switch):")
@@ -570,15 +583,25 @@ def cmd_status(switch: TesmartSwitch, args: argparse.Namespace) -> int:
     status = switch.read_status(include_network=not args.no_network).to_dict()
     config.apply_names(status, _names(args), include_map=True)
     status["last_sent"] = config.read_last_sent(args.env_file)
+    status.update(config.input_enablement(switch.input_count, args.env_file))
     status["rotate"] = config.rotate_info(args.env_file, input_count=switch.input_count)
     status["peek"] = config.peek_info(args.env_file)
     emit(args, status, _render_status(status))
     return 0
 
 
+def _ignored_disabled(args: argparse.Namespace, number: int, names: dict[int, str]) -> int:
+    data = {"ignored": True, "input": number, "reason": "disabled"}
+    config.apply_names(data, names)
+    emit(args, data, f"Input {_named(number, names.get(number))} is disabled. Selection ignored.")
+    return 0
+
+
 def cmd_peek(switch: TesmartSwitch, args: argparse.Namespace) -> int:
     names = _names(args)
     number = config.resolve_named_input(args.number, input_count=switch.input_count, names=names)
+    if not config.input_is_enabled(number, args.env_file):
+        return _ignored_disabled(args, number, names)
     if args.save:
         if args.seconds is None:
             print("error: --save needs --seconds, for example --seconds 8 --save", file=sys.stderr)
@@ -617,6 +640,7 @@ def _emit_rotate(switch: TesmartSwitch, args: argparse.Namespace) -> int:
     if getattr(args, "save", False):
         config.set_rotate(args.only, args.env_file, input_count=switch.input_count)
     only = args.only if args.only is not None else config.read_rotate(args.env_file)
+    only = config.enabled_cycle(switch.input_count, only, args.env_file)
     previous, reported = switch.rotate(only, direction=getattr(args, "direction", 1))
     data = {"previous": previous, "requested": reported, "active_input": reported}
     config.apply_names(data, _names(args))
@@ -717,6 +741,8 @@ def cmd_input(switch: TesmartSwitch, args: argparse.Namespace) -> int:
     except config.ConfigError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
+    if not config.input_is_enabled(number, args.env_file):
+        return _ignored_disabled(args, number, _names(args))
     if args.only is not None:
         print("error: --only applies to 'input next' or 'rotate'", file=sys.stderr)
         return 2
@@ -933,13 +959,16 @@ def cmd_discover(args: argparse.Namespace) -> int:
             chosen = pick_listener(
                 services,
                 name=args.mdns_name,
-                prefer_url=config.read_via_url(args.env_file),
+                prefer_url=config.read_client_via_url(args.env_file),
             )
         except MdnsError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 1
-        path = config.write_via_url(chosen.base_url, args.env_file)
-        config.write_mdns_name(chosen.instance_name, args.env_file)
+        path = config.remember_client_listener(
+            chosen.base_url,
+            args.env_file,
+            mdns_name=chosen.instance_name,
+        )
         payload["saved"] = {"via": chosen.base_url, "mdns_name": chosen.instance_name, "env_file": str(path)}
     if args.json:
         emit(args, payload, "")
@@ -1002,7 +1031,7 @@ def cmd_kit(args: argparse.Namespace) -> int:
     # --via auto is bound to a name even when it comes from the env file.
     # The kit URL has to carry it so a later reconnect can reject a different one.
     if not mdns_name and (getattr(args, "via", None) or "").strip().lower() == "auto":
-        mdns_name = (config.read_mdns_name(getattr(args, "env_file", None)) or "").strip()
+        mdns_name = (config.read_client_mdns_name(getattr(args, "env_file", None)) or "").strip()
     if args.ports is not None or fresh or mdns_name:
         parts = urlsplit(url)
         query = dict(parse_qsl(parts.query, keep_blank_values=True))
@@ -1076,7 +1105,7 @@ def _kit_listener_base(args: argparse.Namespace) -> tuple[str | None, bool]:
     except MdnsError as exc:
         from .debug import log
 
-        saved = (config.read_via_url(args.env_file) or "").strip().rstrip("/") or None
+        saved = (config.read_client_via_url(args.env_file) or "").strip().rstrip("/") or None
         where = f" ({saved})" if saved else ""
         log(f"browse failed: {exc}; fallback {saved or 'none'}")
         print(
@@ -1234,6 +1263,27 @@ def cmd_banner(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_set_enabled(args: argparse.Namespace, *, enabled: bool) -> int:
+    """Runs without a device connection. Enablement never leaves this machine."""
+    settings = resolve_settings(args)
+    names = config.read_names(args.env_file)
+    try:
+        number = config.resolve_named_input(args.input, input_count=settings.inputs, names=names)
+        path = config.set_input_enabled(number, enabled, args.env_file, input_count=settings.inputs)
+    except config.ConfigError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    label = names.get(number)
+    who = f"Input {number}" + (f" ({label})" if label else "")
+    word = "enabled" if enabled else "disabled"
+    emit(
+        args,
+        {"input": number, "enabled": enabled, "env_file": str(path)},
+        f"{who} {word}.",
+    )
+    return 0
+
+
 def cmd_name(args: argparse.Namespace) -> int:
     """Runs without a device connection. Names never leave this machine."""
     settings = resolve_settings(args)
@@ -1272,7 +1322,10 @@ def cmd_config(args: argparse.Namespace) -> int:
         return 0
     settings = resolve_settings(args)
     data = settings.to_dict()
-    width = max(len(name) for name in (*config.SETTINGS, "listen", "http port", "panel", "mdns"))
+    width = max(
+        len(name)
+        for name in (*config.SETTINGS, "listen", "http port", "panel", "mdns", "client via", "client mdns")
+    )
     lines = [f"Env file: {settings.env_file}{'' if settings.env_file.exists() else ' (not present)'}"]
     for name in config.SETTINGS:
         value = data[name]
@@ -1300,6 +1353,13 @@ def cmd_config(args: argparse.Namespace) -> int:
             data["mdns"] = mdns_text
             lines.append(f"  {'panel':<{width}}  {panel}")
             lines.append(f"  {'mdns':<{width}}  {mdns_text}")
+    if config.client_connection_active(args.env_file):
+        client_via = config.read_client_via_url(args.env_file) or "-"
+        client_name = config.read_client_mdns_name(args.env_file) or "-"
+        data["client_via"] = client_via
+        data["client_mdns"] = client_name
+        lines.append(f"  {'client via':<{width}}  {client_via}")
+        lines.append(f"  {'client mdns':<{width}}  {client_name}")
     emit(args, data, "\n".join(lines))
     return 0
 
@@ -1343,6 +1403,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_config(args)
         if args.command == "name":
             return cmd_name(args)
+        if args.command in {"enable", "disable"}:
+            return cmd_set_enabled(args, enabled=args.command == "enable")
         if args.command == "discover":
             return cmd_discover(args)
         if args.command == "banner":
