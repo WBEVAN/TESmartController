@@ -14,7 +14,7 @@
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Syne:wght@600;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="site.css?v=12" />
+    <link rel="stylesheet" href="site.css?v=14" />
   </head>
   <body>
     <main class="subpage">
@@ -37,29 +37,382 @@
         <figcaption>Preview of the plugin layout.</figcaption>
       </figure>
 
-      <h2>On the deck</h2>
+      <h2>Buttons</h2>
       <ul class="outline">
         <li>
-          <strong>Inputs</strong>
-          Each key shows the local name. The input that is live stays lit.
+          <a href="#input">
+            <img src="assets/streamdeck/key-input.png" width="144" height="144" alt="" />
+            <span>
+              <strong>Input</strong>
+              Select one HDMI input. The key stays lit while that input is live.
+            </span>
+          </a>
         </li>
         <li>
-          <strong>Peek Setting Toggle</strong>
-          Switches the peek setting.
+          <a href="#peek">
+            <img src="assets/streamdeck/key-peek.png" width="144" height="144" alt="" />
+            <span>
+              <strong>Peek</strong>
+              Show one input for a few seconds, then return to the previous input.
+            </span>
+          </a>
         </li>
         <li>
-          <strong>Peek</strong>
-          Individual peek buttons.
+          <a href="#next">
+            <img src="assets/streamdeck/key-next.png" width="144" height="144" alt="" />
+            <span>
+              <strong>Next</strong>
+              Step forward through the listener’s saved cycle.
+            </span>
+          </a>
         </li>
         <li>
-          <strong>Banner</strong>
-          Scrolling banner message button.
+          <a href="#previous">
+            <img src="assets/streamdeck/key-previous.png" width="144" height="144" alt="" />
+            <span>
+              <strong>Previous</strong>
+              Step backward through the listener’s saved cycle.
+            </span>
+          </a>
         </li>
         <li>
-          <strong>Previous, Next, and Cycle</strong>
-          Walk the saved cycle the same way the kit does.
+          <a href="#cycle">
+            <img src="assets/streamdeck/key-cycle.png" width="144" height="144" alt="" />
+            <span>
+              <strong>Cycle</strong>
+              Start or stop walking the inputs chosen on this key.
+            </span>
+          </a>
+        </li>
+        <li>
+          <a href="#banner">
+            <img src="assets/streamdeck/key-banner.png" width="144" height="144" alt="" />
+            <span>
+              <strong>Banner</strong>
+              Show the listener’s scrolling message, and dismiss it from the key.
+            </span>
+          </a>
+        </li>
+        <li>
+          <a href="#peek-settings">
+            <img src="assets/streamdeck/key-peek-mode.png" width="144" height="144" alt="" />
+            <span>
+              <strong>Peek Settings Toggle</strong>
+              Switch peek follow between Off, Once, and Always.
+            </span>
+          </a>
         </li>
       </ul>
+
+      <h2 id="connection">Connection</h2>
+      <p>
+        Every key needs a running tesmartctl listener (<code>tesmartctl listen</code>
+        with HTTP). Connection mode and the server URL are shared by every key.
+        The mDNS name is saved on the key you are editing, so keys can talk to
+        different controllers.
+      </p>
+      <div class="key-layout">
+        <figure class="inspector">
+          <img
+            src="assets/streamdeck/input-direct.png"
+            width="672"
+            height="816"
+            alt="Input key set to Direct HTTP, with Server URL http://192.168.1.20:8080 and input 3 Work."
+          />
+          <figcaption>
+            Direct HTTP. Auto replaces Server URL with an mDNS name menu.
+          </figcaption>
+        </figure>
+        <dl class="settings">
+          <dt>Connection</dt>
+          <dd>
+            <strong>Auto</strong> or <strong>Direct HTTP</strong>. The default
+            is Auto. Changing it changes every key.
+          </dd>
+          <dt>mDNS name</dt>
+          <dd>
+            Shown when Connection is Auto. Pick the listener this key should
+            use. The menu lists each advertised name and address. A name is
+            required when more than one listener answers. Refresh looks for
+            listeners again. One advertised listener is used as-is. Changing
+            this name leaves every other key as it is.
+          </dd>
+          <dt>Server URL</dt>
+          <dd>
+            Shown when Connection is Direct HTTP. The computer running
+            tesmartctl, for example
+            <code>http://127.0.0.1:8080</code> or
+            <code>http://192.168.1.20:8080</code>. This is not the switch
+            address. The default is <code>http://127.0.0.1:8080</code>.
+            Changing the URL changes every key.
+          </dd>
+        </dl>
+      </div>
+      <p>
+        Auto tries, in order, the last URL this key reached, listeners
+        advertised as <code>_wbevan-tesmart._tcp</code>,
+        <code>TESMART_VIA</code> from the tesmartctl env file, then
+        <code>http://127.0.0.1:8080</code>.
+      </p>
+
+      <article class="key-doc" id="input">
+        <h2>Input</h2>
+        <p class="action-name">Stream Deck action: Input</p>
+        <div class="key-layout">
+          <figure class="inspector">
+            <img
+              src="assets/streamdeck/input.png"
+              width="672"
+              height="816"
+              alt="Input key on Auto, mDNS name Studio, input 3 Work selected."
+            />
+            <figcaption>Input key connected with Auto.</figcaption>
+          </figure>
+          <div>
+            <p>
+              Press the key to select this input. It lights up while the switch
+              is on that input. The title is the input’s local name. A short
+              name stays on one line. A longer name wraps to a second line.
+            </p>
+            <h3>Configuration</h3>
+            <dl class="settings">
+              <dt>Connection, mDNS name, Server URL</dt>
+              <dd>Required. See <a href="#connection">Connection</a>.</dd>
+              <dt>Input</dt>
+              <dd>
+                The HDMI input this key selects. The menu is filled from the
+                listener and shows each number and local name. The default is
+                input 1. Refresh reloads the list. A disabled input stays in
+                the menu and can still be assigned. That key draws a red
+                monitor frame and a red HDMI connector, and the listener
+                refuses the press.
+              </dd>
+            </dl>
+          </div>
+        </div>
+      </article>
+
+      <article class="key-doc" id="peek">
+        <h2>Peek</h2>
+        <p class="action-name">Stream Deck action: Peek Input</p>
+        <div class="key-layout">
+          <figure class="inspector">
+            <img
+              src="assets/streamdeck/peek.png"
+              width="672"
+              height="896"
+              alt="Peek Input key with input 2 New Mac and a seconds slider from 1 to 30."
+            />
+            <figcaption>Peek, with the input and how long to show it.</figcaption>
+          </figure>
+          <div>
+            <p>
+              Press the key to show this input, then return to the input that
+              was active. The key stays lit until the peek ends.
+            </p>
+            <h3>Configuration</h3>
+            <dl class="settings">
+              <dt>Connection, mDNS name, Server URL</dt>
+              <dd>Required. See <a href="#connection">Connection</a>.</dd>
+              <dt>Input</dt>
+              <dd>
+                The HDMI input to show. Same menu as an Input key, including
+                disabled inputs. The default is input 1.
+              </dd>
+              <dt>Seconds</dt>
+              <dd>
+                How long the peek lasts, from 1 to 30. The default is 5.
+              </dd>
+            </dl>
+          </div>
+        </div>
+      </article>
+
+      <article class="key-doc" id="next">
+        <h2>Next</h2>
+        <p class="action-name">Stream Deck action: Next Input</p>
+        <div class="key-layout">
+          <figure class="inspector">
+            <img
+              src="assets/streamdeck/next.png"
+              width="672"
+              height="678"
+              alt="Next Input key with Connection set to Auto and an mDNS name. No other settings."
+            />
+            <figcaption>Next uses the listener’s saved cycle. No extra fields.</figcaption>
+          </figure>
+          <div>
+            <p>
+              Press to select the next input in the cycle saved on the
+              listener. The key does not choose that list.
+            </p>
+            <h3>Configuration</h3>
+            <dl class="settings">
+              <dt>Connection, mDNS name, Server URL</dt>
+              <dd>
+                Required. These are the only settings. See
+                <a href="#connection">Connection</a>.
+              </dd>
+            </dl>
+          </div>
+        </div>
+      </article>
+
+      <article class="key-doc" id="previous">
+        <h2>Previous</h2>
+        <p class="action-name">Stream Deck action: Previous Input</p>
+        <div class="key-layout">
+          <figure class="inspector">
+            <img
+              src="assets/streamdeck/previous.png"
+              width="672"
+              height="678"
+              alt="Previous Input key with Connection set to Auto and an mDNS name. No other settings."
+            />
+            <figcaption>Previous uses the listener’s saved cycle. No extra fields.</figcaption>
+          </figure>
+          <div>
+            <p>
+              Press to select the previous input in the cycle saved on the
+              listener.
+            </p>
+            <h3>Configuration</h3>
+            <dl class="settings">
+              <dt>Connection, mDNS name, Server URL</dt>
+              <dd>
+                Required. These are the only settings. See
+                <a href="#connection">Connection</a>.
+              </dd>
+            </dl>
+          </div>
+        </div>
+      </article>
+
+      <article class="key-doc" id="cycle">
+        <h2>Cycle</h2>
+        <p class="action-name">Stream Deck action: Cycle Input</p>
+        <div class="key-layout">
+          <figure class="inspector">
+            <img
+              src="assets/streamdeck/cycle.png"
+              width="672"
+              height="1280"
+              alt="Cycle Input key with inputs 1, 3, and 4 checked and a seconds slider from 2 to 60."
+            />
+            <figcaption>Cycle walks the inputs checked on this key.</figcaption>
+          </figure>
+          <div>
+            <p>
+              Press once to start. The first step happens immediately, then the
+              key keeps stepping until you press it again. The key stays lit
+              while the timer is running, including after you leave the page.
+              This list is separate from the listener’s saved cycle.
+            </p>
+            <h3>Configuration</h3>
+            <dl class="settings">
+              <dt>Connection, mDNS name, Server URL</dt>
+              <dd>Required. See <a href="#connection">Connection</a>.</dd>
+              <dt>Inputs</dt>
+              <dd>
+                Check at least two inputs. The list uses the listener’s names.
+                A disabled input is marked disabled and can still be checked.
+              </dd>
+              <dt>Seconds</dt>
+              <dd>
+                The pause between steps, from 2 to 60. The default is 10.
+              </dd>
+            </dl>
+          </div>
+        </div>
+      </article>
+
+      <article class="key-doc" id="banner">
+        <h2>Banner</h2>
+        <p class="action-name">Stream Deck action: Banner</p>
+        <div class="key-layout">
+          <figure class="inspector">
+            <img
+              src="assets/streamdeck/banner.png"
+              width="672"
+              height="1094"
+              alt="Banner key with Dismiss set to This Stream Deck, Sound set to Play a file, and sound file alert.wav. The current message is Input changed to Work."
+            />
+            <figcaption>Banner dismiss scope, optional sound, and the live message.</figcaption>
+          </figure>
+          <div>
+            <p>
+              While the listener has a message, the key draws a bell and scrolls
+              that message. A short message stays centered. Press the key to
+              dismiss the message that is showing. The inspector also shows the
+              current message.
+            </p>
+            <h3>Configuration</h3>
+            <dl class="settings">
+              <dt>Connection, mDNS name, Server URL</dt>
+              <dd>Required. See <a href="#connection">Connection</a>.</dd>
+              <dt>Dismiss</dt>
+              <dd>
+                <strong>This Stream Deck</strong> hides the message on this
+                Stream Deck and sends nothing. <strong>TESmart Controller</strong>
+                dismisses it for every device that follows the listener. The
+                default is This Stream Deck. The next different message shows
+                again.
+              </dd>
+              <dt>Sound</dt>
+              <dd>
+                <strong>None</strong> is silent. <strong>Play a file</strong>
+                plays the sound file once when a new message starts. A message
+                that is already showing when the plugin connects does not play.
+                The same message does not play again until it goes away and
+                comes back. The default is None.
+              </dd>
+              <dt>Sound file</dt>
+              <dd>
+                Shown when Sound is Play a file. Choose an audio file:
+                <code>.aif</code>, <code>.aiff</code>, <code>.caf</code>,
+                <code>.flac</code>, <code>.m4a</code>, <code>.mp3</code>,
+                <code>.ogg</code>, <code>.wav</code>, or <code>.wma</code>.
+              </dd>
+            </dl>
+          </div>
+        </div>
+      </article>
+
+      <article class="key-doc" id="peek-settings">
+        <h2>Peek Settings Toggle</h2>
+        <p class="action-name">Stream Deck action: Peek Mode</p>
+        <div class="key-layout">
+          <figure class="inspector">
+            <img
+              src="assets/streamdeck/peek-mode.png"
+              width="672"
+              height="820"
+              alt="Peek Mode key with Connection set to Auto and a seconds slider from 1 to 30."
+            />
+            <figcaption>Peek settings. Seconds applies to Once and Always.</figcaption>
+          </figure>
+          <div>
+            <p>
+              This key does not move the switch. Each press moves Off, then
+              Once, then Always, then back to Off. Once peeks the next plain
+              input change. Always peeks every input change until you turn it
+              off. The mode is one setting for the whole listener, so every
+              Peek Settings Toggle key shows the same mode.
+            </p>
+            <h3>Configuration</h3>
+            <dl class="settings">
+              <dt>Connection, mDNS name, Server URL</dt>
+              <dd>Required. See <a href="#connection">Connection</a>.</dd>
+              <dt>Seconds</dt>
+              <dd>
+                How long Once and Always peeks last, from 1 to 30. The default
+                is 5. Those seconds are sent when the key turns peek follow on.
+              </dd>
+            </dl>
+          </div>
+        </div>
+      </article>
+
       <p class="footer-note">
         Until the plugin is published, a Stream Deck Website action can call the
         listener directly.
