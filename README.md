@@ -18,6 +18,7 @@ Ethernet/LAN or RS232 using Python.
 - LAN and RS232 control
 - Home Assistant, Hubitat, Stream Deck and Bitfocus Companion integration
 - Input switching, input naming, cycling and peeking
+- Enable and disable unused inputs
 - Network/IP configuration
 - Zeroconf mDNS / DNS-SD so clients can find the HTTP listener (`discover`, `--via auto`) without typing a host:port
 
