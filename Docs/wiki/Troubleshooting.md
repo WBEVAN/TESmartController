@@ -9,8 +9,9 @@
 
 ## Kit shows offline after the switch was powered off
 
-- Offline means `/api/state` could not reach the HDMI switch (502), not that the listener died
+- **CONTROLLER OFFLINE** means `/api/state` could not reach the HDMI switch (502), or the listener dropped without a shutdown notice
 - SSE to the listener can stay up while the switch is down; the kit polls about every **2s** until the switch answers again
+- **CONTROLLER SHUTDOWN** means the listener stopped with Ctrl-C and sent `shutdown` before it closed. Input buttons stay as they were until the listener starts again
 - If reconnect still feels stuck, hard-refresh the kit so you have current JS
 
 ## Kit looks wrong / prefs stuck (macOS app)
@@ -40,6 +41,9 @@ That skips saved window / appearance prefs for one launch.
 - Base URL must reach the listener from the Hub (use LAN IP, not `127.0.0.1`, on the Hub)
 - Firewall: allow Hub → listener port
 - Re-run Manager setup / refresh children
+- **Status** on the Manager main screen reads `GET /status` and shows the server version and active input
+- `healthStatus` **shutdown** means the listener stopped with Ctrl-C. Starting the listener posts `online` and Hubitat returns to **online**
+- `healthStatus` **offline** means a crash or a lost connection, with no shutdown notice
 - Enable callbacks if you change inputs from kit/CLI and need Hubitat to follow
 
 ## `discover` / `--via auto` finds nothing

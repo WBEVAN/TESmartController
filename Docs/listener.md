@@ -187,7 +187,7 @@ curl -X POST http://127.0.0.1:8080/compat \
 
 ### Server-Sent Events (kit / panel)
 
-Browsers cannot register as outbound callback URLs. With `--panel`, the kit and control panel open `GET /api/events` (plain listener also exposes `GET /events`) and receive push frames as soon as the active input, local names, enablement, LCD banner, or peek-follow mode changes. Event bodies match the callback JSON (`event`, `active_input`, `banner`, …); `banner` frames also include `banner_history` when available. Named SSE events: `hello` (on connect), `input_changed`, `names_changed`, `enabled_changed`, `banner`, `peek_follow`, `shutdown` (Ctrl-C, before the socket closes). A `: keepalive` comment is sent about every 20 seconds. Feature tag: `sse`.
+Browsers cannot register as outbound callback URLs. With `--panel`, the kit and control panel open `GET /api/events` (plain listener also exposes `GET /events`) and receive push frames as soon as the active input, local names, enablement, LCD banner, or peek-follow mode changes. Event bodies match the callback JSON (`event`, `active_input`, `banner`, …); `banner` frames also include `banner_history` when available. Named SSE events: `hello` (on connect), `input_changed`, `names_changed`, `enabled_changed`, `banner`, `peek_follow`, `shutdown` (Ctrl-C, before the socket closes), `online` (listener startup; also POSTed to registered callback URLs with the current input, names, and disabled list). A `: keepalive` comment is sent about every 20 seconds. Feature tag: `sse`.
 
 Setting the mode (`/peek/once`, `/peek/always`, `/peek/off`, or the panel control) sends `mode` and `peek_follow` (`off`, `once`, or `always`), plus `seconds` when a duration was stored. That frame has no `followed` and no `previous`.
 

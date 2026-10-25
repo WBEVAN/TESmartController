@@ -32,7 +32,7 @@ Then open `http://127.0.0.1:<port>/panel`. `<port>` is `TESMART_HTTP_PORT` from 
 | How it opens | `tesmartctl kit`, or a browser | A browser (or an embedded page) |
 | Best for | Desk / always visible | Setup, debugging, full config |
 
-Both share the same listener state (active input, banners, peek). They subscribe to `GET /api/events` (Server-Sent Events) so input, name, and banner changes show up immediately. A slower `/api/state` poll remains as a fallback (~30s online; ~2s while the switch is unreachable so reconnect feels quick). Hubitat uses separate outbound HTTP callbacks, not this browser stream.
+Both share the same listener state (active input, banners, peek). They subscribe to `GET /api/events` (Server-Sent Events) so input, name, and banner changes show up immediately. A slower `/api/state` poll remains as a fallback (~30s online; ~2s while the switch is unreachable so reconnect feels quick). Ctrl-C on the listener sets the panel link to **shutdown**. A crash or a lost connection sets it to **unreachable**. Hubitat uses separate outbound HTTP callbacks, not this browser stream.
 
 ## Embed buttons elsewhere
 

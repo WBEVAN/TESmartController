@@ -39,7 +39,7 @@ Defaults: **black body**, **green LCD**, olive highlight when using silver+green
 
 ## Live updates
 
-The kit opens `GET /api/events` (Server-Sent Events) so input changes, name edits, enable and disable changes, and banners appear as soon as the listener knows about them. A background `/api/state` poll is only a fallback (~30s while online). If the HDMI switch is powered off, the LED goes offline; when it comes back the kit probes about every **2 seconds** until connected again (SSE to the listener stays up even while the switch is down).
+The kit opens `GET /api/events` (Server-Sent Events) so input changes, name edits, enable and disable changes, and banners appear as soon as the listener knows about them. A background `/api/state` poll is only a fallback (~30s while online). If the HDMI switch is powered off, the LED goes offline and the headline says **CONTROLLER OFFLINE**; when it comes back the kit probes about every **2 seconds** until connected again (SSE to the listener stays up even while the switch is down). Ctrl-C on the listener sends `shutdown` first. The headline then says **CONTROLLER SHUTDOWN**, and the input buttons stay as they were. A crash or a lost connection, with no `shutdown` event, shows **CONTROLLER OFFLINE**.
 
 ## Send a banner to the kit
 

@@ -226,7 +226,7 @@ http://<host>:8080/input                   read the active input, {"active_input
 http://<host>:8080/input?format=text       same, as a bare number
 ```
 
-`<host>` is the machine running `tesmartctl`, not the switch. Use `127.0.0.1` with a port-only `--http 8080` when the controller runs on the same computer. Use `0.0.0.0:8080` to accept other devices on your network. The listener has no authentication, so only expose it to a network you trust. mDNS advertise/discover, limitations, and typed-URL fallbacks: [`Docs/mdns.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/mdns.md).
+`<host>` is the machine running `tesmartctl`, not the switch. Use `127.0.0.1` with a port-only `--http 8080` when the controller runs on the same computer. Use `0.0.0.0:8080` to accept other devices on your network. The listener has no authentication, so only expose it to a network you trust. Ctrl-C sends a shutdown notice to the kit, the panel, and registered callbacks before the process exits. Starting the listener sends an online notice to those callbacks with the current input, names, and disabled list. A crash or a dropped connection does not send the shutdown notice, so clients show offline. mDNS advertise/discover, limitations, and typed-URL fallbacks: [`Docs/mdns.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/mdns.md).
 
 ### Stream Deck, macro pads, and home control
 
