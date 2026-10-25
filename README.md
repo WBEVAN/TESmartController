@@ -69,7 +69,7 @@ application capable of making an HTTP request.
 | --- | --- |
 | Read | Active input, and the IP, port, gateway, and mask stored in the switch |
 | Switch | Select an input by number or by a local name, or step next and previous through a list you choose |
-| Enable | Enable or disable an input on this computer. A disabled input is skipped for selection, peek, and next/previous |
+| Enable | Enable or disable an input. Stored on the listener. A disabled input is skipped for selection, peek, and next/previous |
 | Peek | Show another input for a few seconds, then return. Not a cycle |
 | Cycle | Walk a chosen list by hand (`next` / `previous`) or on a timer (`cycle run`) |
 | Settings | Buzzer, front-panel display timeout, auto input detection. The switch cannot report these back |
@@ -217,6 +217,8 @@ tesmartctl --via auto input 3              # find that listener, then switch
 ```text
 http://<host>:8080/input/3                 switch to HDMI 3
 http://<host>:8080/input/Office            switch by local name
+http://<host>:8080/enable/4                allow input 4 again
+http://<host>:8080/disable/4               ignore input 4 for selection, peek, and next/previous
 http://<host>:8080/next                    next input in the saved cycle
 http://<host>:8080/previous                previous input
 http://<host>:8080/peek/2?seconds=8        look at HDMI 2 for 8 seconds, then come back
@@ -289,12 +291,13 @@ tesmartctl name unset 1
 tesmartctl input Office          # select by the local name
 ```
 
-An input is enabled unless you disable it. A disabled input is ignored for selection, peek, and next/previous. It can stay in a saved cycle; the step skips it. At least one input must stay enabled. The panel names list has a checkbox for the same setting. The floating kit shows a disabled input as not selectable. **Hide disabled inputs** leaves only the enabled inputs on the layout, in number order. **Display names** shows the local name on the button. Both are saved with the other kit preferences.
+An input is enabled unless you disable it. A disabled input is ignored for selection, peek, and next/previous. It can stay in a saved cycle; the step skips it. At least one input must stay enabled. The setting is stored with the listener, not in the switch. A command without `--via` writes this computer. `--via` writes the listener it finds. `GET /enable/4` and `GET /disable/4` are the same action. The panel names list has a checkbox for it. The floating kit shows a disabled input as not selectable. **Hide disabled inputs** leaves only the enabled inputs on the layout, in number order. **Display names** shows the local name on the button. Both are saved with the other kit preferences.
 
 ```bash
 tesmartctl disable 4
 tesmartctl disable Office
 tesmartctl enable 4
+tesmartctl --via auto enable 4
 ```
 
 LCD banner messages need a running `tesmartctl listen --http` (add `--panel` for kit/panel). They are not sent to the switch; kits and the browser panel show them.
@@ -447,7 +450,11 @@ echo set 4 | nc 127.0.0.1 9753            # prints the input the switch reports
 tesmartctl listen --http 8080             # HTTP on this computer only, http://127.0.0.1:8080/
 tesmartctl listen --http 0.0.0.0:8080     # HTTP on every interface; other devices use this computer's address
 tesmartctl listen --http 0.0.0.0:8080 --panel
+tesmartctl listen --simulate --http 8080 --panel   # demo: no HDMI switch required
+tesmartctl quickstart --simulate
 ```
+
+`--simulate` keeps the active input in memory. Selection, peek, next, previous, and cycle behave as they do with hardware, and nothing is sent to a switch. Use it for a demo or when you are developing without the switch on the network.
 
 `--bind` and `--http` cannot be combined. Run two processes if you want both. A port number alone binds `127.0.0.1`, so only this computer can connect. `0.0.0.0` accepts every network interface. Other devices then use the address of the computer running `tesmartctl`, for example `http://192.168.1.20:8080/input/3`. There is no authentication, so only do this on a network you trust.
 
@@ -500,6 +507,8 @@ http://127.0.0.1:8080/input                  {"active_input": 2}
 http://127.0.0.1:8080/status                 input plus saved IP, port, gateway, mask
 http://127.0.0.1:8080/status?network=0       input only, skips the LAN queries
 http://127.0.0.1:8080/names                  local input names (GET); POST JSON to set
+http://127.0.0.1:8080/enable/4               allow input 4 (also /enable?input=4 or a local name)
+http://127.0.0.1:8080/disable/Office         ignore that input for selection, peek, and next/previous
 http://127.0.0.1:8080/banner                 last LCD message (GET); POST JSON to set / dismiss / clear
 http://127.0.0.1:8080/events                 Server-Sent Events stream (kit/panel use /api/events)
 http://127.0.0.1:8080/status?format=text     same fields as plain lines

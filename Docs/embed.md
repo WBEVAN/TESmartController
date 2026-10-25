@@ -98,6 +98,8 @@ Start the listener with `--panel`. The frame is the full control panel: inputs, 
 | Arm the next click | `/peek/once` | `{"peek_follow": "once"}`. The next `/input/N`, `/next`, or `/previous` peeks, then later clicks stick |
 | Arm every click | `/peek/always` | `{"peek_follow": "always"}` until `/peek/off` |
 | Clear that arm | `/peek/off` | `{"peek_follow": "off"}` |
+| Allow input 4 again | `/enable/4` | `{"input": 4, "enabled": true, "disabled": [...]}` |
+| Ignore input 4 | `/disable/4` | `{"input": 4, "enabled": false, "disabled": [4, ...]}` |
 
 `/rotate` is the same as `/next`. `active_input` is the input the switch reports after the command. Compare it with `requested` when the two might differ.
 

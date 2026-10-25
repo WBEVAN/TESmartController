@@ -18,11 +18,12 @@ import groovy.transform.Field
 @Field static final String DOCS_URL = "https://wbevan.github.io/TESmartController/"
 @Field static final String LISTENER_DOCS = "https://github.com/WBEVAN/TESmartController/blob/main/Docs/listener.md"
 /** Hubitat package version (keep in sync with packageManifest.json). */
-@Field static final String PACKAGE_VERSION = "1.6.0"
+@Field static final String PACKAGE_VERSION = "1.7.0"
 /** Oldest tesmartctl this package is tested against (must expose /compat). */
-@Field static final String MIN_SERVER_VERSION = "0.0.7.10"
+@Field static final String MIN_SERVER_VERSION = "0.0.7.17"
 @Field static final List REQUIRED_SERVER_FEATURES = [
-    "compat", "callbacks", "callbacks.name", "callbacks.health", "names_changed", "last_sent", "banner"
+    "compat", "callbacks", "callbacks.name", "callbacks.health", "names_changed",
+    "last_sent", "banner", "enabled_changed", "enable", "shutdown", "online"
 ]
 
 definition(
@@ -55,6 +56,7 @@ preferences {
 }
 
 def mainPage() {
+    runPendingListenerAction()
     dynamicPage(name: "mainPage", title: "TESmart Manager", install: true, uninstall: true) {
         section {
             paragraph imgHtml(IMG_BANNER, "tesmartctl")
@@ -83,6 +85,11 @@ Requires <b>tesmartctl ${MIN_SERVER_VERSION}+</b>.
                 description: "Hubitat package ${PACKAGE_VERSION} · host, port, port count, refresh · requires tesmartctl ${MIN_SERVER_VERSION}+",
                 page: "connectionPage"
             )
+            paragraph listenerStatusLine()
+            input name: "btnStatus", type: "button", title: "Status"
+            if (atomicState.lastStatusMessage) {
+                paragraph atomicState.lastStatusMessage
+            }
         }
         section("3. Port names") {
             href(
@@ -92,7 +99,18 @@ Requires <b>tesmartctl ${MIN_SERVER_VERSION}+</b>.
                 page: "namesPage"
             )
         }
-        section("4. Create / update device") {
+        section("4. Enable or disable an input") {
+            paragraph "These lists are the listener’s enablement. They update from <code>GET /status</code> and from the <code>enabled_changed</code> callback."
+            paragraph "<b>Enabled:</b> ${formatInputList(state.enabledInputs)}<br/><b>Disabled:</b> ${formatInputList(state.disabledInputs)}"
+            input name: "mgrInput", type: "enum", title: "Input",
+                options: inputChoiceOptions(), submitOnChange: true
+            input name: "btnEnableInput", type: "button", title: "Enable"
+            input name: "btnDisableInput", type: "button", title: "Disable"
+            if (atomicState.enablementMessage) {
+                paragraph atomicState.enablementMessage
+            }
+        }
+        section("5. Create / update device") {
             input name: "deviceLabel", type: "text", title: "Device label",
                 required: true, defaultValue: app.label ?: "TESmart Switch"
             input name: "createChildSwitches", type: "bool", title: "Create child switch per input",
@@ -103,10 +121,10 @@ Requires <b>tesmartctl ${MIN_SERVER_VERSION}+</b>.
                 paragraph "Current device: <b>${getControllerDevice().displayName}</b> (${getControllerDevice().deviceNetworkId})"
             }
         }
-        section("5. Push notifications") {
+        section("6. Push notifications") {
             input name: "enableCallbacks", type: "bool",
-                title: "Register this hub for input- and name-change callbacks from the server",
-                description: "tesmartctl POSTs previous/current input when the switch changes (front panel, remote, or API)",
+                title: "Register this hub for input, name, and enablement callbacks from the server",
+                description: "tesmartctl POSTs input changes, name changes, and enabled_changed to this hub",
                 defaultValue: true
             if (atomicState.callbackUrl) {
                 paragraph "Callback URL registered with the server:<br/><code style='word-break:break-all'>${atomicState.callbackUrl}</code>"
@@ -168,6 +186,12 @@ def appButtonHandler(String btn) {
         atomicState.pendingListenerAction = "test"
     } else if (btn == "btnRefreshNames") {
         atomicState.pendingListenerAction = "refreshNames"
+    } else if (btn == "btnEnableInput") {
+        atomicState.pendingListenerAction = "enable"
+    } else if (btn == "btnDisableInput") {
+        atomicState.pendingListenerAction = "disable"
+    } else if (btn == "btnStatus") {
+        atomicState.pendingListenerAction = "status"
     }
 }
 
@@ -253,6 +277,11 @@ def handleTesmartEvent() {
             log.debug "TESmart health_check ok"
         }
         return
+    }
+    if ((body?.event ?: "").toString() in ["enabled_changed", "online"]) {
+        if (body.containsKey("disabled") || (body?.event ?: "").toString() == "enabled_changed") {
+            rememberEnablement(body.disabled, body.input_count as Integer)
+        }
     }
     def device = getControllerDevice()
     if (!device) {
@@ -364,18 +393,182 @@ private void unregisterCallbackWithListener(String url = null) {
     }
 }
 
+private Map inputChoiceOptions() {
+    Integer count = (atomicState.lastInputCount ?: prefInputCount ?: "8") as Integer
+    Map listenerNames = currentListenerNames()
+    Map opts = [:]
+    (1..count).each { Integer n ->
+        String label = listenerNames["${n}"] ?: "Input ${n}"
+        opts["${n}"] = "${n} — ${label}"
+    }
+    return opts
+}
+
+private String formatInputList(Object numbers) {
+    if (!(numbers instanceof List) || ((List) numbers).isEmpty()) {
+        return "none"
+    }
+    Map listenerNames = currentListenerNames()
+    return numbers.collect { item ->
+        Integer n = item as Integer
+        String label = listenerNames["${n}"]
+        return label ? "${n} — ${label}" : "${n}"
+    }.join(", ")
+}
+
+private void rememberEnablement(Object disabledObj, Integer count) {
+    Integer ports = count ?: ((atomicState.lastInputCount ?: prefInputCount ?: 8) as Integer)
+    List<Integer> disabled = []
+    if (disabledObj instanceof List) {
+        disabledObj.each { item ->
+            try {
+                Integer number = item as Integer
+                if (number != null && number >= 1 && number <= ports) {
+                    disabled << number
+                }
+            } catch (ignored) {
+            }
+        }
+    }
+    disabled = disabled.unique().sort()
+    List<Integer> enabled = (1..ports).findAll { Integer number -> !(number in disabled) }
+    state.disabledInputs = disabled
+    state.enabledInputs = enabled
+}
+
+private void setInputEnabledOnListener(boolean enabled) {
+    String selected = settings.mgrInput?.toString()?.trim()
+    if (!selected) {
+        atomicState.enablementMessage = "<span style='color:red'>Choose an input first.</span>"
+        return
+    }
+    String base = listenerBaseUrl()
+    if (!base) {
+        atomicState.enablementMessage = "<span style='color:red'>Server host is required.</span>"
+        return
+    }
+    String path = enabled ? "enable" : "disable"
+    String uri = "${base}/${path}/${selected}"
+    if (logEnable) log.debug "TESmart Manager GET ${uri}"
+    try {
+        httpGet([uri: uri, contentType: "application/json", timeout: 20]) { resp ->
+            if (resp.status != 200) {
+                atomicState.enablementMessage = "<span style='color:red'>HTTP ${resp.status}</span>"
+                return
+            }
+            def json = resp.data instanceof Map ? resp.data : new JsonSlurper().parseText(resp.data?.toString() ?: "{}")
+            Integer count = (json.input_count ?: atomicState.lastInputCount ?: prefInputCount ?: 8) as Integer
+            rememberEnablement(json.disabled, count)
+            String word = (json.enabled == true || json.enabled?.toString() == "true") ? "enabled" : "disabled"
+            atomicState.enablementMessage = "<span style='color:green'>Input <b>${json.input ?: selected}</b> ${word}.</span>"
+            def device = getControllerDevice()
+            if (device) {
+                Map event = [
+                    event      : "enabled_changed",
+                    disabled   : json.disabled ?: [],
+                    input_count: count,
+                    source     : "command"
+                ]
+                try {
+                    device.handleInputChanged(new JsonBuilder(event).toString())
+                } catch (Exception e) {
+                    log.warn "enablement device update failed: ${e.message}"
+                }
+            }
+        }
+    } catch (Exception e) {
+        atomicState.enablementMessage = "<span style='color:red'>Failed: ${e.message}</span>"
+        if (logEnable) log.warn "TESmart Manager enablement failed: ${e.message}"
+    }
+}
+
 private void runPendingListenerAction() {
     String action = atomicState.pendingListenerAction
     if (!action) {
         return
     }
     atomicState.pendingListenerAction = null
+    if (action == "enable" || action == "disable") {
+        setInputEnabledOnListener(action == "enable")
+        return
+    }
+    if (action == "status") {
+        refreshListenerStatus()
+        return
+    }
     runConnectionTest()
     if (action == "refreshNames") {
         applyListenerNamesToSettings()
     }
     if (logEnable) {
         log.debug "TESmart Manager server fetch: ${atomicState.lastTestMessage}"
+    }
+}
+
+private String listenerStatusLine() {
+    String ver = atomicState.lastServerVersion ? "tesmartctl <b>${atomicState.lastServerVersion}</b>" : "server version not read yet"
+    String active = atomicState.lastActive != null ? "Active input <b>${atomicState.lastActive}</b>." : "Active input not read yet."
+    return "${ver}. ${active}"
+}
+
+/** Read GET /status and refresh the version, active input, and enablement lists. */
+private void refreshListenerStatus() {
+    String base = listenerBaseUrl()
+    if (!base) {
+        atomicState.lastStatusMessage = "<span style='color:red'>Server host is required.</span>"
+        return
+    }
+    String uri = "${base}/status?network=0"
+    if (logEnable) log.debug "TESmart Manager status GET ${uri}"
+    try {
+        httpGet([uri: uri, contentType: "application/json", timeout: 20]) { resp ->
+            if (resp.status != 200) {
+                atomicState.lastStatusMessage = "<span style='color:red'>HTTP ${resp.status}</span>"
+                return
+            }
+            def json = resp.data instanceof Map ? resp.data : new JsonSlurper().parseText(resp.data?.toString() ?: "{}")
+            applyListenerStatus(json)
+            String ver = atomicState.lastServerVersion ? "tesmartctl <b>${atomicState.lastServerVersion}</b>" : "the listener"
+            atomicState.lastStatusMessage = "<span style='color:green'><b>Online.</b></span> ${ver}, active input <b>${atomicState.lastActive}</b>."
+        }
+    } catch (Exception e) {
+        atomicState.lastStatusMessage = "<span style='color:red'>Unreachable: ${e.message}</span>"
+        if (logEnable) log.warn "TESmart Manager status failed: ${e.message}"
+    }
+}
+
+private void applyListenerStatus(Map json) {
+    Integer active = json.active_input as Integer
+    Integer count = (json.input_count ?: prefInputCount ?: 8) as Integer
+    Map names = (json.names instanceof Map) ? json.names : [:]
+    if (json.version) {
+        atomicState.lastServerVersion = json.version.toString()
+    }
+    atomicState.lastActive = active
+    atomicState.lastInputCount = count
+    atomicState.lastListenerNames = new JsonBuilder(names).toString()
+    if (json.containsKey("disabled")) {
+        rememberEnablement(json.disabled, count)
+    }
+    state.connectionOk = true
+    def device = getControllerDevice()
+    if (!device) {
+        return
+    }
+    Map event = [
+        event       : "online",
+        active_input: active,
+        input_count : count,
+        names       : names,
+        source      : "status"
+    ]
+    if (json.containsKey("disabled")) {
+        event.disabled = json.disabled
+    }
+    try {
+        device.handleInputChanged(new JsonBuilder(event).toString())
+    } catch (Exception e) {
+        log.warn "status device update failed: ${e.message}"
     }
 }
 
@@ -396,18 +589,11 @@ private void runConnectionTest() {
         httpGet([uri: uri, contentType: "application/json", timeout: 20]) { resp ->
             if (resp.status == 200) {
                 def json = resp.data instanceof Map ? resp.data : new JsonSlurper().parseText(resp.data?.toString() ?: "{}")
-                Integer active = json.active_input as Integer
+                applyListenerStatus(json)
                 Integer count = (json.input_count ?: prefInputCount ?: 8) as Integer
                 Map names = (json.names instanceof Map) ? json.names : [:]
-                if (json.version) {
-                    atomicState.lastServerVersion = json.version.toString()
-                }
-                atomicState.lastActive = active
-                atomicState.lastInputCount = count
-                atomicState.lastListenerNames = new JsonBuilder(names).toString()
-                state.connectionOk = true
                 String ver = atomicState.lastServerVersion ? " Server <b>${atomicState.lastServerVersion}</b>." : ""
-                atomicState.lastTestMessage = "<span style='color:green'><b>Connected.</b></span>${ver} Active input <b>${active}</b>, ${count} ports, ${names.size()} server name(s)."
+                atomicState.lastTestMessage = "<span style='color:green'><b>Connected.</b></span>${ver} Active input <b>${atomicState.lastActive}</b>, ${count} ports, ${names.size()} server name(s)."
             } else {
                 state.connectionOk = false
                 atomicState.lastTestMessage = "<span style='color:red'>HTTP ${resp.status}</span>"

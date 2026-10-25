@@ -18,7 +18,16 @@ tesmartctl quickstart
 
 `install` saves the switch address, the HTTP listen address, the listen port, the browser UI choice, and mDNS. `quickstart` starts the listener from that file and leaves it running. `/kit` is the floating UI application kit. `/panel` is the browser-only control panel. When those saved values are missing, `quickstart` says so and offers to run `install`. Walk-through: [`install.md`](install.md).
 
-`quickstart` is `tesmartctl listen` with the saved options. The flags below are that same start written out, plus the line-protocol modes `quickstart` does not use:
+`quickstart` is `tesmartctl listen` with the saved options. The flags below are that same start written out, plus the line-protocol modes `quickstart` does not use.
+
+## Simulator
+
+`--simulate` runs the listener without a TESmart switch. Selecting an input, peek, next, previous, and cycle update an in-memory active input. The HDMI switch is not contacted, so this is for a demo or for development when the hardware is not on the network. Names, enable and disable, banners, and the kit preferences stay local, the same way they do with a real switch. Status reports `simulated: yes` and the endpoint `sim://8` (or `sim://16` when `--inputs 16` is set).
+
+```bash
+tesmartctl listen --simulate --http 8080 --panel
+tesmartctl quickstart --simulate
+```
 
 ```bash
 tesmartctl listen                    # commands on stdin
@@ -34,7 +43,7 @@ tesmartctl listen --http 0.0.0.0:8080 --no-mdns  # LAN HTTP without advertising
 
 Those HTTP options are what `install` writes: `TESMART_HTTP`, `TESMART_HTTP_PORT`, `TESMART_HTTP_PANEL` (`1` or `0`), and `TESMART_HTTP_MDNS`. The switch address stays in `TESMART_HOST` / `TESMART_PORT` or `TESMART_SERIAL`.
 
-A bare port binds `127.0.0.1`, so only this computer can connect. `0.0.0.0` accepts every network interface. Other devices then use the address of the computer running `tesmartctl`, for example `http://192.168.1.20:8080/input/3`. There is no authentication. `--bind` and `--http` cannot be used together; start two processes to expose both. Ctrl-C prints `stopping.` and closes the socket, callback thread, and mDNS advertisement. Another Ctrl-C during that teardown is ignored so zeroconf's shutdown does not print a traceback. Connection flags (`--host`, `--serial`, `--inputs`, `--timeout`, `--env-file`) work the same way as the rest of `tesmartctl`; see the README.
+A bare port binds `127.0.0.1`, so only this computer can connect. `0.0.0.0` accepts every network interface. Other devices then use the address of the computer running `tesmartctl`, for example `http://192.168.1.20:8080/input/3`. There is no authentication. `--bind` and `--http` cannot be used together; start two processes to expose both. Ctrl-C prints `stopping.`, sends `event: shutdown` to SSE clients and registered callback URLs, then closes the socket, callback thread, and mDNS advertisement. Clients that receive that event show a shutdown status. A crash or a dropped connection does not send it, so those stay offline. When the HTTP listener starts, it POSTs `event: online` to those same callback URLs with the current input, names, and disabled list, so Hubitat can mark the controller online without waiting for the next change. Another Ctrl-C during that teardown is ignored so zeroconf's shutdown does not print a traceback. Connection flags (`--host`, `--serial`, `--inputs`, `--timeout`, `--env-file`) work the same way as the rest of `tesmartctl`; see the README.
 
 There is no authentication. Leave the bind address on `127.0.0.1` unless every machine that can open the port is trusted.
 
@@ -138,6 +147,8 @@ JSON is the default. Add `format=text` to get plain text: a bare input number, o
 | `/events` | Server-Sent Events for browser clients (same payloads as callbacks) | long-lived `text/event-stream`; named events `hello`, `input_changed`, `names_changed`, `enabled_changed`, `banner`, `peek_follow` |
 | `/version` | package name, version, feature tags, and `mdns_name` (the instance this process is advertising, or `null`) | `{"name":"tesmartctl","version":"0.0.7.9","features":[…],"mdns_name":"OfficeHDMI"}` |
 | `/compat` | GET or POST compatibility check | `{"min_server":"0.0.7.9","features":["callbacks"]}` → `{"compatible":true,…}` |
+| `/enable/4`, `/enable?input=4`, `/enable/Office` | allow that input again | `{"input": 4, "enabled": true, "disabled": [], "inputs": [...]}` |
+| `/disable/4`, `/disable?input=Office` | ignore that input for selection, peek, and next/previous | `{"input": 4, "enabled": false, "disabled": [4], "inputs": [...]}` |
 | `/names` | GET local input names | `{"names": {"2": "Office"}}` |
 | `POST /names` | set or clear local names (JSON body) | `{"names": {"2": "Office", "3": ""}}` — empty string clears |
 | `/callbacks` | GET registered callbacks and POST timeout | `{"callbacks":[{"url":"…","name":"Hubitat"}], "urls":[…], "count": 1, "timeout": 10}` |
@@ -176,7 +187,7 @@ curl -X POST http://127.0.0.1:8080/compat \
 
 ### Server-Sent Events (kit / panel)
 
-Browsers cannot register as outbound callback URLs. With `--panel`, the kit and control panel open `GET /api/events` (plain listener also exposes `GET /events`) and receive push frames as soon as the active input, local names, enablement, LCD banner, or peek-follow mode changes. Event bodies match the callback JSON (`event`, `active_input`, `banner`, …); `banner` frames also include `banner_history` when available. Named SSE events: `hello` (on connect), `input_changed`, `names_changed`, `enabled_changed`, `banner`, `peek_follow`. A `: keepalive` comment is sent about every 20 seconds. Feature tag: `sse`.
+Browsers cannot register as outbound callback URLs. With `--panel`, the kit and control panel open `GET /api/events` (plain listener also exposes `GET /events`) and receive push frames as soon as the active input, local names, enablement, LCD banner, or peek-follow mode changes. Event bodies match the callback JSON (`event`, `active_input`, `banner`, …); `banner` frames also include `banner_history` when available. Named SSE events: `hello` (on connect), `input_changed`, `names_changed`, `enabled_changed`, `banner`, `peek_follow`, `shutdown` (Ctrl-C, before the socket closes). A `: keepalive` comment is sent about every 20 seconds. Feature tag: `sse`.
 
 Setting the mode (`/peek/once`, `/peek/always`, `/peek/off`, or the panel control) sends `mode` and `peek_follow` (`off`, `once`, or `always`), plus `seconds` when a duration was stored. That frame has no `followed` and no `previous`.
 
@@ -248,7 +259,7 @@ Name change (panel, Hubitat Manager, or `POST /names`):
 }
 ```
 
-Enable or disable from the panel (`POST /api/enabled`). `tesmartctl enable` and `tesmartctl disable` write the env file on this computer and do not send this event to a listener that is already running.
+Enable or disable from `GET /enable/N`, `GET /disable/N`, the panel (`POST /api/enabled`), or `tesmartctl --via auto enable 4`. A command without `--via` still writes only the env file on this computer and does not send this event to a listener that is already running.
 
 ```json
 {

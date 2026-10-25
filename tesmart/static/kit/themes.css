@@ -1004,15 +1004,68 @@ body.kit-float.is-transparent .panel {
 .kit-float .input.is-disabled:active,
 .kit-float .compact .input.is-disabled,
 .kit-float .compact .input.is-disabled:hover,
+.kit-float .compact .input.is-disabled:active,
+.kit-float[data-body="silver"] .input.is-disabled,
+.kit-float[data-body="silver"] .input.is-disabled:hover,
+.kit-float[data-body="silver"] .input.is-disabled:active,
+.kit-float[data-body="silver"] .compact .input.is-disabled,
+.kit-float[data-body="silver"] .compact .input.is-disabled:hover,
+.kit-float[data-body="silver"] .compact .input.is-disabled:active,
+.kit-float .panel[data-body="silver"] .input.is-disabled,
+.kit-float .panel[data-body="silver"] .input.is-disabled:hover,
+.kit-float .panel[data-body="silver"] .input.is-disabled:active,
+.kit-float .panel[data-body="silver"] .compact .input.is-disabled,
+.kit-float .panel[data-body="silver"] .compact .input.is-disabled:hover,
+.kit-float .panel[data-body="silver"] .compact .input.is-disabled:active {
+  cursor: not-allowed !important;
+  color: #9aa3ab !important;
+  box-shadow: none !important;
+  filter: none !important;
+}
+
+.kit-float .input.is-disabled,
+.kit-float .input.is-disabled:hover,
+.kit-float .input.is-disabled:active,
+.kit-float .compact .input.is-disabled,
+.kit-float .compact .input.is-disabled:hover,
 .kit-float .compact .input.is-disabled:active {
-  background-image: url(/static/kit/svg/button-face-idle.svg);
-  cursor: not-allowed;
-  color: #9aa3ab;
+  background-image: url(/static/kit/svg/button-face-idle.svg) !important;
+}
+
+.kit-float[data-body="silver"] .input.is-disabled,
+.kit-float[data-body="silver"] .input.is-disabled:hover,
+.kit-float[data-body="silver"] .input.is-disabled:active,
+.kit-float[data-body="silver"] .compact .input.is-disabled,
+.kit-float[data-body="silver"] .compact .input.is-disabled:hover,
+.kit-float[data-body="silver"] .compact .input.is-disabled:active,
+.kit-float .panel[data-body="silver"] .input.is-disabled,
+.kit-float .panel[data-body="silver"] .input.is-disabled:hover,
+.kit-float .panel[data-body="silver"] .input.is-disabled:active,
+.kit-float .panel[data-body="silver"] .compact .input.is-disabled,
+.kit-float .panel[data-body="silver"] .compact .input.is-disabled:hover,
+.kit-float .panel[data-body="silver"] .compact .input.is-disabled:active {
+  background-image: url(/static/kit/svg/button-face-silver-idle.svg) !important;
+  color: #6b6560 !important;
+}
+
+.kit-float .input.is-disabled .input-face,
+.kit-float .compact .input.is-disabled .input-face {
+  color: #9aa3ab !important;
+}
+
+.kit-float[data-body="silver"] .input.is-disabled .input-face,
+.kit-float[data-body="silver"] .compact .input.is-disabled .input-face,
+.kit-float .panel[data-body="silver"] .input.is-disabled .input-face,
+.kit-float .panel[data-body="silver"] .compact .input.is-disabled .input-face {
+  color: #6b6560 !important;
 }
 
 .kit-float .input.is-disabled::before,
-.kit-float .compact .input.is-disabled::before {
-  opacity: 0.45;
+.kit-float .compact .input.is-disabled::before,
+.kit-float[data-body="silver"] .input.is-disabled::before,
+.kit-float .panel[data-body="silver"] .input.is-disabled::before {
+  opacity: 0.45 !important;
+  background-color: currentColor !important;
 }
 
 .kit-float .theme-row > span {

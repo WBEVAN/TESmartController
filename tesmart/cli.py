@@ -364,10 +364,15 @@ def build_parser() -> argparse.ArgumentParser:
         "install",
         "ask the questions that set up a server or a client (writes the env file only after you confirm)",
     )
-    _add(
+    p_quick = _add(
         sub,
         "quickstart",
         "start the HTTP listener from the address, panel, and mDNS options saved by install",
+    )
+    p_quick.add_argument(
+        "--simulate",
+        action="store_true",
+        help="simulate input changes, peek, and cycle on this computer and do not talk to an HDMI switch",
     )
 
     p_listen = _add(sub, "listen", "stay running and accept commands to read or change the active input")
@@ -401,6 +406,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-mdns",
         action="store_true",
         help="with --http: do not advertise (default when bound to loopback)",
+    )
+    p_listen.add_argument(
+        "--simulate",
+        action="store_true",
+        help="simulate input changes, peek, and cycle on this computer and do not talk to an HDMI switch",
     )
     p_listen.add_argument(
         "--mdns-name",
@@ -893,6 +903,22 @@ def cmd_quickstart(args: argparse.Namespace) -> int:
 
     def serve(ready: Quickstart) -> int:
         settings = resolve_settings(args)
+        if getattr(args, "simulate", False):
+            from .simulate import SimulatedSwitch
+
+            switch = SimulatedSwitch(input_count=settings.inputs)
+            try:
+                return serve_http(
+                    switch,
+                    ready.host,
+                    ready.port,
+                    args.env_file,
+                    panel_enabled=ready.panel,
+                    mdns=ready.mdns,
+                    mdns_name=ready.mdns_name,
+                )
+            finally:
+                switch.close()
         with open_transport(settings) as transport:
             switch = TesmartSwitch(transport, input_count=settings.inputs, reply_timeout=args.timeout)
             return serve_http(
@@ -925,6 +951,12 @@ def cmd_listen(switch: TesmartSwitch, args: argparse.Namespace) -> int:
             panel_enabled=args.panel,
             mdns=mdns,
             mdns_name=args.mdns_name,
+        )
+    if getattr(switch, "simulated", False):
+        print(
+            "Simulated switch: input changes, peek, and cycle stay on this computer "
+            "and are not sent to an HDMI switch.",
+            file=sys.stderr,
         )
     if args.mdns or args.no_mdns:
         raise SystemExit("--mdns / --no-mdns need --http")
@@ -1403,7 +1435,7 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_config(args)
         if args.command == "name":
             return cmd_name(args)
-        if args.command in {"enable", "disable"}:
+        if args.command in {"enable", "disable"} and not args.via:
             return cmd_set_enabled(args, enabled=args.command == "enable")
         if args.command == "discover":
             return cmd_discover(args)
@@ -1422,16 +1454,25 @@ def main(argv: list[str] | None = None) -> int:
             return run_install(env_file=args.env_file, settings=resolve_settings(args))
         if args.command == "quickstart":
             return cmd_quickstart(args)
+        if args.command == "listen" and getattr(args, "simulate", False):
+            from .simulate import SimulatedSwitch
+
+            settings = resolve_settings(args)
+            switch = SimulatedSwitch(input_count=settings.inputs)
+            try:
+                return cmd_listen(switch, args)
+            finally:
+                switch.close()
 
         if args.via:
             from . import via_client
             from .mdns import MdnsError
 
-            supported = {"status", "input", "rotate", "next", "previous", "peek"}
+            supported = {"status", "input", "rotate", "next", "previous", "peek", "enable", "disable"}
             if args.command not in supported:
                 print(
                     f"error: --via does not support `{args.command}`; "
-                    "use status, input, rotate, next, previous, peek "
+                    "use status, input, rotate, next, previous, peek, enable, disable "
                     "(banner/kit accept --via without going through this path)",
                     file=sys.stderr,
                 )

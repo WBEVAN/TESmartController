@@ -229,6 +229,7 @@ class Panel {
     this.bannerTimer = null;
     this.eventSource = null;
     this.sse = false;
+    this.listenerShutdown = false;
     this.expectedMdns = (new URLSearchParams(location.search).get("mdns") || "").trim();
     this.mdnsBlocked = false;
     this.foreignMdnsLabel = "";
@@ -399,7 +400,7 @@ class Panel {
         /* ignore malformed frames */
       }
     };
-    ["hello", "input_changed", "names_changed", "enabled_changed", "banner", "peek_follow"].forEach((name) => {
+    ["hello", "input_changed", "names_changed", "enabled_changed", "banner", "peek_follow", "shutdown"].forEach((name) => {
       es.addEventListener(name, onNamed);
     });
     es.onerror = () => {
@@ -413,6 +414,12 @@ class Panel {
   #applyPushEvent(data) {
     if (!data || !data.event) return;
     const kind = String(data.event);
+    if (kind === "shutdown") {
+      this.listenerShutdown = true;
+      this.sse = false;
+      this.#setLink("shutdown");
+      return;
+    }
     if (kind === "hello") {
       if (this.#mdnsConflict(data.mdns_name)) {
         this.#failForeignListener(data.mdns_name);
@@ -484,10 +491,16 @@ class Panel {
     }
     try {
       const result = await work();
-      if (!local) this.#setLink("ok");
+      if (!local) {
+        this.listenerShutdown = false;
+        this.#setLink("ok");
+      }
       return result;
     } catch (error) {
-      if (!local) this.#setLink(error.status === 0 || error.status === 502 ? "down" : "ok");
+      if (!local) {
+        const dropped = error.status === 0 || error.status === 502;
+        this.#setLink(dropped && this.listenerShutdown ? "shutdown" : dropped ? "down" : "ok");
+      }
       if (onError) onError(error);
       else if (!silent) this.toaster.error(error.message);
       return undefined;
@@ -1223,6 +1236,10 @@ class Panel {
       link.classList.add("text-bg-success", "is-busy");
       text.textContent = " talking";
       // Keep prior up/down for poll cadence; busy is transient.
+    } else if (mode === "shutdown") {
+      link.dataset.state = "down";
+      link.classList.add("text-bg-danger");
+      text.textContent = " shutdown";
     } else if (mode === "down") {
       link.dataset.state = "down";
       link.classList.add("text-bg-danger");

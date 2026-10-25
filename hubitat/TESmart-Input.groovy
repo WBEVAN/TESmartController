@@ -5,7 +5,8 @@
  *  TESmart Controller port via inputNumber / inputName (from tesmartctl
  *  ``name``). Dashboards use these as a radio group: only one child is on.
  *  Turning a child on selects that input; turning the active child off is
- *  ignored.
+ *  ignored. Peek looks at this input, then returns. Enable and disable
+ *  change whether the listener will select or peek this input.
  *
  *  Copyright 2026 — independent community project; not affiliated with TESmart.
  *
@@ -29,6 +30,11 @@ metadata {
         attribute "inputNumber", "number"
         attribute "inputName", "string"
         attribute "parentDevice", "string"
+        attribute "inputEnabled", "enum", ["enabled", "disabled"]
+
+        command "peek", [[name: "Seconds", type: "NUMBER", description: "Optional. Blank uses the listener default"]]
+        command "enableInput"
+        command "disableInput"
     }
 
     preferences {
@@ -91,6 +97,21 @@ void on() {
 void off() {
     if (logEnable) log.debug "${device.displayName}: off() → parent (input ${getDataValue('inputNumber')})"
     parent?.componentOff(device)
+}
+
+void peek(BigDecimal seconds = null) {
+    if (logEnable) log.debug "${device.displayName}: peek() → parent (input ${getDataValue('inputNumber')})"
+    parent?.componentPeek(device, seconds)
+}
+
+void enableInput() {
+    if (logEnable) log.debug "${device.displayName}: enableInput() → parent"
+    parent?.componentSetEnabled(device, true)
+}
+
+void disableInput() {
+    if (logEnable) log.debug "${device.displayName}: disableInput() → parent"
+    parent?.componentSetEnabled(device, false)
 }
 
 void refresh() {

@@ -27,9 +27,11 @@ tesmartctl name unset 1
 tesmartctl disable 4
 tesmartctl disable Office
 tesmartctl enable 4
+tesmartctl --via auto enable 4
+tesmartctl --via auto disable Office
 ```
 
-`disable` and `enable` take an input number or a local name. A disabled input is ignored for selection, peek, and next/previous. It can stay in a saved cycle. At least one input must stay enabled. Inputs are enabled unless you disable them.
+`disable` and `enable` take an input number or a local name. A disabled input is ignored for selection, peek, and next/previous. It can stay in a saved cycle. At least one input must stay enabled. Inputs are enabled unless you disable them. Without `--via` the change is stored on this computer. `--via auto` or `--via http://host:port` stores it on that listener (`GET /enable/N` and `GET /disable/N`).
 
 ## Peek, cycle, rotate
 
@@ -43,7 +45,9 @@ tesmartctl rotate …
 
 ```bash
 tesmartctl quickstart
+tesmartctl quickstart --simulate   # no HDMI switch; input, peek, and cycle stay local
 tesmartctl listen --http --panel
+tesmartctl listen --simulate --http 8080 --panel
 tesmartctl kit
 tesmartctl kit --fresh
 tesmartctl panel

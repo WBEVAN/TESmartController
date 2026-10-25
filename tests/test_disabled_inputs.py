@@ -1,12 +1,14 @@
-"""Enable and disable are local. They skip selection and next/previous."""
+"""Enable and disable are stored with the listener. They skip selection and next/previous."""
 
 from __future__ import annotations
 
 import pytest
 
 from tesmart import config
-from tesmart.cli import build_parser, cmd_set_enabled
+from tesmart.cli import build_parser, cmd_set_enabled, main
+from tesmart.panel import record_input_enabled
 from tesmart.switch import next_input, previous_input
+from tesmart.web import _parse_request
 
 
 def test_inputs_start_enabled(tmp_path):
@@ -92,3 +94,60 @@ def test_cli_rejects_disabling_the_last_input(tmp_path, capsys):
     assert cmd_set_enabled(args, enabled=False) == 2
     assert "at least one input" in capsys.readouterr().err
     assert config.input_is_enabled(8, env)
+
+
+def test_short_routes_accept_a_number_or_a_name():
+    numbered = _parse_request("/disable/4")
+    assert numbered.verb == "disable"
+    assert numbered.number == 4
+    named = _parse_request("/enable/Office")
+    assert named.verb == "enable"
+    assert named.label == "Office"
+    query = _parse_request("/enable?input=2")
+    assert query.verb == "enable"
+    assert query.number == 2
+    with pytest.raises(ValueError, match="missing input"):
+        _parse_request("/disable")
+
+
+def test_record_input_enabled_notifies_clients(tmp_path):
+    env = str(tmp_path / "env")
+    noted: list[str] = []
+
+    class _Hub:
+        def note_enabled(self, *, source: str) -> None:
+            noted.append(source)
+
+    class _Switch:
+        input_count = 8
+
+    class _Server:
+        env_file = env
+        switch = _Switch()
+        callbacks = _Hub()
+
+    payload = record_input_enabled(_Server(), 4, False)
+    assert payload["enabled"] is False
+    assert payload["disabled"] == [4]
+    assert config.read_disabled(env) == frozenset({4})
+    assert noted == ["command"]
+
+
+def test_via_enable_calls_the_listener_and_leaves_this_computer(tmp_path, monkeypatch, capsys):
+    env = str(tmp_path / "env")
+    seen: dict[str, str] = {}
+
+    def resolve_base_url(**_kwargs):
+        return "http://listener:8080"
+
+    def request_json(base, path, **_kwargs):
+        seen["base"] = base
+        seen["path"] = path
+        return {"input": 4, "enabled": True, "disabled": [], "inputs": [{"number": 4, "name": "Office", "enabled": True}]}
+
+    monkeypatch.setattr("tesmart.via_client.resolve_base_url", resolve_base_url)
+    monkeypatch.setattr("tesmart.via_client.request_json", request_json)
+    assert main(["--env-file", env, "--via", "http://listener:8080", "enable", "4"]) == 0
+    assert seen == {"base": "http://listener:8080", "path": "/enable/4"}
+    assert config.read_disabled(env) == frozenset()
+    assert "Input 4 (Office) enabled." in capsys.readouterr().out

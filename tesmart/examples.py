@@ -130,12 +130,14 @@ EXAMPLES: dict[str, list[tuple[str, str]]] = {
         ("tesmartctl config set serial /dev/tty.usbserial-A1", "use RS232 instead of LAN"),
     ],
     "disable": [
-        ("tesmartctl disable 4", "ignore input 4 for selection, peek, and next/previous"),
+        ("tesmartctl disable 4", "ignore input 4 on this computer"),
         ("tesmartctl disable Office", "same, by the local name"),
+        ("tesmartctl --via auto disable 4", "ignore input 4 on the listener found by mDNS"),
     ],
     "enable": [
-        ("tesmartctl enable 4", "allow input 4 again"),
+        ("tesmartctl enable 4", "allow input 4 again on this computer"),
         ("tesmartctl enable Office", "same, by the local name"),
+        ("tesmartctl --via auto enable 4", "allow input 4 on the listener found by mDNS"),
     ],
     "name": [
         ("tesmartctl name set 2 Office", "label input 2 (stored locally, not on the switch)"),
@@ -194,6 +196,14 @@ EXAMPLES: dict[str, list[tuple[str, str]]] = {
         ),
         ("tesmartctl listen --http 0.0.0.0:8080", "HTTP on every interface; other devices use this computer's address (no authentication)"),
         ("tesmartctl listen --http 8080 --panel", "also serve /panel and the floating /kit UI"),
+        (
+            "tesmartctl listen --simulate --http 8080 --panel",
+            "same pages, but input, peek, and cycle stay on this computer and are not sent to a switch",
+        ),
+        (
+            "tesmartctl quickstart --simulate",
+            "start the saved listener in simulator mode",
+        ),
         ("curl http://127.0.0.1:8080/api/state", "panel API: everything the panel shows, as JSON"),
         ("curl -X POST http://127.0.0.1:8080/api/kit-window -H 'Content-Type: application/json' -d '{}'", "open /kit without browser chrome on this host"),
     ],

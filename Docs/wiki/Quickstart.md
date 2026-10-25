@@ -14,6 +14,8 @@ tesmartctl quickstart
 
 Leave that process running. The kit, the panel, Hubitat, Stream Deck, and `tesmartctl --via auto` on other computers all talk through it.
 
+`tesmartctl quickstart --simulate` starts that same listener without an HDMI switch. Input changes, peek, and cycle stay on this computer.
+
 If the listen address is missing, turned off, or unusable, `quickstart` says it does not have the required information to start and asks whether to configure. Answering yes runs `install`, then starts the listener when that configuration includes HTTP.
 
 The same start, written out, is `tesmartctl listen --http HOST:PORT` with `--panel` when the browser UI is on. Run `install` again when the address or the mDNS name should change.

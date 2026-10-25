@@ -126,7 +126,7 @@ Replace `192.168.1.20:8080` with the listener’s address. There is no authentic
 | Peek | With Peek on, an input button shows that input for the number of seconds beside it and then returns. The header shows a countdown and **Back now**. Changing the seconds saves the default. | This listener times it; the duration is in the env file |
 | Auto cycle | Steps to the next cycle input on the saved interval while Auto cycle is switched on. Stops when the tab is hidden or Auto cycle is switched off. | This browser tab only |
 | Buzzer, display timeout, auto input detection | The same three write-only settings as the vendor General page | Sent to the switch and remembered in the listener env file (`last_sent`). Other clients can read them from `/status` or `/api/state`. |
-| Input names | Local labels, saved when you leave the field. Empty clears a name. Each row has an **Enabled** checkbox. Unchecked inputs are ignored for selection, peek, and next/previous. At least one input must stay enabled. Inputs are enabled unless the box is cleared or `tesmartctl disable` says otherwise. | The env file on this computer |
+| Input names | Local labels, saved when you leave the field. Empty clears a name. Each row has an **Enabled** checkbox. Unchecked inputs are ignored for selection, peek, and next/previous. At least one input must stay enabled. Inputs are enabled unless the box is cleared, `GET /disable/N` says otherwise, or `tesmartctl disable` does. `tesmartctl --via auto disable 4` writes the listener. A command without `--via` writes this computer. | The listener env file |
 | Cycle | Which inputs Previous, Next, and Auto cycle walk, plus manual or automatic and the interval. Saved on every change. | The env file |
 | Network | Shows the address stored in the switch. Query reads it again. Apply writes IP, port, gateway, or mask after two separate acknowledgements, then reads the values back. | The switch. Used only after a power cycle. |
 
@@ -173,7 +173,7 @@ The page talks to JSON routes under `/api`. `GET /api` lists them. Errors are `{
 | `GET /api/network/notice` | | Risk and liability wording as `risks`, `liability`, `after_write` |
 | `POST /api/network` | `{"ip": "192.168.1.50", "confirm": true, "accept_risk": true}` | Writes, reads back, returns `requested`, `acknowledged`, `stored`, `verified`, `all_verified` |
 | `POST /api/names` | `{"names": {"1": "Office", "2": ""}}` | Empty string removes that name |
-| `POST /api/enabled` | `{"input": 4, "enabled": false}` | Enable or disable an input. Rejected when it would leave zero inputs enabled |
+| `POST /api/enabled` | `{"input": 4, "enabled": false}` | Enable or disable an input. The same action is `GET /enable/4` and `GET /disable/4` on any HTTP listener. Rejected when it would leave zero inputs enabled |
 | `GET /api/callbacks` | | Registered callbacks (`url`, optional `name`, optional `last`) and POST `timeout` |
 | `POST /api/callbacks` | `{"url": "http://…", "name": "Hubitat"}` | Register (same URL twice updates the name); name changes also fire `names_changed` callbacks |
 | `POST /api/callbacks` | `{"timeout": 10}` | Set how long each callback POST may wait (default 10; API only, not a panel control) |

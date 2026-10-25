@@ -27,6 +27,7 @@
 
   const state = {
     online: false,
+    shutdown: false,
     busy: false,
     active: null,
     count: 8,
@@ -207,9 +208,11 @@
       ? banner.text
       : showBoot
         ? bootText
-        : !state.online
-          ? "CONTROLLER OFFLINE"
-          : activeName;
+        : state.shutdown
+          ? "CONTROLLER SHUTDOWN"
+          : !state.online
+            ? "CONTROLLER OFFLINE"
+            : activeName;
     nameRoot.classList.toggle("is-banner", showing || showBoot);
     nameRoot.classList.toggle("is-boot", showBoot);
     setNameTrack(nameRoot, nameTrack, showing ? banner.text : headline, showing || showBoot);
@@ -222,9 +225,11 @@
         ? "MESSAGE"
         : showBoot
           ? "STARTING"
-          : state.online
-            ? `INPUT ${state.active} SELECTED`
-            : "INPUT STATE UNKNOWN";
+          : state.shutdown
+            ? "LISTENER STOPPED"
+            : state.online
+              ? `INPUT ${state.active} SELECTED`
+              : "INPUT STATE UNKNOWN";
     let detail = `${state.message} • ${peekLabel}`;
     if (state.peek) {
       detail = `TEMPORARY INPUT • ${peekLabel}`;
@@ -280,6 +285,7 @@
         throw err;
       }
       state.mdnsBlocked = false;
+      state.shutdown = false;
       state.online = true;
       state.active = data.active_input ?? data.activeInput ?? state.active;
       state.realCount = data.input_count ?? data.inputCount ?? state.realCount;
@@ -311,7 +317,7 @@
       draw();
     } catch (err) {
       state.online = false;
-      state.message = err.message || "Offline";
+      state.message = state.shutdown ? "Controller shutdown" : (err.message || "Offline");
       if (err && err.mdnsConflict) stopEvents();
       setLed("error");
       draw();
@@ -358,6 +364,16 @@
     if (kind === "banner") {
       applyBannerFromState(data.banner, data.banner_history);
       draw();
+      return;
+    }
+    if (kind === "shutdown") {
+      state.shutdown = true;
+      state.online = false;
+      state.sse = false;
+      state.message = "Controller shutdown";
+      stopEvents();
+      draw();
+      schedulePoll();
       return;
     }
     if (kind === "peek_follow") {
@@ -461,7 +477,7 @@
         /* ignore malformed frames */
       }
     };
-    ["hello", "input_changed", "names_changed", "enabled_changed", "banner", "peek_follow"].forEach((name) => {
+    ["hello", "input_changed", "names_changed", "enabled_changed", "banner", "peek_follow", "shutdown"].forEach((name) => {
       es.addEventListener(name, onNamed);
     });
     es.onerror = () => {
@@ -695,15 +711,9 @@
     try {
       if (apiBridge && apiBridge.resize_to) {
         await Promise.resolve(apiBridge.resize_to(width, height));
+        if (typeof waitForWindowSize === "function") await waitForWindowSize(width, height);
       } else if (isApp || isPopup) {
-        try {
-          window.resizeTo(width, height);
-        } catch {
-          /* browser may block resizeTo */
-        }
-      }
-      if (typeof waitForWindowSize === "function") {
-        await waitForWindowSize(width, height);
+        await resizeContentWindow(width, height);
       }
     } catch {
       /* ignore */
@@ -1181,7 +1191,13 @@
       console.error("kit window clip failed", err);
     }
     try {
-      if (typeof sizeWidgetToMode === "function") sizeWidgetToMode({ resizeWindow });
+      if (typeof sizeWidgetToMode === "function") {
+        sizeWidgetToMode({
+          resizeWindow,
+          // Compact/Full are measured in a taller frame after Mini.
+          ensureRoom: resizeWindow && next !== "mini",
+        });
+      }
     } catch (err) {
       console.error("kit resize after view change failed", err);
     }
@@ -1230,7 +1246,9 @@
       if (viewMode() === "mini") return;
       const next = $("#service-bay").dataset.open !== "true";
       setSetupDoor(next);
-      sizeWidgetToMode({ resizeWindow: true });
+      // Measure the opened or closed bay in this turn and resize once.
+      // The shared view-mode path waits, then grows to 640px, then corrects.
+      sizeWidgetToMode({ resizeWindow: true, immediate: true });
     });
   })();
 
@@ -1614,6 +1632,60 @@
     fillDeckWidth();
   }
 
+  // Chromium --app treats resizeTo as the outer frame. The title bar has to be
+  // in that first size: resizing to the kit and then growing again is the
+  // visible double step when Setup opens or closes. pywebview is frameless.
+  // Mac Chrome often reports outerHeight === innerHeight, so the bar height
+  // is remembered from a resize that actually changed the page.
+  let learnedFrame = null;
+
+  function contentFrameInset() {
+    if (pyApi()) return { w: 0, h: 0 };
+    const measured = {
+      w: Math.max(0, (window.outerWidth || 0) - (window.innerWidth || 0)),
+      h: Math.max(0, (window.outerHeight || 0) - (window.innerHeight || 0)),
+    };
+    if (measured.h >= 20 || measured.w >= 1) {
+      learnedFrame = measured;
+      return { w: measured.w, h: measured.h };
+    }
+    if (learnedFrame && (learnedFrame.h >= 20 || learnedFrame.w >= 1)) {
+      return { w: learnedFrame.w, h: learnedFrame.h };
+    }
+    const mac = /Mac/.test(navigator.platform || "") || /Mac/.test(navigator.userAgent || "");
+    if (mac) return { w: 0, h: 28 };
+    return measured;
+  }
+
+  async function resizeOuterToContent(outerW, outerH, width, height) {
+    try {
+      window.resizeTo(Math.round(outerW), Math.round(outerH));
+    } catch {
+      return false;
+    }
+    await waitForWindowSize(width, height);
+    // A title bar of ~28px is inside the old 24px tolerance, which left
+    // Setup sitting on the bottom edge. Require the page to actually fit.
+    return window.innerHeight + 8 >= height && Math.abs(window.innerWidth - width) <= 24;
+  }
+
+  async function resizeContentWindow(width, height) {
+    const beforeH = window.innerHeight || 0;
+    const beforeW = window.innerWidth || 0;
+    const frame = contentFrameInset();
+    if (await resizeOuterToContent(width + frame.w, height + frame.h, width, height)) return;
+    const afterH = window.innerHeight || 0;
+    const afterW = window.innerWidth || 0;
+    // A browser tab ignores resizeTo. Stacking another size just replays the jump.
+    if (Math.abs(afterH - beforeH) < 2 && Math.abs(afterW - beforeW) < 2) return;
+    const short = Math.max(0, height - afterH);
+    const narrow = Math.max(0, width - afterW);
+    if (short < 1 && narrow < 1) return;
+    const fix = { w: frame.w + narrow, h: frame.h + short };
+    if (fix.h >= 20 || fix.w >= 1) learnedFrame = fix;
+    await resizeOuterToContent(width + fix.w, height + fix.h, width, height);
+  }
+
   function waitForWindowSize(width, height, attempts = 12) {
     return new Promise((resolve) => {
       const tick = (left) => {
@@ -1705,7 +1777,7 @@
     }
   }
 
-  function sizeWidgetToMode({ resizeWindow = false } = {}) {
+  function sizeWidgetToMode({ resizeWindow = false, ensureRoom = false, immediate = false } = {}) {
     if (!isApp && !isPopup) return;
     const deck = $("#deck");
     if (!deck) return;
@@ -1715,23 +1787,22 @@
       try {
         if (apiBridge && apiBridge.resize_to) {
           await Promise.resolve(apiBridge.resize_to(width, height));
+          await waitForWindowSize(width, height);
         } else {
-          try {
-            window.resizeTo(width, height);
-          } catch {
-            /* browser may block resizeTo */
-          }
+          await resizeContentWindow(width, height);
         }
       } catch {
         /* ignore */
       }
-      await waitForWindowSize(width, height);
     };
 
     const run = async () => {
       if (token !== sizeToken) return;
-      // Let Compact/Mini/Full CSS + grid visibility settle before measuring.
-      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      // View changes need a frame for Compact/Mini/Full CSS to settle.
+      // Setup open/close has already updated the bay, so measure immediately.
+      if (!immediate) {
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      }
       if (token !== sizeToken) return;
 
       if (!resizeWindow) {
@@ -1745,9 +1816,9 @@
       // Lift the old view's floor so a smaller view (Full → Compact/Mini) can snap down.
       await setMinWindowSize(apiBridge, null);
       const mode = viewMode();
-      // Compact/Full need a taller frame to measure their real height after Mini.
-      // Never grow when snapping *to* Mini — that left a tall empty device.
-      if (mode !== "mini") {
+      // Only when leaving Mini. Setup open/close used to grow to 640px first,
+      // then snap back, which read as a second resize.
+      if (ensureRoom && mode !== "mini") {
         const roomy = Math.max(window.innerHeight || 0, 640);
         const roomyW = Math.max(window.innerWidth || 0, designWidthFor(mode, 1200));
         if ((window.innerHeight || 0) < roomy - 40) {
@@ -1761,7 +1832,9 @@
       await applySize(apiBridge, width, height);
       if (token !== sizeToken) return;
       // Second pass once the 4×2 grid has settled at the design width.
-      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      if (!immediate) {
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      }
       if (token !== sizeToken) return;
       const again = await measureDeck();
       if (Math.abs(again.width - width) > 2 || Math.abs(again.height - height) > 2) {
@@ -1775,6 +1848,10 @@
       ignoreResize = false;
     };
 
+    if (immediate) {
+      run();
+      return;
+    }
     requestAnimationFrame(() => {
       setTimeout(run, 50);
     });
@@ -1782,10 +1859,10 @@
 
   window.addEventListener("pywebviewready", () => {
     syncWindowClip();
-    sizeWidgetToMode({ resizeWindow: true });
+    sizeWidgetToMode({ resizeWindow: true, ensureRoom: true });
   });
   if (isApp || isPopup) {
-    window.addEventListener("load", () => sizeWidgetToMode({ resizeWindow: true }));
+    window.addEventListener("load", () => sizeWidgetToMode({ resizeWindow: true, ensureRoom: true }));
     window.addEventListener("resize", () => {
       if (ignoreResize) return;
       clearTimeout(resizeTimer);

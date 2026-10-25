@@ -1191,6 +1191,10 @@ body.kit-float.is-history-popout .kit-dialog-popout .message-history-text {
  */
 .kit-float .input {
   position: relative;
+  /* Chromium paints a native button over author colour and ::before unless this is off.
+     pywebview (WebKit) already follows the face SVG. */
+  appearance: none;
+  -webkit-appearance: none;
   background-image: url(/static/kit/svg/button-face-idle.svg);
   background-size: 100% 100%;
   background-repeat: no-repeat;

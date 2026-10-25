@@ -15,7 +15,7 @@ import groovy.transform.Field
 import groovy.json.JsonSlurper
 import groovy.json.JsonBuilder
 
-@Field static final String DRIVER_VERSION = "1.6.0"
+@Field static final String DRIVER_VERSION = "1.7.0"
 @Field static final String CHILD_NAMESPACE = "wbevan_tesmart"
 @Field static final String CHILD_TYPE = "TESmart Input"
 @Field static final String BUILTIN_CHILD_NAMESPACE = "hubitat"
@@ -46,7 +46,7 @@ metadata {
         attribute "inputCount", "number"
         attribute "supportedInputs", "string"
         attribute "mediaInputSource", "string"
-        attribute "healthStatus", "enum", ["online", "offline"]
+        attribute "healthStatus", "enum", ["online", "offline", "shutdown"]
         attribute "lastRefresh", "string"
         attribute "lastChangeSource", "string"
         attribute "peekFollow", "enum", ["off", "once", "always"]
@@ -54,6 +54,8 @@ metadata {
         attribute "bannerShowing", "enum", ["true", "false"]
         attribute "bannerMode", "enum", ["timed", "sticky", "none"]
         attribute "bannerRemaining", "number"
+        attribute "enabledInputs", "string"
+        attribute "disabledInputs", "string"
 
         // STRING (not ENUM): Hubitat freezes command ENUM lists at install time, so they
         // never pick up server names. Use Preferences → Switch/Peek for named dropdowns.
@@ -100,6 +102,16 @@ metadata {
             ],
             description: "Dismiss hides on kit/panel; reshow restores last; clear wipes message and all history"
         ]]
+        command "enableInput", [[
+            name: "Input*",
+            type: "STRING",
+            description: "Port number or Preferences value, e.g. 2 or 2 - New Mac"
+        ]]
+        command "disableInput", [[
+            name: "Input*",
+            type: "STRING",
+            description: "Port number or Preferences value, e.g. 2 or 2 - New Mac"
+        ]]
         command "createChildInputs"
         command "deleteChildInputs"
         // configureFromApp / setNameOverrides are methods for TESmart Manager (not shown as commands)
@@ -116,6 +128,12 @@ metadata {
             options: liveInputOptions(), submitOnChange: true
         input name: "uiPeekSeconds", type: "number", title: "Peek seconds (optional)",
             description: "How long Peek lasts; blank uses the server default", range: "1..600"
+        input name: "uiEnableInput", type: "enum", title: "Enable input",
+            description: "Allow this port for selection, peek, and next/previous",
+            options: liveInputOptions(), submitOnChange: true
+        input name: "uiDisableInput", type: "enum", title: "Disable input",
+            description: "Ignore this port for selection, peek, and next/previous. At least one input must stay enabled",
+            options: liveInputOptions(), submitOnChange: true
         input name: "uiPeekFollow", type: "enum", title: "Peek follow mode",
             description: "Off = input changes stick; Once = next change peeks then sticks; Always = every change peeks until Off",
             options: ["off": "Off (stick)", "once": "Once", "always": "Always"],
@@ -199,6 +217,8 @@ void updated() {
     String switchSel = settings.uiSwitchInput?.toString()?.trim()
     String peekSel = settings.uiPeekInput?.toString()?.trim()
     String peekFollowSel = settings.uiPeekFollow?.toString()?.trim()
+    String enableSel = settings.uiEnableInput?.toString()?.trim()
+    String disableSel = settings.uiDisableInput?.toString()?.trim()
     BigDecimal peekSecs = settings.uiPeekSeconds as BigDecimal
     if (switchSel) {
         clearUiEnum("uiSwitchInput")
@@ -211,6 +231,14 @@ void updated() {
     if (peekFollowSel) {
         clearUiEnum("uiPeekFollow")
         setPeekFollow(peekFollowSel, peekSecs)
+    }
+    if (enableSel) {
+        clearUiEnum("uiEnableInput")
+        enableInput(enableSel)
+    }
+    if (disableSel) {
+        clearUiEnum("uiDisableInput")
+        disableInput(disableSel)
     }
     initialize()
 }
@@ -288,6 +316,34 @@ void peek(String input, BigDecimal seconds = null) {
 
 void peek(BigDecimal input, BigDecimal seconds = null) {
     peek(input?.toPlainString(), seconds)
+}
+
+/** Allow this input for selection, peek, and next/previous. Stored on the listener. */
+void enableInput(String input) {
+    setInputEnabled(input, true)
+}
+
+void enableInput(BigDecimal input) {
+    enableInput(input?.toPlainString())
+}
+
+/** Ignore this input for selection, peek, and next/previous. At least one input must stay enabled. */
+void disableInput(String input) {
+    setInputEnabled(input, false)
+}
+
+void disableInput(BigDecimal input) {
+    disableInput(input?.toPlainString())
+}
+
+private void setInputEnabled(String input, boolean enabled) {
+    String port = resolveInputSelection(input)
+    if (!port) {
+        logWarn "${enabled ? 'enableInput' : 'disableInput'}: choose an input"
+        return
+    }
+    String path = enabled ? "/enable/${port}" : "/disable/${port}"
+    httpGetAsync(path, "handleEnablementResponse", [action: enabled ? "enable" : "disable", input: port])
 }
 
 /**
@@ -400,8 +456,39 @@ void componentOn(child) {
         logWarn "componentOn: cannot resolve input for ${child?.deviceNetworkId}"
         return
     }
+    if (isInputDisabled(number)) {
+        logInfo "input ${number} is disabled. Selection ignored."
+        Integer active = device.currentValue("activeInput") as Integer
+        String desired = (active != null && active == number) ? "on" : "off"
+        child.parse([[name: "switch", value: desired, descriptionText: "${child.displayName} is disabled"]])
+        return
+    }
     logDebug "componentOn ${child.displayName} → input ${number}"
     selectInput(number.toString())
+}
+
+void componentPeek(child, BigDecimal seconds = null) {
+    Integer number = inputNumberFromChild(child)
+    if (number == null) {
+        logWarn "componentPeek: cannot resolve input for ${child?.deviceNetworkId}"
+        return
+    }
+    if (isInputDisabled(number)) {
+        logInfo "input ${number} is disabled. Peek ignored."
+        return
+    }
+    logDebug "componentPeek ${child.displayName} → input ${number}"
+    peek(number.toString(), seconds)
+}
+
+void componentSetEnabled(child, boolean enabled) {
+    Integer number = inputNumberFromChild(child)
+    if (number == null) {
+        logWarn "componentSetEnabled: cannot resolve input for ${child?.deviceNetworkId}"
+        return
+    }
+    logDebug "componentSetEnabled ${child.displayName} → input ${number}"
+    setInputEnabled(number.toString(), enabled)
 }
 
 void componentOff(child) {
@@ -433,7 +520,7 @@ private void httpGetAsync(String path, String callback, Map data = [:]) {
     String base = listenerBaseUrl()
     if (!base) {
         logWarn "server host is not configured"
-        sendEvent(name: "healthStatus", value: "offline")
+        markListenerDown()
         return
     }
     Map params = [
@@ -447,7 +534,7 @@ private void httpGetAsync(String path, String callback, Map data = [:]) {
         asynchttpGet(callback, params, data)
     } catch (Exception e) {
         logWarn "HTTP request failed: ${e.message}"
-        sendEvent(name: "healthStatus", value: "offline")
+        markListenerDown()
     }
 }
 
@@ -455,7 +542,7 @@ private void httpPostAsync(String path, Map body, String callback, Map data = [:
     String base = listenerBaseUrl()
     if (!base) {
         logWarn "server host is not configured"
-        sendEvent(name: "healthStatus", value: "offline")
+        markListenerDown()
         return
     }
     String payload = new JsonBuilder(body ?: [:]).toString()
@@ -471,20 +558,20 @@ private void httpPostAsync(String path, Map body, String callback, Map data = [:
         asynchttpPost(callback, params, data)
     } catch (Exception e) {
         logWarn "HTTP POST failed: ${e.message}"
-        sendEvent(name: "healthStatus", value: "offline")
+        markListenerDown()
     }
 }
 
 void handleStatusResponse(response, Map data = [:]) {
     if (response.hasError()) {
         logWarn "status error: ${response.getErrorMessage()}"
-        sendEvent(name: "healthStatus", value: "offline")
+        markListenerDown()
         return
     }
     Integer status = response.getStatus()
     if (status != 200) {
         logWarn "status HTTP ${status}: ${response.getErrorData() ?: response.getData()}"
-        sendEvent(name: "healthStatus", value: "offline")
+        markListenerDown()
         return
     }
 
@@ -495,7 +582,7 @@ void handleStatusResponse(response, Map data = [:]) {
             json = new groovy.json.JsonSlurper().parseText(response.getData() as String)
         } catch (ignored) {
             logWarn "could not parse JSON body"
-            sendEvent(name: "healthStatus", value: "offline")
+            markListenerDown()
             return
         }
     }
@@ -513,13 +600,13 @@ void handlePeekResponse(response, Map data = [:]) {
 void handlePeekFollowResponse(response, Map data = [:]) {
     if (response.hasError()) {
         logWarn "peek follow error: ${response.getErrorMessage()}"
-        sendEvent(name: "healthStatus", value: "offline")
+        markListenerDown()
         return
     }
     Integer status = response.getStatus()
     if (status != 200) {
         logWarn "peek follow HTTP ${status}: ${response.getErrorData() ?: response.getData()}"
-        sendEvent(name: "healthStatus", value: "offline")
+        markListenerDown()
         return
     }
     def json = response.json
@@ -539,13 +626,13 @@ void handlePeekFollowResponse(response, Map data = [:]) {
 void handleBannerResponse(response, Map data = [:]) {
     if (response.hasError()) {
         logWarn "banner error: ${response.getErrorMessage()}"
-        sendEvent(name: "healthStatus", value: "offline")
+        markListenerDown()
         return
     }
     Integer status = response.getStatus()
     if (status != 200) {
         logWarn "banner HTTP ${status}: ${response.getErrorData() ?: response.getData()}"
-        sendEvent(name: "healthStatus", value: "offline")
+        markListenerDown()
         return
     }
     def json = response.json
@@ -566,7 +653,7 @@ void handleBannerResponse(response, Map data = [:]) {
 
 /**
  * Called by TESmart Manager when tesmartctl POSTs a callback
- * (``input_changed``, ``names_changed``, or ``banner``).
+ * (``input_changed``, ``names_changed``, ``enabled_changed``, or ``banner``).
  * ``jsonText`` is the callback body (previous, active_input, names, banner, source, …).
  */
 void handleInputChanged(String jsonText) {
@@ -590,12 +677,30 @@ void handleInputChanged(String jsonText) {
         logDebug "health_check callback ignored on device"
         return
     }
+    if (eventKind == "shutdown") {
+        sendEvent(name: "healthStatus", value: "shutdown", descriptionText: "Controller shutdown")
+        logInfo "controller shutdown (${json.reason ?: 'signal'})"
+        return
+    }
+    if (eventKind == "online") {
+        if ((json.active_input ?: json.activeInput) == null && device.currentValue("activeInput") != null) {
+            json.active_input = device.currentValue("activeInput")
+        }
+        applyStatus(json, [action: "callback", event: "online"])
+        logInfo "controller online (${json.source ?: 'startup'})"
+        return
+    }
     if (json.source) {
         sendEvent(name: "lastChangeSource", value: json.source.toString())
     }
     if (eventKind == "banner") {
         applyBannerState(json.banner)
         logInfo "banner via callback: showing=${device.currentValue('bannerShowing')} text=${device.currentValue('bannerText')}"
+        return
+    }
+    if (eventKind == "enabled_changed") {
+        applyEnabledChanged(json)
+        logInfo "enablement via callback: enabled=${state.enabledInputs} disabled=${state.disabledInputs} (${json.source ?: 'unknown'})"
         return
     }
     Integer previous = (json.previous ?: json.previous_input ?: json.previousInput) as Integer
@@ -660,11 +765,91 @@ private void applyStatus(Map json, Map data = [:]) {
     }
     applyPeekFollow(json, null)
 
+    if (json.containsKey("disabled")) {
+        rememberEnablement(json.disabled, count)
+    }
+
     if (createChildren) {
         syncChildren(active)
     }
 
     logDebug "applyStatus active=${active} name=${activeName} count=${count} names=${names} action=${data?.action}"
+}
+
+/** ``enabled_changed`` has no active input. Update enablement and leave the selected child switch alone. */
+private void applyEnabledChanged(Map json) {
+    if (json.names != null) {
+        Map parsedNames = coerceNamesMap(json.names)
+        if (parsedNames || isExplicitlyEmptyNames(json.names)) {
+            state.listenerNames = parsedNames
+        }
+    }
+    Integer count = (json.input_count ?: json.inputCount ?: resolveInputCount()) as Integer
+    state.inputCount = count
+    rememberEnablement(json.disabled, count)
+    if (createChildren) {
+        syncChildren(device.currentValue("activeInput") as Integer)
+    }
+}
+
+void handleEnablementResponse(response, Map data = [:]) {
+    if (response.hasError()) {
+        logWarn "enablement error: ${response.getErrorMessage()}"
+        markListenerDown()
+        return
+    }
+    Integer status = response.getStatus()
+    if (status != 200) {
+        logWarn "enablement HTTP ${status}: ${response.getErrorData() ?: response.getData()}"
+        return
+    }
+    def json = response.json
+    if (json == null) {
+        try {
+            json = new JsonSlurper().parseText(response.getData() as String)
+        } catch (ignored) {
+            logWarn "enablement: could not parse JSON body"
+            return
+        }
+    }
+    if (!(json instanceof Map)) {
+        logWarn "enablement: expected a JSON object"
+        return
+    }
+    sendEvent(name: "healthStatus", value: "online")
+    applyEnabledChanged(json as Map)
+    String word = (json.enabled == true || json.enabled?.toString() == "true") ? "enabled" : "disabled"
+    logInfo "input ${json.input ?: data?.input} ${word}"
+}
+
+private void rememberEnablement(Object disabledObj, Integer count) {
+    Integer ports = count ?: resolveInputCount()
+    List<Integer> disabled = []
+    if (disabledObj instanceof List) {
+        disabledObj.each { item ->
+            try {
+                Integer number = item as Integer
+                if (number != null && number >= 1 && number <= ports) {
+                    disabled << number
+                }
+            } catch (ignored) {
+            }
+        }
+    }
+    disabled = disabled.unique().sort()
+    List<Integer> enabled = (1..ports).findAll { Integer number -> !(number in disabled) }
+    state.disabledInputs = disabled
+    state.enabledInputs = enabled
+    sendEvent(name: "enabledInputs", value: enabled.join(", "))
+    sendEvent(name: "disabledInputs", value: disabled ? disabled.join(", ") : "none")
+}
+
+private boolean isInputDisabled(Integer number) {
+    if (number == null) {
+        return false
+    }
+    List disabled = state.disabledInputs instanceof List ? (state.disabledInputs as List) : []
+    return disabled.collect { it as Integer }.contains(number)
 }
 
 /** Apply LCD banner attributes from a status/callback ``banner`` object (or null when cleared). */
@@ -927,6 +1112,12 @@ private void syncChildIdentity(child, Integer number, Integer active) {
     events << [name: "inputName", value: (inputName ?: ""), descriptionText: "${autoLabel} name is ${inputName ?: 'unset'}"]
     if (child.currentValue("switch") != desiredSwitch) {
         events << [name: "switch", value: desiredSwitch, descriptionText: "${autoLabel} is ${desiredSwitch}"]
+    }
+    if (!useBuiltinChild) {
+        String desiredEnabled = isInputDisabled(number) ? "disabled" : "enabled"
+        if (child.currentValue("inputEnabled") != desiredEnabled) {
+            events << [name: "inputEnabled", value: desiredEnabled, descriptionText: "${autoLabel} is ${desiredEnabled}"]
+        }
     }
     child.parse(events)
 }
@@ -1191,6 +1382,15 @@ private Map coerceNamesMap(raw) {
         out.put(k.toString(), label)
     }
     return out
+}
+
+/** Connection loss. A notified shutdown stays shutdown until the listener answers again. */
+private void markListenerDown() {
+    if ((device.currentValue("healthStatus") ?: "") == "shutdown") {
+        logDebug "listener still stopped after shutdown"
+        return
+    }
+    sendEvent(name: "healthStatus", value: "offline", descriptionText: "Controller offline")
 }
 
 private void scheduleRefresh() {

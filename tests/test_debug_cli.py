@@ -51,6 +51,34 @@ def test_format_adapter_line_marks_a_tunnel():
     assert "(cgnat)" in format_adapter_line("utun4", "", ["100.64.0.8"], vpn=True)
 
 
+def test_kit_window_debug_names_pywebview_and_the_window():
+    from tesmart.kit_window import kit_window_debug_lines
+
+    installed = kit_window_debug_lines(
+        installed=True,
+        version="5.4",
+        backend="chromium",
+        browser="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    )
+    assert installed == [
+        "pywebview is installed (5.4)",
+        "using chromium window (Google Chrome)",
+    ]
+    missing = kit_window_debug_lines(installed=False, backend="webview")
+    assert missing == [
+        "pywebview is not installed",
+        "using pywebview window",
+    ]
+    fallback = kit_window_debug_lines(
+        installed=True,
+        version="5.4",
+        backend="chromium",
+        browser="chromium",
+        fallback="pywebview did not open: no display",
+    )
+    assert fallback[-1] == "pywebview did not open: no display"
+
+
 def test_debug_log_is_silent_until_enabled(capsys):
     set_enabled(False)
     log("hidden")

@@ -63,6 +63,8 @@ tesmartctl --via auto status
 tesmartctl --via auto --mdns-name OfficeHDMI input 3
 tesmartctl --via auto next
 tesmartctl --via auto peek 2
+tesmartctl --via auto enable 4
+tesmartctl --via auto disable Office
 tesmartctl --via auto banner "Door unlocked"
 tesmartctl --via auto kit --fresh
 tesmartctl --via auto kit --mdns-name OfficeHDMI

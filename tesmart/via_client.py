@@ -34,6 +34,8 @@ VIA_COMMANDS = frozenset(
         "next",
         "previous",
         "peek",
+        "enable",
+        "disable",
         "banner",
         "kit",
         "discover",
@@ -141,6 +143,8 @@ def run_via_command(args: Any, base: str) -> int:
         return _via_rotate(args, base)
     if command == "peek":
         return _via_peek(args, base)
+    if command in {"enable", "disable"}:
+        return _via_enable(args, base)
     raise SystemExit(f"--via does not support `{command}` yet")
 
 
@@ -200,6 +204,26 @@ def _render_via_status(status: dict[str, Any], base: str) -> str:
     if status.get("version"):
         lines.append(f"Listener:      tesmartctl {status.get('version')}")
     return "\n".join(lines)
+
+
+def _via_enable(args: Any, base: str) -> int:
+    """Enable or disable an input on the listener, not on this computer."""
+    token = quote(str(args.input), safe="")
+    payload = request_json(
+        base,
+        f"/{args.command}/{token}",
+        timeout=max(float(args.timeout), 10.0),
+    )
+    number = payload.get("input", args.input)
+    name = None
+    for item in payload.get("inputs") or []:
+        if item.get("number") == number:
+            name = item.get("name")
+            break
+    word = "enabled" if payload.get("enabled") else "disabled"
+    who = f"Input {number}" + (f" ({name})" if name else "")
+    _emit(args, payload, f"{who} {word}.")
+    return 0
 
 
 def _via_status(args: Any, base: str) -> int:

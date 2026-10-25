@@ -360,6 +360,29 @@ def build_names_event(
     return payload
 
 
+def build_online_event(
+    *,
+    switch: TesmartSwitch,
+    env_file: str | None = None,
+    active: int | None = None,
+) -> dict[str, Any]:
+    """Payload when this listener process starts and can take clients again."""
+    names = config.read_names(env_file)
+    disabled = sorted(number for number in config.read_disabled(env_file) if 1 <= number <= switch.input_count)
+    payload: dict[str, Any] = {
+        "event": "online",
+        "input_count": switch.input_count,
+        "source": "startup",
+        "endpoint": switch.endpoint,
+        "names": {str(number): label for number, label in names.items()},
+        "disabled": disabled,
+    }
+    if active is not None:
+        payload["active_input"] = active
+        payload["active_name"] = names.get(active)
+    return payload
+
+
 def build_health_event() -> dict[str, Any]:
     return {
         "event": "health_check",
@@ -419,6 +442,30 @@ def _post_one(url: str, body: bytes, *, timeout: float, event: str | None) -> di
         error = str(exc)
         note_delivery(url, ok=False, error=error, event=event, ms=ms)
         return {"url": url, "ok": False, "error": error, "ms": round(ms, 1)}
+
+
+def notify_shutdown(hub: CallbackHub, *, reason: str = "signal") -> None:
+    """Tell connected clients this process is stopping on purpose.
+
+    Browser streams get an SSE ``shutdown`` frame. Registered callback URLs
+    get the same JSON, posted on this thread so the notice leaves before the
+    socket closes. A later failed poll stays distinguishable from a crash:
+    clients that saw this event can show shutdown instead of offline.
+    """
+    payload = {
+        "event": "shutdown",
+        "reason": reason,
+        "source": "listener",
+    }
+    if hub.events is not None:
+        hub.events.publish(payload)
+    urls = read_callback_urls(hub.env_file)
+    if not urls:
+        # Give SSE handler threads a moment to write the frame.
+        time.sleep(0.25)
+        return
+    timeout = min(read_timeout(hub.env_file), 2.0)
+    post_event(urls, payload, timeout=timeout)
 
 
 def post_event(
@@ -517,6 +564,7 @@ class CallbackHub:
         except Exception as exc:  # noqa: BLE001 - startup must not fail the HTTP server
             print(f"callbacks: could not read initial input ({exc})", file=sys.stderr)
             self._last_active = None
+        self.note_online()
         self._thread = threading.Thread(target=self._run, name="tesmartctl-callbacks", daemon=True)
         self._thread.start()
 
@@ -524,6 +572,19 @@ class CallbackHub:
         self._stop.set()
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=2.0)
+
+    def note_online(self) -> None:
+        """Tell registered clients this listener is accepting commands again."""
+        with self._state_lock:
+            active = self._last_active
+        payload = build_online_event(switch=self.switch, env_file=self.env_file, active=active)
+        urls = read_callback_urls(self.env_file)
+        if urls:
+            print(
+                f"callbacks: listener online, notifying {len(urls)} client(s)",
+                file=sys.stderr,
+            )
+        self._fanout(payload)
 
     def note_active(self, active: int | None, *, previous: int | None = None, source: str = "command") -> None:
         """Record a known active input (from an HTTP/panel command) and notify if it changed."""

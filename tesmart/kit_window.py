@@ -118,6 +118,45 @@ def _webview_available() -> bool:
     return True
 
 
+def _pywebview_version() -> str:
+    """Installed pywebview version, or "" when the package is missing."""
+    try:
+        import webview
+    except ImportError:
+        return ""
+    return str(getattr(webview, "__version__", "") or "").strip()
+
+
+def kit_window_debug_lines(
+    *,
+    installed: bool,
+    version: str = "",
+    backend: str,
+    browser: str = "",
+    fallback: str = "",
+) -> list[str]:
+    """Debug lines: whether pywebview is installed, and which window opened."""
+    if installed:
+        lines = [f"pywebview is installed ({version})" if version else "pywebview is installed"]
+    else:
+        lines = ["pywebview is not installed"]
+    if backend == "webview":
+        lines.append("using pywebview window")
+    else:
+        name = Path(browser).name if browser else "chromium"
+        lines.append(f"using chromium window ({name})")
+    if fallback:
+        lines.append(fallback)
+    return lines
+
+
+def _log_kit_window(**kwargs: str | bool) -> None:
+    from .debug import log
+
+    for line in kit_window_debug_lines(**kwargs):  # type: ignore[arg-type]
+        log(line)
+
+
 def _pointer_screen(webview_mod):  # type: ignore[no-untyped-def]
     """Screen under the mouse (helps portrait / multi-monitor placement)."""
     screens = list(getattr(webview_mod, "screens", []) or [])
@@ -1268,13 +1307,15 @@ def open_kit_window(
     if prefer not in {"auto", "chromium", "webview", "chrome", "edge"}:
         raise KitWindowError(f"unknown kit window backend {prefer!r}")
 
-    if prefer in {"webview", "auto"}:
+    installed = _webview_available()
+    version = _pywebview_version() if installed else ""
+    fallback = ""
+    if prefer in {"webview", "auto"} and installed:
         try:
             # macOS normally launches a Dock .app, whose output never reaches
             # this terminal. --debug stays in-process so probe errors print here.
-            in_process = block and _webview_available() and (
-                sys.platform != "darwin" or debug
-            )
+            in_process = block and (sys.platform != "darwin" or debug)
+            _log_kit_window(installed=True, version=version, backend="webview")
             if in_process and (prefer == "webview" or prefer == "auto"):
                 if debug and sys.platform == "darwin":
                     from .debug import log
@@ -1292,12 +1333,26 @@ def open_kit_window(
                 netdebug=netdebug,
             )
             return {"backend": "webview", "browser": "pywebview", "url": url}
-        except KitWindowError:
+        except KitWindowError as exc:
             if prefer != "auto":
                 raise
+            fallback = f"pywebview did not open: {exc}"
+    elif prefer == "webview":
+        _log_kit_window(installed=False, backend="webview")
+        raise KitWindowError(
+            "pywebview is not installed; pip install 'tesmartctl[kit]' "
+            "or use Chrome/Edge --app mode"
+        )
 
     if prefer in {"chromium", "chrome", "edge", "auto"}:
         browser = open_chromium_app(url, width=width, height=height)
+        _log_kit_window(
+            installed=installed,
+            version=version,
+            backend="chromium",
+            browser=browser,
+            fallback=fallback,
+        )
         return {"backend": "chromium-app", "browser": browser, "url": url}
 
     raise KitWindowError("could not open a chrome-less kit window")

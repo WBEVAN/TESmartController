@@ -23,6 +23,8 @@ Routes (GET or POST)
 ``/peek/once``               the next plain input change peeks, then later changes stick
 ``/peek/always``             every plain input change peeks until ``/peek/off``
 ``/peek/off``                plain input changes stick again
+``/enable/4``                allow input 4 again (also ``/enable?input=4`` or a local name)
+``/disable/4``               ignore input 4 for selection, peek, and next/previous
 ``/names``                   local input names (GET list; POST JSON to set)
 ``/version``                 package name, version, and feature tags
 ``/compat``                  GET/POST compatibility check (min server version + features)
@@ -40,7 +42,7 @@ import threading
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import NamedTuple
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from . import callbacks, config, panel, version as pkg_version
 from .banner import BannerBoard
@@ -71,6 +73,8 @@ ROUTES = {
     "/peek/once": "the next plain input change peeks, then later changes stick",
     "/peek/always": "every plain input change peeks until /peek/off",
     "/peek/off": "plain input changes stick again",
+    "/enable/N": "allow input N (number or local name) for selection, peek, and next/previous",
+    "/disable/N": "ignore input N (number or local name) for selection, peek, and next/previous",
     "/names": "GET local input names; POST {\"names\": {\"2\": \"Office\", \"3\": \"\"}} to set or clear",
     "/banner": "GET last LCD message; POST {\"text\",\"seconds\"|\"sticky\":true}; POST {\"show\":true}|{\"dismiss\":true}|{\"clear\":true}",
     "/events": "Server-Sent Events stream (input_changed, names_changed, banner); kit/panel use /api/events",
@@ -137,6 +141,17 @@ def _parse_request(path: str) -> WebRequest:
         if len(segments) != 1:
             raise LookupError(parts.path)
         return WebRequest("names", None, as_text, include_network)
+    if head in {"enable", "disable"}:
+        if len(segments) > 2:
+            raise LookupError(parts.path)
+        token = unquote(segments[1]) if len(segments) == 2 else query.get("input", [None])[0]
+        if token is not None:
+            token = unquote(str(token)).strip()
+        if not token:
+            raise ValueError(f"missing input: use /{head}/N or /{head}?input=N")
+        if token.isdigit():
+            return WebRequest(head, int(token), as_text, include_network)
+        return WebRequest(head, None, as_text, include_network, None, token)
     if head == "banner":
         if len(segments) != 1:
             raise LookupError(parts.path)
@@ -204,6 +219,8 @@ def _status_text(payload: dict) -> str:
     active = payload.get("active_input")
     name = payload.get("active_name")
     lines = [f"active_input: {active} ({name})" if name else f"active_input: {active}"]
+    if payload.get("simulated"):
+        lines.append("simulated: yes")
     network = payload.get("network") or {}
     for key in ("ip", "port", "gateway", "mask"):
         if key in network:
@@ -369,6 +386,22 @@ class _Handler(BaseHTTPRequestHandler):
                 text = "(none)" if not banner else f"{banner.get('text')} ({banner.get('remaining')}s)"
             self._send(HTTPStatus.OK, payload, request.as_text, text)
             return
+        if request.verb in {"enable", "disable"}:
+            try:
+                number = self._resolve(request)
+                payload = panel.record_input_enabled(
+                    self.server, number, request.verb == "enable"
+                )
+            except config.ConfigError as exc:
+                self._send(HTTPStatus.BAD_REQUEST, {"error": str(exc)}, request.as_text)
+                return
+            except SwitchError as exc:
+                self._send(HTTPStatus.BAD_REQUEST, {"error": str(exc)}, request.as_text)
+                return
+            word = "enabled" if payload.get("enabled") else "disabled"
+            text = f"input {payload.get('input')} {word}" if request.as_text else None
+            self._send(HTTPStatus.OK, payload, request.as_text, text)
+            return
         if request.verb == "events":
             if self.command.upper() != "GET":
                 self._send(
@@ -399,6 +432,8 @@ class _Handler(BaseHTTPRequestHandler):
         # child labels in sync after /input, /next, and /previous — not only /status.
         config.apply_names(payload, names, include_map=True)
         if request.verb == "status":
+            if getattr(self.server.switch, "simulated", False):
+                payload["simulated"] = True
             payload["version"] = pkg_version.package_version()
             payload["mdns_name"] = getattr(self.server, "mdns_name", None)
             payload.update(config.input_enablement(self.server.switch.input_count, self.server.env_file))
@@ -794,11 +829,19 @@ def serve_http(
         file=sys.stderr,
     )
     print(f"  HDMI switch:  {switch.endpoint}", file=sys.stderr)
+    if getattr(switch, "simulated", False):
+        print(
+            "  Simulated switch: input changes, peek, and cycle stay on this computer "
+            "and are not sent to an HDMI switch.",
+            file=sys.stderr,
+        )
     print(f"  http://{bound_host}:{bound_port}/input        read", file=sys.stderr)
     print(f"  http://{bound_host}:{bound_port}/status       read input and LAN settings", file=sys.stderr)
     print(f"  http://{bound_host}:{bound_port}/version      {pkg_version.package_version()}", file=sys.stderr)
     print(f"  http://{bound_host}:{bound_port}/compat       client/server compatibility check", file=sys.stderr)
     print(f"  http://{bound_host}:{bound_port}/names        local input names (GET / POST)", file=sys.stderr)
+    print(f"  http://{bound_host}:{bound_port}/enable/N     allow input N", file=sys.stderr)
+    print(f"  http://{bound_host}:{bound_port}/disable/N    ignore input N", file=sys.stderr)
     print(f"  http://{bound_host}:{bound_port}/banner       brief LCD message (GET / POST)", file=sys.stderr)
     print(f"  http://{bound_host}:{bound_port}/events       Server-Sent Events (kit/panel push)", file=sys.stderr)
     print(f"  http://{bound_host}:{bound_port}/callbacks    change notifications (GET / POST / DELETE)", file=sys.stderr)
@@ -840,6 +883,10 @@ def serve_http(
         server.serve_forever()
     except KeyboardInterrupt:
         print("stopping.", file=sys.stderr)
+        try:
+            callbacks.notify_shutdown(server.callbacks)
+        except Exception as exc:  # noqa: BLE001 - shutdown must still close the socket
+            print(f"shutdown notify failed: {exc}", file=sys.stderr)
     finally:
         _stop_http_listener(server, advertisement)
     return 0

@@ -15,6 +15,13 @@ tesmartctl quickstart
 
 The same start, written out, is `tesmartctl listen --http HOST:PORT` with `--panel` when the browser UI is on. Walk-through: [Docs/install.md](https://github.com/WBEVAN/TESmartController/blob/main/Docs/install.md).
 
+`--simulate` answers input changes, peek, and cycle from memory and does not talk to an HDMI switch. Use it for a demo or when no switch is available:
+
+```bash
+tesmartctl listen --simulate --http 8080 --panel
+tesmartctl quickstart --simulate
+```
+
 Line-protocol mode (no HTTP) is also available for raw clients; see [Docs/listener.md](https://github.com/WBEVAN/TESmartController/blob/main/Docs/listener.md).
 
 ## Useful URLs
@@ -25,6 +32,8 @@ Base: `http://127.0.0.1:8765` (or your bind host/port)
 | --- | --- |
 | `GET /status` | Connection + active input |
 | `GET` / `POST /input` | Query or select input |
+| `GET /enable/N` | Allow input N again (number or local name; also `?input=`) |
+| `GET /disable/N` | Ignore input N for selection, peek, and next/previous |
 | `POST /banner` | Show / dismiss / clear banners |
 | `GET /events` | Server-Sent Events (input, names, enable/disable, banner push) |
 | `GET /api/events` | Same stream for kit / panel (`--panel`) |
@@ -42,7 +51,7 @@ Exact query/body shapes live in the repo listener doc — prefer that as the sou
 | Hubitat | Outbound `POST` to registered `/callbacks` URLs (+ its own poll) |
 | Stream Deck / Companion / curl | Usually one-shot HTTP; optional `curl -N /events` to watch |
 
-SSE event names: `hello`, `input_changed`, `names_changed`, `enabled_changed`, `banner`, `peek_follow`. Same JSON shape as callback bodies. `enabled_changed` is sent when an input is enabled or disabled from the panel.
+SSE event names: `hello`, `input_changed`, `names_changed`, `enabled_changed`, `banner`, `peek_follow`, `shutdown`. `shutdown` is sent on Ctrl-C before the listener closes. Same JSON shape as callback bodies. `enabled_changed` is sent for `GET /enable/N`, `GET /disable/N`, and the panel checkbox. `tesmartctl --via auto enable 4` uses those routes.
 
 ## Who uses it
 

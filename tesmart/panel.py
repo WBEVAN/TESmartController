@@ -257,6 +257,8 @@ def build_state(handler: "_Handler", include_network: bool) -> dict[str, Any]:
     with server.lock:
         status = switch.read_status(include_network=include_network).to_dict()
     config.apply_names(status, names, include_map=True)
+    if getattr(switch, "simulated", False):
+        status["simulated"] = True
     status["rotate"] = config.rotate_info(server.env_file, input_count=switch.input_count)
     status["peek"] = config.peek_info(server.env_file)
     status["peek"]["active"] = server.peeker.status()
@@ -520,15 +522,42 @@ def _action_names(handler: "_Handler", body: dict[str, Any]) -> dict[str, Any]:
     return {"names": {str(number): label for number, label in names.items()}}
 
 
-def _inputs_payload(handler: "_Handler") -> list[dict[str, Any]]:
-    env = handler.server.env_file
+def inputs_payload(server: Any) -> list[dict[str, Any]]:
+    env = server.env_file
     names = config.read_names(env)
     disabled = config.read_disabled(env)
-    count = handler.server.switch.input_count
+    count = server.switch.input_count
     return [
         {"number": number, "name": names.get(number), "enabled": number not in disabled}
         for number in range(1, count + 1)
     ]
+
+
+def record_input_enabled(server: Any, number: int, enabled: bool) -> dict[str, Any]:
+    """Store enablement on this listener and tell open clients."""
+    config.set_input_enabled(
+        number,
+        enabled,
+        server.env_file,
+        input_count=server.switch.input_count,
+    )
+    hub = getattr(server, "callbacks", None)
+    if hub is not None:
+        hub.note_enabled(source="command")
+    disabled = sorted(
+        item for item in config.read_disabled(server.env_file)
+        if 1 <= item <= server.switch.input_count
+    )
+    return {
+        "input": number,
+        "enabled": enabled,
+        "disabled": disabled,
+        "inputs": inputs_payload(server),
+    }
+
+
+def _inputs_payload(handler: "_Handler") -> list[dict[str, Any]]:
+    return inputs_payload(handler.server)
 
 
 def _action_enabled(handler: "_Handler", body: dict[str, Any]) -> dict[str, Any]:
@@ -538,20 +567,7 @@ def _action_enabled(handler: "_Handler", body: dict[str, Any]) -> dict[str, Any]
     if not isinstance(body.get("enabled"), bool):
         raise PanelError('"enabled" must be true or false')
     number = int(raw)
-    config.set_input_enabled(
-        number,
-        body["enabled"],
-        handler.server.env_file,
-        input_count=handler.server.switch.input_count,
-    )
-    hub = getattr(handler.server, "callbacks", None)
-    if hub is not None:
-        hub.note_enabled(source="command")
-    disabled = sorted(
-        item for item in config.read_disabled(handler.server.env_file)
-        if 1 <= item <= handler.server.switch.input_count
-    )
-    return {"input": number, "enabled": body["enabled"], "disabled": disabled, "inputs": _inputs_payload(handler)}
+    return record_input_enabled(handler.server, number, body["enabled"])
 
 
 def _action_cycle(handler: "_Handler", body: dict[str, Any]) -> dict[str, Any]:
