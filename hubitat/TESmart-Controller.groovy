@@ -15,7 +15,7 @@ import groovy.transform.Field
 import groovy.json.JsonSlurper
 import groovy.json.JsonBuilder
 
-@Field static final String DRIVER_VERSION = "1.7.0"
+@Field static final String DRIVER_VERSION = "1.7.1"
 @Field static final String CHILD_NAMESPACE = "wbevan_tesmart"
 @Field static final String CHILD_TYPE = "TESmart Input"
 @Field static final String BUILTIN_CHILD_NAMESPACE = "hubitat"
@@ -51,6 +51,7 @@ metadata {
         attribute "lastChangeSource", "string"
         attribute "peekFollow", "enum", ["off", "once", "always"]
         attribute "bannerText", "string"
+        attribute "bannerFrom", "string"
         attribute "bannerShowing", "enum", ["true", "false"]
         attribute "bannerMode", "enum", ["timed", "sticky", "none"]
         attribute "bannerRemaining", "number"
@@ -86,10 +87,12 @@ metadata {
         ]
         command "showBanner", [
             [name: "Text*", type: "STRING", description: "LCD message on kit/panel (max ~160 chars)"],
-            [name: "Seconds", type: "NUMBER", description: "Timed display 1–60; blank = server default (8)"]
+            [name: "Seconds", type: "NUMBER", description: "Timed display 1–60; blank = server default (8)"],
+            [name: "From", type: "STRING", description: "Optional kit status-line label (default HUBITAT; max 32 chars)"]
         ]
         command "showStickyBanner", [
-            [name: "Text*", type: "STRING", description: "Keep showing until dismiss (bannerAction)"]
+            [name: "Text*", type: "STRING", description: "Keep showing until dismiss (bannerAction)"],
+            [name: "From", type: "STRING", description: "Optional kit status-line label (default HUBITAT; max 32 chars)"]
         ]
         // One dropdown + Run on the device page (dismiss / reshow / clear).
         command "bannerAction", [[
@@ -382,7 +385,7 @@ void deviceNotification(String text) {
 }
 
 /** Timed LCD banner on kit/panel (needs ``tesmartctl listen --http``). */
-void showBanner(String text, BigDecimal seconds = null) {
+void showBanner(String text, BigDecimal seconds = null, String from = null) {
     String message = text?.trim()
     if (!message) {
         logWarn "showBanner: text is required"
@@ -392,17 +395,23 @@ void showBanner(String text, BigDecimal seconds = null) {
     if (seconds != null) {
         body.seconds = seconds.intValue()
     }
+    // Hubitat always stamps a from label; blank From → HUBITAT (not MESSAGE).
+    String fromLabel = from?.trim()
+    body.from = fromLabel ?: "HUBITAT"
     httpPostAsync("/banner", body, "handleBannerResponse", [action: "showBanner"])
 }
 
 /** Sticky LCD banner until dismiss (bannerAction → dismiss, or clear). */
-void showStickyBanner(String text) {
+void showStickyBanner(String text, String from = null) {
     String message = text?.trim()
     if (!message) {
         logWarn "showStickyBanner: text is required"
         return
     }
-    httpPostAsync("/banner", [text: message, sticky: true], "handleBannerResponse", [action: "showStickyBanner"])
+    Map body = [text: message, sticky: true]
+    String fromLabel = from?.trim()
+    body.from = fromLabel ?: "HUBITAT"
+    httpPostAsync("/banner", body, "handleBannerResponse", [action: "showStickyBanner"])
 }
 
 /**
@@ -856,6 +865,7 @@ private boolean isInputDisabled(Integer number) {
 private void applyBannerState(Object bannerObj) {
     if (bannerObj == null) {
         sendEvent(name: "bannerText", value: "")
+        sendEvent(name: "bannerFrom", value: "MESSAGE")
         sendEvent(name: "bannerShowing", value: "false")
         sendEvent(name: "bannerMode", value: "none")
         sendEvent(name: "bannerRemaining", value: 0)
@@ -867,6 +877,10 @@ private void applyBannerState(Object bannerObj) {
     }
     Map banner = bannerObj as Map
     String text = (banner.text ?: "").toString()
+    String fromLabel = (banner.from ?: "MESSAGE").toString().trim()
+    if (!fromLabel) {
+        fromLabel = "MESSAGE"
+    }
     boolean showing = banner.showing == true || banner.showing?.toString()?.toLowerCase() == "true"
     String mode = (banner.mode ?: (showing ? "timed" : "none")).toString()
     if (!(mode in ["timed", "sticky"])) {
@@ -881,6 +895,7 @@ private void applyBannerState(Object bannerObj) {
         }
     }
     sendEvent(name: "bannerText", value: text)
+    sendEvent(name: "bannerFrom", value: fromLabel)
     sendEvent(name: "bannerShowing", value: showing ? "true" : "false")
     sendEvent(name: "bannerMode", value: showing ? mode : (text ? mode : "none"))
     if (remaining != null) {

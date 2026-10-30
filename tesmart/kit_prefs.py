@@ -10,6 +10,9 @@ file next to the env file instead (``~/.config/tesmartctl/kit.json``):
 * ``peek_follow`` — the peek-follow mode last chosen in the kit
 * ``body`` — charcoal ``black`` (default) or metallic ``silver`` fascia
 * ``lcd`` — ``green`` (default), ``blue``, ``red``, or dark ``amber`` (orange phosphor)
+* ``lcd_brightness`` — LCD brightness percent ``40``–``100`` (default ``100``)
+* ``lcd_dim`` — auto-dim the LCD after idle (default off); fades to 40% without changing Bright
+* ``lcd_dim_seconds`` — idle seconds before auto-dim ``1``–``120`` (default ``30``)
 * ``highlight`` — optional ``#RRGGBB`` key/chrome highlight; omit for LCD default
 * ``lcd_glass`` — ``matrix`` (default mesh), ``phosphor`` (mesh + bleed), or ``off``
 * ``hide_disabled`` — omit disabled inputs from the key grid
@@ -69,6 +72,18 @@ def _clean(data: Any) -> dict[str, Any]:
         out["body"] = data["body"]
     if data.get("lcd") in LCD_THEMES:
         out["lcd"] = data["lcd"]
+    brightness = data.get("lcd_brightness")
+    if isinstance(brightness, (int, float)) and not isinstance(brightness, bool):
+        level = int(round(float(brightness)))
+        if 40 <= level <= 100:
+            out["lcd_brightness"] = level
+    if isinstance(data.get("lcd_dim"), bool):
+        out["lcd_dim"] = data["lcd_dim"]
+    dim_seconds = data.get("lcd_dim_seconds")
+    if isinstance(dim_seconds, (int, float)) and not isinstance(dim_seconds, bool):
+        secs = int(round(float(dim_seconds)))
+        if 1 <= secs <= 120:
+            out["lcd_dim_seconds"] = secs
     if data.get("lcd_glass") in LCD_GLASS:
         out["lcd_glass"] = data["lcd_glass"]
     highlight = data.get("highlight")

@@ -6,6 +6,8 @@ Off unless ``--panel`` is given. It adds three things to the HTTP listener:
   Windows controller: input buttons, next/previous, buzzer, front-panel
   display timeout, auto input detection, LAN settings, local input names,
   and the local cycle.
+* ``/panel/api`` – API explorer in its own page (opened from the panel as a
+  browser pop-out so the control surface stays usable underneath).
 * ``/kit`` – the floating UI application kit (does not replace ``/panel``).
   **Pop out** opens a chrome-less desktop window on the listener host
   (Chromium ``--app`` or optional ``pywebview``); ``tesmartctl kit`` does the same.
@@ -50,63 +52,221 @@ STATIC_TYPES = {
 
 # ``blocked`` routes are listed but not sent from the panel's API dialog.
 # Changing the address stays on the two-warning flow.
+# ``group`` organizes the panel API explorer. ``stream`` opens as an SSE listener.
 API_CATALOG: list[dict[str, Any]] = [
-    {"method": "GET", "path": "/api", "summary": "this list"},
-    {"method": "GET", "path": "/api/state", "summary": "active input, names, cycle, LAN settings, last-sent values, version"},
-    {"method": "GET", "path": "/api/version", "summary": "tesmartctl package version and feature tags"},
-    {"method": "GET", "path": "/api/compat", "summary": "compatibility check via query (?min_server=&features=)"},
-    {"method": "POST", "path": "/api/compat", "summary": "compatibility check", "sample": {"min_server": "0.0.7.9", "client": "hubitat", "features": ["callbacks"]}},
-    {"method": "GET", "path": "/api/state?network=0", "summary": "same, without the four LAN queries"},
+    {"group": "Catalog", "method": "GET", "path": "/api", "summary": "this list"},
+    {"group": "Catalog", "method": "GET", "path": "/api/version", "summary": "tesmartctl package version and feature tags"},
     {
+        "group": "Catalog",
+        "method": "GET",
+        "path": "/api/compat",
+        "summary": "compatibility check via query (?min_server=&features=)",
+    },
+    {
+        "group": "Catalog",
+        "method": "POST",
+        "path": "/api/compat",
+        "summary": "compatibility check",
+        "sample": {"min_server": "0.0.7.9", "client": "hubitat", "features": ["callbacks"]},
+    },
+    {
+        "group": "State",
+        "method": "GET",
+        "path": "/api/state",
+        "summary": "active input, names, cycle, LAN settings, last-sent values, version",
+    },
+    {
+        "group": "State",
+        "method": "GET",
+        "path": "/api/state?network=0",
+        "summary": "same, without the four LAN queries",
+    },
+    {
+        "group": "Live events",
         "method": "GET",
         "path": "/api/events",
-        "summary": "Server-Sent Events stream (input_changed, names_changed, banner); kit and panel subscribe here",
+        "summary": "Server-Sent Events stream (hello, input_changed, names_changed, enabled_changed, banner, peek, peek_follow, shutdown)",
+        "stream": True,
     },
-    {"method": "POST", "path": "/api/input", "summary": "select an input by number or local name", "sample": {"input": 3}},
-    {"method": "POST", "path": "/api/next", "summary": "next input in the saved cycle", "sample": {}},
-    {"method": "POST", "path": "/api/previous", "summary": "previous input in the saved cycle", "sample": {}},
-    {"method": "POST", "path": "/api/peek", "summary": "show an input briefly, then return. {\"cancel\": true} comes back now", "sample": {"input": 3, "seconds": 5}},
-    {"method": "POST", "path": "/api/peek-default", "summary": "save the default peek duration", "sample": {"seconds": 8}},
     {
+        "group": "Inputs",
+        "method": "POST",
+        "path": "/api/input",
+        "summary": "select an input by number or local name",
+        "sample": {"input": 3},
+    },
+    {"group": "Inputs", "method": "POST", "path": "/api/next", "summary": "next input in the saved cycle", "sample": {}},
+    {
+        "group": "Inputs",
+        "method": "POST",
+        "path": "/api/previous",
+        "summary": "previous input in the saved cycle",
+        "sample": {},
+    },
+    {
+        "group": "Inputs",
+        "method": "POST",
+        "path": "/api/names",
+        "summary": "set local names; an empty string removes one",
+        "sample": {"names": {"1": "Office", "2": ""}},
+    },
+    {
+        "group": "Inputs",
+        "method": "POST",
+        "path": "/api/enabled",
+        "summary": "enable or disable an input for selection, peek, and next/previous",
+        "sample": {"input": 4, "enabled": False},
+    },
+    {
+        "group": "Peek",
+        "method": "POST",
+        "path": "/api/peek",
+        "summary": "show an input briefly, then return. {\"cancel\": true} comes back now",
+        "sample": {"input": 3, "seconds": 5},
+    },
+    {
+        "group": "Peek",
+        "method": "POST",
+        "path": "/api/peek-default",
+        "summary": "save the default peek duration",
+        "sample": {"seconds": 8},
+    },
+    {
+        "group": "Peek",
         "method": "POST",
         "path": "/api/peek-follow",
         "summary": "once: the next plain input change peeks. always: every one does, until off",
         "sample": {"mode": "once"},
     },
-    {"method": "POST", "path": "/api/buzzer", "summary": "buzzer on or off (write-only)", "sample": {"on": True}},
-    {"method": "POST", "path": "/api/led", "summary": "front-panel display timeout: never, 10, or 30", "sample": {"timeout": "30"}},
-    {"method": "POST", "path": "/api/autodetect", "summary": "auto input detection on or off (write-only)", "sample": {"on": True}},
-    {"method": "GET", "path": "/api/network", "summary": "IP, port, gateway, and mask stored in the switch"},
-    {"method": "GET", "path": "/api/network/notice", "summary": "the risk and liability wording shown before an address change"},
     {
+        "group": "Cycle",
         "method": "POST",
-        "path": "/api/network",
-        "summary": "write the address. Not sent from this dialog; use Change address, which warns twice and reads the values back",
-        "blocked": True,
+        "path": "/api/cycle",
+        "summary": "save the cycle list, mode, and interval",
+        "sample": {"inputs": [1, 2, 4], "mode": "automatic", "seconds": 15},
     },
-    {"method": "POST", "path": "/api/names", "summary": "set local names; an empty string removes one", "sample": {"names": {"1": "Office", "2": ""}}},
-    {"method": "POST", "path": "/api/enabled", "summary": "enable or disable an input for selection, peek, and next/previous", "sample": {"input": 4, "enabled": False}},
     {
+        "group": "Cycle",
+        "method": "POST",
+        "path": "/api/cycle/start",
+        "summary": "start the listener-owned automatic cycle (mode must be automatic)",
+        "sample": {},
+    },
+    {
+        "group": "Cycle",
+        "method": "POST",
+        "path": "/api/cycle/stop",
+        "summary": "stop the listener-owned automatic cycle",
+        "sample": {},
+    },
+    {
+        "group": "Banner",
         "method": "GET",
         "path": "/api/banner",
         "summary": "last LCD message envelope plus banner_history (up to 10, newest first)",
     },
     {
+        "group": "Banner",
         "method": "POST",
         "path": "/api/banner",
         "summary": "send LCD message (timed seconds or sticky); {\"show\":true} reshows last; {\"dismiss\":true} hides; {\"clear\":true} erases history too",
-        "sample": {"text": "Door unlocked", "seconds": 8},
+        "sample": {"text": "Door unlocked", "seconds": 8, "from": "Hubitat"},
     },
-    {"method": "POST", "path": "/api/cycle", "summary": "save the cycle list, mode, and interval", "sample": {"inputs": [1, 2, 4], "mode": "manual", "seconds": 15}},
-    {"method": "GET", "path": "/api/callbacks", "summary": "list callbacks (url, optional name, last delivery) and POST timeout"},
-    {"method": "POST", "path": "/api/callbacks", "summary": "register a callback URL with optional name", "sample": {"url": "http://192.168.1.5/hook", "name": "Hubitat"}},
-    {"method": "POST", "path": "/api/callbacks", "summary": "set callback POST timeout (default 10s; not on the panel UI)", "sample": {"timeout": 10}},
-    {"method": "POST", "path": "/api/callbacks/timeout", "summary": "same as POST /api/callbacks with timeout only", "sample": {"timeout": 10}},
-    {"method": "GET", "path": "/api/callbacks/health", "summary": "probe each callback with a health_check event"},
-    {"method": "POST", "path": "/api/callbacks/health", "summary": "same as GET /api/callbacks/health"},
-    {"method": "DELETE", "path": "/api/callbacks", "summary": "remove by url and/or name", "sample": {"url": "http://192.168.1.5/hook"}},
-    {"method": "POST", "path": "/api/callbacks/remove", "summary": "same as DELETE /api/callbacks (for clients that cannot send DELETE)", "sample": {"url": "http://192.168.1.5/hook"}},
     {
+        "group": "Switch",
+        "method": "POST",
+        "path": "/api/buzzer",
+        "summary": "buzzer on or off (write-only)",
+        "sample": {"on": True},
+    },
+    {
+        "group": "Switch",
+        "method": "POST",
+        "path": "/api/led",
+        "summary": "front-panel display timeout: never, 10, or 30",
+        "sample": {"timeout": "30"},
+    },
+    {
+        "group": "Switch",
+        "method": "POST",
+        "path": "/api/autodetect",
+        "summary": "auto input detection on or off (write-only)",
+        "sample": {"on": True},
+    },
+    {
+        "group": "Network",
+        "method": "GET",
+        "path": "/api/network",
+        "summary": "IP, port, gateway, and mask stored in the switch",
+    },
+    {
+        "group": "Network",
+        "method": "GET",
+        "path": "/api/network/notice",
+        "summary": "the risk and liability wording shown before an address change",
+    },
+    {
+        "group": "Network",
+        "method": "POST",
+        "path": "/api/network",
+        "summary": "write the address. Not sent from this dialog; use Change address, which warns twice and reads the values back",
+        "blocked": True,
+    },
+    {
+        "group": "Callbacks",
+        "method": "GET",
+        "path": "/api/callbacks",
+        "summary": "list callbacks (url, optional name, last delivery) and POST timeout",
+    },
+    {
+        "group": "Callbacks",
+        "method": "POST",
+        "path": "/api/callbacks",
+        "summary": "register a callback URL with optional name",
+        "sample": {"url": "http://192.168.1.5/hook", "name": "Hubitat"},
+    },
+    {
+        "group": "Callbacks",
+        "method": "POST",
+        "path": "/api/callbacks",
+        "summary": "set callback POST timeout (default 10s; not on the panel UI)",
+        "sample": {"timeout": 10},
+    },
+    {
+        "group": "Callbacks",
+        "method": "POST",
+        "path": "/api/callbacks/timeout",
+        "summary": "same as POST /api/callbacks with timeout only",
+        "sample": {"timeout": 10},
+    },
+    {
+        "group": "Callbacks",
+        "method": "GET",
+        "path": "/api/callbacks/health",
+        "summary": "probe each callback with a health_check event",
+    },
+    {
+        "group": "Callbacks",
+        "method": "POST",
+        "path": "/api/callbacks/health",
+        "summary": "same as GET /api/callbacks/health",
+    },
+    {
+        "group": "Callbacks",
+        "method": "DELETE",
+        "path": "/api/callbacks",
+        "summary": "remove by url and/or name",
+        "sample": {"url": "http://192.168.1.5/hook"},
+    },
+    {
+        "group": "Callbacks",
+        "method": "POST",
+        "path": "/api/callbacks/remove",
+        "summary": "same as DELETE /api/callbacks (for clients that cannot send DELETE)",
+        "sample": {"url": "http://192.168.1.5/hook"},
+    },
+    {
+        "group": "Kit",
         "method": "POST",
         "path": "/api/kit-window",
         "summary": "open /kit in a chrome-less desktop window on the listener host (Chrome/Edge --app, or pywebview)",
@@ -260,6 +420,7 @@ def build_state(handler: "_Handler", include_network: bool) -> dict[str, Any]:
     if getattr(switch, "simulated", False):
         status["simulated"] = True
     status["rotate"] = config.rotate_info(server.env_file, input_count=switch.input_count)
+    status["rotate"]["active"] = server.cycler.status()
     status["peek"] = config.peek_info(server.env_file)
     status["peek"]["active"] = server.peeker.status()
     status["peek"]["follow"] = server.peek_follow.status()["mode"]
@@ -586,7 +747,26 @@ def _action_cycle(handler: "_Handler", body: dict[str, Any]) -> dict[str, Any]:
         if seconds is not None and (not isinstance(seconds, int) or seconds < 1):
             raise PanelError('"seconds" must be a whole number of seconds, 1 or more')
         config.set_cycle_mode(str(body["mode"]), server.env_file, seconds=seconds)
-    return {"rotate": config.rotate_info(server.env_file, input_count=count)}
+    rotate = config.rotate_info(server.env_file, input_count=count)
+    rotate["active"] = server.cycler.status()
+    return {"rotate": rotate}
+
+
+def _action_cycle_start(handler: "_Handler") -> dict[str, Any]:
+    server = handler.server
+    active = server.cycler.start()
+    rotate = config.rotate_info(server.env_file, input_count=server.switch.input_count)
+    rotate["active"] = active
+    return {"rotate": rotate, "active": active, "active_input": active.get("active_input")}
+
+
+def _action_cycle_stop(handler: "_Handler") -> dict[str, Any]:
+    server = handler.server
+    ended = server.cycler.stop()
+    rotate = config.rotate_info(server.env_file, input_count=server.switch.input_count)
+    rotate["active"] = server.cycler.status()
+    ended["rotate"] = rotate
+    return ended
 
 
 # --- dispatcher --------------------------------------------------------------
@@ -610,13 +790,18 @@ def handle(handler: "_Handler", method: str, path: str) -> bool:
 
     try:
         if segments[0] == "panel":
-            if len(segments) != 1:
+            # /panel — control surface; /panel/api — API explorer pop-out page.
+            if len(segments) == 1:
+                page = "panel.html"
+            elif len(segments) == 2 and segments[1].lower() == "api":
+                page = "api-explorer.html"
+            else:
                 raise PanelError("not supported", HTTPStatus.NOT_FOUND)
             # HTML stays uncached so asset ?v= tokens update after an upgrade.
             # Honor ?fresh=1 the same way /kit does, so a reload bypasses stale
             # immutable panel.js/css after UI changes without a version bump.
             body = _with_static_cache_bust(
-                _static_body("panel.html").decode("utf-8"),
+                _static_body(page).decode("utf-8"),
                 _asset_cache_token(parts.query),
             ).encode("utf-8")
             _send_bytes(handler, HTTPStatus.OK, body, STATIC_TYPES[".html"], cache="html")
@@ -691,6 +876,15 @@ def _api(handler: "_Handler", method: str, segments: list[str], query_text: str)
         return _action_callbacks(handler, method, segments[1:])
     if name == "banner":
         return _action_banner(handler, method)
+    if name == "cycle" and len(segments) == 2:
+        action = segments[1].lower()
+        if method != "POST":
+            raise PanelError("use POST for this route", HTTPStatus.METHOD_NOT_ALLOWED)
+        if action == "start":
+            return _action_cycle_start(handler)
+        if action == "stop":
+            return _action_cycle_stop(handler)
+        raise PanelError("not supported", HTTPStatus.NOT_FOUND)
 
     writable = {
         "input", "next", "previous", "peek", "peek-default", "peek-follow",
@@ -770,7 +964,12 @@ def _action_banner(handler: "_Handler", method: str) -> dict[str, Any]:
         _notify_banner(hub, board)
         return _banner_response(board)
     try:
-        board.show(body.get("text"), body.get("seconds"), sticky=body.get("sticky"))
+        board.show(
+            body.get("text"),
+            body.get("seconds"),
+            sticky=body.get("sticky"),
+            from_=body.get("from"),
+        )
     except ValueError as exc:
         raise PanelError(str(exc)) from exc
     _notify_banner(hub, board)

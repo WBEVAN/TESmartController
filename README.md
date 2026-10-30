@@ -304,9 +304,9 @@ tesmartctl --via auto enable 4
 LCD banner messages need a running `tesmartctl listen --http` (add `--panel` for kit/panel). They are not sent to the switch; kits and the browser panel show them.
 
 ```bash
-tesmartctl banner "Door unlocked"           # timed, 8 seconds
+tesmartctl banner "Door unlocked"           # timed, 8 seconds; status line MESSAGE
 tesmartctl banner Meeting in 5 --seconds 12
-tesmartctl banner "Stay on camera" --sticky # until dismissed
+tesmartctl banner "Stay on camera" --sticky --from Hubitat
 tesmartctl banner                           # last message
 tesmartctl banner --history
 tesmartctl banner --dismiss
@@ -365,7 +365,7 @@ Cycle:         manual (next/previous); 1, 2, 4 (chosen inputs)
 Peek:          5s on another input, then back (`peek N`)
 ```
 
-The cycle is stored on this machine. `manual` moves only when you ask for `next` or `previous`. `automatic` is the same list on a timer, and it starts only while `cycle run` is running. With no saved list the cycle is every input.
+The cycle list and mode are stored on this machine (or on the listener you reach with `--via`). `manual` moves only when you ask for `next` or `previous`. `automatic` is the same list on a timer. `cycle run` without `--via` runs that timer in this process. `tesmartctl --via auto cycle run` (or the kit / panel Start cycle control) starts the **listener-owned** cycle so every kit and panel see the same SSE `cycle` state. With no saved list the cycle is every input.
 
 Peek is not a cycle. `peek 3` shows input 3 for a few seconds and then returns to the input that was active. The duration is stored on this machine.
 
@@ -381,7 +381,8 @@ tesmartctl cycle mode manual               # next and previous only
 tesmartctl next                            # Office -> next chosen input
 tesmartctl previous
 tesmartctl cycle mode automatic --every 15 # then start the timer:
-tesmartctl cycle run
+tesmartctl cycle run                       # local process
+tesmartctl --via auto cycle run            # listener-owned (all clients)
 tesmartctl --json input 3
 ```
 
@@ -470,13 +471,13 @@ tesmartctl kit 'http://192.168.1.20:8080/kit?app=1'              # frameless her
 
 ![Floating kit](https://raw.githubusercontent.com/WBEVAN/TESmartController/main/Docs/images/kit.png)
 
-The kit is the compact switcher: input tiles, LCD banners (including message history), clickable PEEK (Off → Once → Always), Cycle Inputs, and body/LCD/glass themes. On macOS, `tesmartctl kit` is frameless; `tesmartctl kit --fresh` ignores saved window prefs once. Guided wiki: [TESmartController/wiki](https://github.com/WBEVAN/TESmartController/wiki).
+The kit is the compact switcher: input tiles, LCD banners (including floating message history), clickable PEEK (Off → Once → Always), listener-owned Cycle Inputs, LCD brightness / auto-dim, and body/LCD/glass themes. On macOS, `tesmartctl kit` is frameless; `tesmartctl kit --fresh` ignores saved window prefs once. Guided wiki: [TESmartController/wiki](https://github.com/WBEVAN/TESmartController/wiki).
 
 ![Demo: input switching, Peek, and API explorer](Docs/images/demo.gif)
 
 ![Full control panel](https://raw.githubusercontent.com/WBEVAN/TESmartController/main/Docs/images/panel.png)
 
-The **API** button on `/panel` opens an explorer that lists every `/api` route, sends it, and shows the raw status and body the listener returned.
+The **API** button on `/panel` opens `/panel/api` in a separate window: a grouped tree of every `/api` route, Send for request/response, and a live SSE log (Switch vs Listener `source` on frames).
 
 ![API explorer](https://raw.githubusercontent.com/WBEVAN/TESmartController/main/Docs/images/api-explorer.png)
 

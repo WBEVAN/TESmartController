@@ -998,7 +998,8 @@ def run_webview(
 
         def set_prefs(self, values: dict) -> dict:
             allowed = {
-                "view", "peek_follow", "peek_seconds", "body", "lcd", "lcd_glass", "highlight",
+                "view", "peek_follow", "peek_seconds", "body", "lcd", "lcd_brightness",
+                "lcd_dim", "lcd_dim_seconds", "lcd_glass", "highlight",
                 "hide_disabled", "show_names",
             }
             prefs.update({k: v for k, v in dict(values or {}).items() if k in allowed})

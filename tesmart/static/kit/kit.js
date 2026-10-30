@@ -43,7 +43,6 @@
     message: "Connecting…",
     cycleList: [],
     cycling: false,
-    cycleDue: 0,
     banner: null, // displayed message; .showing can be local until the server dismisses/reshows
     bannerHistory: [], // up to 10 from server, newest first
     lastBroadcastId: null, // last server banner id this kit has adopted
@@ -64,6 +63,13 @@
   // While the switch is unreachable, probe often — SSE to the listener stays
   // healthy even when the HDMI box is off, so we cannot wait on the slow poll.
   const POLL_OFFLINE_MS = 2000;
+  // Auto-dim fades the LCD to this floor; Bright pref is unchanged.
+  const LCD_BRIGHT_FLOOR = 40;
+  let lcdPreferredBright = 100;
+  let lcdDimmed = false;
+  let lcdDimTimer = 0;
+  let lcdDimEnabled = false;
+  let lcdDimSeconds = 30;
 
   (() => {
     const forced = Number(params.get("ports") || params.get("inputs") || 0);
@@ -142,6 +148,21 @@
     return kept.length ? kept : numbers;
   }
 
+  // App/popup: when Hide disabled (or port count) changes the key grid, re-snap
+  // height. Prefs load before /api/state, so the first snap often measures 8 keys
+  // and would leave empty chrome until Setup was toggled.
+  let lastGridSnapCount = -1;
+
+  function snapKitIfGridChanged() {
+    if (!isApp && !isPopup) return;
+    if (typeof sizeWidgetToMode !== "function") return;
+    const grid = $("#grid");
+    const count = grid ? grid.children.length : visibleInputs().length;
+    if (count === lastGridSnapCount) return;
+    lastGridSnapCount = count;
+    sizeWidgetToMode({ resizeWindow: true, keepWidth: true, immediate: true });
+  }
+
   function draw() {
     const grid = $("#grid");
     if (!grid) return;
@@ -193,6 +214,7 @@
     document.body.classList.toggle("preview-16", displayCount() >= 16);
     document.body.classList.toggle("show-names", showingNames());
     layoutInputGrid();
+    snapKitIfGridChanged();
 
     const nameRoot = $("#name");
     const nameTrack = $("#name-track") || nameRoot;
@@ -219,10 +241,11 @@
     syncMessageButton(banner);
     const peekSecs = Math.max(1, Number(state.peekSeconds) || Number($("#seconds").value) || 5);
     const peekLabel = `PEEK ${String(state.mode || "off").toUpperCase()} (${peekSecs} SEC)`;
+    // ``from`` only on the status line under the LCD text (default MESSAGE).
     $("#status").textContent = state.peek
       ? `PEEK • RETURNING TO ${String(state.peek.origin).padStart(2, "0")}`
       : showing
-        ? "MESSAGE"
+        ? String(banner.from || "MESSAGE").trim() || "MESSAGE"
         : showBoot
           ? "STARTING"
           : state.shutdown
@@ -236,8 +259,8 @@
     } else if (showing) {
       detail =
         banner.mode === "sticky"
-          ? "LCD MESSAGE • UNTIL DISMISSED"
-          : `LCD MESSAGE • ${Math.max(1, Math.ceil(banner.remaining || 0))} SEC`;
+          ? "UNTIL DISMISSED"
+          : `${Math.max(1, Math.ceil(banner.remaining || 0))} SEC`;
     } else if (showBoot) {
       detail = bootText;
     }
@@ -301,6 +324,7 @@
         $("#seconds").value = String(peek.seconds);
       }
       if (peek.follow) state.mode = String(peek.follow);
+      adoptServerPeek(peek.active);
       const rotate = data.rotate || {};
       if (Array.isArray(rotate.cycle) && rotate.configured) {
         state.cycleList = rotate.cycle.map(Number);
@@ -311,7 +335,8 @@
       if (typeof rotate.seconds === "number") {
         $("#cycle-seconds").value = String(rotate.seconds);
       }
-      if (!state.peek) state.message = "Ready";
+      adoptServerCycle(rotate.active);
+      if (!state.peek && !state.cycling) state.message = "Ready";
       applyBannerFromState(data.banner, data.banner_history);
       if (!state.eventSource) startEvents();
       draw();
@@ -347,22 +372,26 @@
       const wasOnline = state.online;
       state.online = true;
       if (!state.peek) state.message = "Ready";
+      noteLcdActivity();
       draw();
       if (!wasOnline) schedulePoll();
       return;
     }
     if (kind === "names_changed") {
       if (data.names && typeof data.names === "object") state.names = data.names;
+      noteLcdActivity();
       draw();
       return;
     }
     if (kind === "enabled_changed") {
       state.disabled = new Set((data.disabled || []).map((number) => Number(number)));
+      noteLcdActivity();
       draw();
       return;
     }
     if (kind === "banner") {
       applyBannerFromState(data.banner, data.banner_history);
+      noteLcdActivity();
       draw();
       return;
     }
@@ -376,6 +405,30 @@
       schedulePoll();
       return;
     }
+    if (kind === "peek") {
+      const wasPeeking = !!state.peek;
+      adoptServerPeek(data.active);
+      if (typeof data.active_input === "number") state.active = data.active_input;
+      if (data.active) {
+        state.message = "Temporary input";
+      } else if (wasPeeking) {
+        if (data.interrupted) state.message = "External selection retained";
+        else if (data.cancelled) state.message = "Peek cancelled";
+        else state.message = "Returned to previous input";
+      }
+      noteLcdActivity();
+      draw();
+      return;
+    }
+    if (kind === "cycle") {
+      adoptServerCycle(data.active);
+      if (typeof data.active_input === "number") state.active = data.active_input;
+      if (data.active) state.message = "Cycling";
+      else if (data.stopped) state.message = "Cycle stopped";
+      noteLcdActivity();
+      draw();
+      return;
+    }
     if (kind === "peek_follow") {
       const mode = String(data.mode || data.peek_follow || "off");
       if (!["off", "once", "always"].includes(mode)) return;
@@ -385,10 +438,78 @@
         const seconds = $("#seconds");
         if (seconds) seconds.value = String(data.seconds);
       }
+      // Claimed follow peeks also carry previous/active_input until a peek frame arrives.
+      if (data.previous != null && data.active_input != null && typeof data.seconds === "number") {
+        adoptServerPeek({
+          previous: data.previous,
+          peeked: data.active_input,
+          seconds: data.seconds,
+          remaining: data.seconds,
+        });
+        state.message = "Temporary input";
+      }
       if (!state.peek) state.message = `Peek ${mode}`;
       if (mode !== "once") prefs.save({ peek_follow: mode, peek_seconds: state.peekSeconds });
+      noteLcdActivity();
       draw();
     }
+  }
+
+  /** Mirror ``peek.active`` from /api/state or an SSE ``peek`` frame. */
+  function adoptServerPeek(active) {
+    if (!active || active.peeked == null) {
+      state.peek = null;
+      return;
+    }
+    const seconds = Math.max(1, Number(active.seconds) || state.peekSeconds || 5);
+    const remaining =
+      typeof active.remaining === "number" ? active.remaining : seconds;
+    // remaining 0 with active still set means restore is in flight — keep the
+    // peek highlight until the server clears ``peek.active``.
+    if (remaining <= 0) {
+      if (!state.peek) {
+        state.peek = {
+          origin: Number(active.previous) || state.active,
+          target: Number(active.peeked),
+          end: performance.now(),
+          seconds,
+        };
+      }
+      state.active = Number(active.peeked);
+      return;
+    }
+    state.peek = {
+      origin: Number(active.previous) || state.active,
+      target: Number(active.peeked),
+      end: performance.now() + remaining * 1000,
+      seconds,
+    };
+    state.active = Number(active.peeked);
+  }
+
+  /** Mirror ``rotate.active`` from /api/state or an SSE ``cycle`` frame. */
+  function adoptServerCycle(active) {
+    if (!active) {
+      setCyclingUi(false);
+      return;
+    }
+    if (Array.isArray(active.cycle) && active.cycle.length) {
+      state.cycleList = active.cycle.map(Number);
+      updateCycleInputsSummary();
+    }
+    if (typeof active.seconds === "number") {
+      $("#cycle-seconds").value = String(active.seconds);
+    }
+    if (typeof active.active_input === "number") state.active = active.active_input;
+    setCyclingUi(true);
+  }
+
+  function setCyclingUi(on) {
+    state.cycling = !!on;
+    const btn = $("#cycle");
+    const label = $("#cycle-label");
+    if (btn) btn.setAttribute("aria-pressed", on ? "true" : "false");
+    if (label) label.textContent = on ? "Stop cycle" : "Start cycle";
   }
 
   const autoDiscover = params.has("discover");
@@ -443,7 +564,7 @@
         ? POLL_SSE_MS
         : POLL_MS;
     state.pollTimer = setInterval(() => {
-      if (!state.busy && !state.peek) refresh();
+      if (!state.busy) refresh();
     }, ms);
   }
 
@@ -477,7 +598,7 @@
         /* ignore malformed frames */
       }
     };
-    ["hello", "input_changed", "names_changed", "enabled_changed", "banner", "peek_follow", "shutdown"].forEach((name) => {
+    ["hello", "input_changed", "names_changed", "enabled_changed", "banner", "peek", "peek_follow", "cycle", "shutdown"].forEach((name) => {
       es.addEventListener(name, onNamed);
     });
     es.onerror = () => {
@@ -549,6 +670,7 @@
       state.banner = {
         id: raw.id,
         text: String(raw.text),
+        from: String(raw.from || "MESSAGE"),
         mode,
         seconds: raw.seconds == null ? null : Number(raw.seconds),
         at: raw.at,
@@ -591,6 +713,7 @@
     state.banner = {
       id: raw.id,
       text: String(raw.text),
+      from: String(raw.from || (prev && prev.from) || "MESSAGE"),
       mode,
       seconds: raw.seconds == null ? null : Number(raw.seconds),
       at: raw.at,
@@ -682,6 +805,7 @@
     state.banner = {
       id: entry.id,
       text: String(entry.text),
+      from: String(entry.from || "MESSAGE"),
       mode,
       seconds: entry.seconds == null ? null : Number(entry.seconds),
       at: entry.at,
@@ -700,55 +824,15 @@
     draw();
   }
 
-  // Mini (and other app shells) cannot paint outside the OS window — expand
-  // briefly so the history list is readable, then snap back on close.
-  const HISTORY_POPOUT = { width: 460, height: 620 };
-  let historyPopoutOpen = false;
-
-  async function resizeKitWindow(width, height) {
-    const apiBridge = typeof pyApi === "function" ? pyApi() : (window.pywebview && window.pywebview.api) || null;
-    ignoreResize = true;
-    try {
-      if (apiBridge && apiBridge.resize_to) {
-        await Promise.resolve(apiBridge.resize_to(width, height));
-        if (typeof waitForWindowSize === "function") await waitForWindowSize(width, height);
-      } else if (isApp || isPopup) {
-        await resizeContentWindow(width, height);
-      }
-    } catch {
-      /* ignore */
-    }
-    ignoreResize = false;
-  }
-
-  async function expandForMessageHistory() {
-    if (historyPopoutOpen || (!isApp && !isPopup)) return;
-    historyPopoutOpen = true;
-    document.body.classList.add("is-history-popout");
-    await resizeKitWindow(HISTORY_POPOUT.width, HISTORY_POPOUT.height);
-  }
-
-  async function restoreAfterMessageHistory() {
-    if (!historyPopoutOpen) return;
-    historyPopoutOpen = false;
-    document.body.classList.remove("is-history-popout");
-    // Snap back to the current view mode size (Mini / Compact / Full).
-    if (typeof sizeWidgetToMode === "function") {
-      sizeWidgetToMode({ resizeWindow: true });
-    }
-  }
-
   function closeMessageHistoryDialog() {
     const dialog = $("#message-history-dialog");
     if (dialog) dialog.hidden = true;
-    restoreAfterMessageHistory();
   }
 
-  async function openMessageHistoryDialog() {
+  function openMessageHistoryDialog() {
     const dialog = $("#message-history-dialog");
     const list = $("#message-history-list");
     if (!dialog || !list) return;
-    await expandForMessageHistory();
     list.replaceChildren();
     if (!state.bannerHistory.length) {
       const empty = document.createElement("p");
@@ -1083,14 +1167,12 @@
   }
 
   function stopCycle() {
-    state.cycling = false;
-    $("#cycle").setAttribute("aria-pressed", "false");
-    $("#cycle-label").textContent = "Start cycle";
+    setCyclingUi(false);
   }
 
-  async function saveCycleConfig() {
+  async function saveCycleConfig({ automatic = false } = {}) {
     const seconds = Math.max(2, Number($("#cycle-seconds").value) || 15);
-    const body = { mode: "manual", seconds };
+    const body = { mode: automatic ? "automatic" : "manual", seconds };
     if (state.cycleList.length) body.inputs = state.cycleList;
     else body.inputs = [];
     await api("POST", "/api/cycle", body);
@@ -1162,6 +1244,7 @@
     const label = $("#view-mode-label");
     const miniNav = $("#mini-nav");
     if (!deck) return;
+    const prev = viewMode();
     const next = VIEW_MODES.includes(mode) ? mode : VIEW_DEFAULT;
     deck.classList.remove("compact", "mini");
     if (next === "compact") deck.classList.add("compact");
@@ -1194,8 +1277,9 @@
       if (typeof sizeWidgetToMode === "function") {
         sizeWidgetToMode({
           resizeWindow,
-          // Compact/Full are measured in a taller frame after Mini.
-          ensureRoom: resizeWindow && next !== "mini",
+          // Only when leaving Mini: Compact/Full need a taller frame to measure.
+          // Cold start / Compact↔Full must not grow to 640px first (tall empty chrome).
+          ensureRoom: resizeWindow && prev === "mini" && next !== "mini",
         });
       }
     } catch (err) {
@@ -1246,29 +1330,35 @@
       if (viewMode() === "mini") return;
       const next = $("#service-bay").dataset.open !== "true";
       setSetupDoor(next);
-      // Measure the opened or closed bay in this turn and resize once.
-      // The shared view-mode path waits, then grows to 640px, then corrects.
-      sizeWidgetToMode({ resizeWindow: true, immediate: true });
+      // Grow/shrink height for Setup; keep a stretched width (do not snap
+      // back to the Compact/Full design width).
+      sizeWidgetToMode({ resizeWindow: true, immediate: true, keepWidth: true });
     });
   })();
 
   bindClick("#cycle", async () => {
-    if (state.cycling) {
-      stopCycle();
-      return;
-    }
-    if (!state.online) return;
-    try {
-      await saveCycleConfig();
-    } catch (err) {
-      $("#cycle-error").textContent = err.message || "Could not save cycle";
-      return;
-    }
-    state.cycling = true;
-    state.cycleDue =
-      performance.now() + Math.max(2, Number($("#cycle-seconds").value) || 15) * 1000;
-    $("#cycle").setAttribute("aria-pressed", "true");
-    $("#cycle-label").textContent = "Stop cycle";
+    if (!state.online || state.busy) return;
+    await withBusy(async () => {
+      if (state.cycling) {
+        await api("POST", "/api/cycle/stop");
+        stopCycle();
+        state.message = "Cycle stopped";
+        return;
+      }
+      try {
+        await saveCycleConfig({ automatic: true });
+        const data = await api("POST", "/api/cycle/start");
+        adoptServerCycle((data.rotate && data.rotate.active) || data.active);
+        state.message = "Cycling";
+        const err = $("#cycle-error");
+        if (err) err.textContent = "";
+      } catch (err) {
+        stopCycle();
+        const box = $("#cycle-error");
+        if (box) box.textContent = err.message || "Could not start cycle";
+        throw err;
+      }
+    });
   });
 
   function cycleSummaryText(list) {
@@ -1392,8 +1482,11 @@
     const err = $("#cycle-error");
     if (err) err.textContent = "";
     updateCycleInputsSummary();
-    stopCycle();
     await withBusy(async () => {
+      if (state.cycling) {
+        await api("POST", "/api/cycle/stop");
+        stopCycle();
+      }
       await saveCycleConfig();
       state.message = state.cycleList.length
         ? `Cycle: ${state.cycleList.join(", ")}`
@@ -1405,9 +1498,12 @@
   const cycleSeconds = $("#cycle-seconds");
   if (cycleSeconds) {
     cycleSeconds.onchange = () => {
-      stopCycle();
       withBusy(async () => {
-        await saveCycleConfig();
+        await saveCycleConfig({ automatic: state.cycling });
+        if (state.cycling) {
+          const data = await api("POST", "/api/cycle/start");
+          adoptServerCycle((data.rotate && data.rotate.active) || data.active);
+        }
         state.message = "Cycle interval saved";
       });
     };
@@ -1417,27 +1513,15 @@
     if (state.peek) {
       const remaining = Math.max(0, (state.peek.end - performance.now()) / 1000);
       $("#digits").textContent = String(Math.ceil(remaining)).padStart(2, "0");
-    }
-    if (!state.cycling) return;
-    if (!state.online || document.hidden) {
-      stopCycle();
-      return;
-    }
-    if (state.peek || state.busy) {
-      state.cycleDue =
-        performance.now() + Math.max(2, Number($("#cycle-seconds").value) || 15) * 1000;
-      return;
-    }
-    if (performance.now() >= state.cycleDue) {
-      selectInput(cycleStep(1));
-      state.cycleDue =
-        performance.now() + Math.max(2, Number($("#cycle-seconds").value) || 15) * 1000;
+      // Countdown hit zero: keep peek UI until SSE /status confirms the
+      // restore so the selected input does not lead the switch.
+      if (remaining <= 0 && !state.peek.resyncing) {
+        state.peek.resyncing = true;
+        state.message = "Returning…";
+        void refresh();
+      }
     }
   }, 200);
-
-  document.addEventListener("visibilitychange", () => {
-    if (document.hidden) stopCycle();
-  });
 
   function openBrowserPopup() {
     const url = `${location.origin}/kit?popup=1`;
@@ -1617,9 +1701,14 @@
     return { width, height: Math.max(120, height) };
   }
 
-  async function measureDeck() {
+  async function measureDeck({ keepWidth = false } = {}) {
     const avail = await screenAvail();
-    const width = designWidthFor(viewMode(), avail.w);
+    const design = designWidthFor(viewMode(), avail.w);
+    const current = Math.floor(window.innerWidth || 0);
+    // Setup open/close: if the user stretched the window, keep that width and
+    // only adjust height for the bay. View-mode changes still snap to design.
+    const width =
+      keepWidth && current > design + 2 ? Math.min(current, avail.w) : design;
     const measured = measureDeckAt(width);
     return {
       width: measured.width,
@@ -1777,7 +1866,12 @@
     }
   }
 
-  function sizeWidgetToMode({ resizeWindow = false, ensureRoom = false, immediate = false } = {}) {
+  function sizeWidgetToMode({
+    resizeWindow = false,
+    ensureRoom = false,
+    immediate = false,
+    keepWidth = false,
+  } = {}) {
     if (!isApp && !isPopup) return;
     const deck = $("#deck");
     if (!deck) return;
@@ -1798,15 +1892,18 @@
 
     const run = async () => {
       if (token !== sizeToken) return;
-      // View changes need a frame for Compact/Mini/Full CSS to settle.
-      // Setup open/close has already updated the bay, so measure immediately.
+      // View changes need two frames for Compact/Mini/Full CSS to settle.
+      // Setup open/close still needs one frame so the bay's new height is laid out
+      // before we measure (otherwise expand/contract can undershoot).
       if (!immediate) {
         await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      } else {
+        await new Promise((r) => requestAnimationFrame(r));
       }
       if (token !== sizeToken) return;
 
       if (!resizeWindow) {
-        await measureDeck();
+        await measureDeck({ keepWidth });
         fillDeckWidth();
         return;
       }
@@ -1816,8 +1913,8 @@
       // Lift the old view's floor so a smaller view (Full → Compact/Mini) can snap down.
       await setMinWindowSize(apiBridge, null);
       const mode = viewMode();
-      // Only when leaving Mini. Setup open/close used to grow to 640px first,
-      // then snap back, which read as a second resize.
+      // Only when leaving Mini (caller sets ensureRoom). Growing to 640px on
+      // cold start left Compact with a tall empty band until Setup remeasured.
       if (ensureRoom && mode !== "mini") {
         const roomy = Math.max(window.innerHeight || 0, 640);
         const roomyW = Math.max(window.innerWidth || 0, designWidthFor(mode, 1200));
@@ -1828,7 +1925,7 @@
       }
       if (token !== sizeToken) return;
 
-      const { width, height } = await measureDeck();
+      const { width, height } = await measureDeck({ keepWidth });
       await applySize(apiBridge, width, height);
       if (token !== sizeToken) return;
       // Second pass once the 4×2 grid has settled at the design width.
@@ -1836,12 +1933,14 @@
         await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
       }
       if (token !== sizeToken) return;
-      const again = await measureDeck();
+      const again = await measureDeck({ keepWidth });
       if (Math.abs(again.width - width) > 2 || Math.abs(again.height - height) > 2) {
         await applySize(apiBridge, again.width, again.height);
       }
       if (token !== sizeToken) return;
-      modeSnap[mode] = again;
+      // Cache the mode's design snap only when we measured at design width —
+      // a stretched Setup resize must not poison Compact/Full floor sizes.
+      if (!keepWidth) modeSnap[mode] = again;
       // Floor is the next-smaller view (Full→Compact, Compact/Mini→Mini).
       await setMinWindowSize(apiBridge, await resizeFloorSize(mode));
       fillDeckWidth();
@@ -1859,10 +1958,10 @@
 
   window.addEventListener("pywebviewready", () => {
     syncWindowClip();
-    sizeWidgetToMode({ resizeWindow: true, ensureRoom: true });
+    sizeWidgetToMode({ resizeWindow: true });
   });
   if (isApp || isPopup) {
-    window.addEventListener("load", () => sizeWidgetToMode({ resizeWindow: true, ensureRoom: true }));
+    window.addEventListener("load", () => sizeWidgetToMode({ resizeWindow: true }));
     window.addEventListener("resize", () => {
       if (ignoreResize) return;
       clearTimeout(resizeTimer);
@@ -1982,6 +2081,112 @@
     });
   }
 
+  function normalizeLcdBrightness(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return 100;
+    return Math.min(100, Math.max(LCD_BRIGHT_FLOOR, Math.round(n / 5) * 5));
+  }
+
+  function normalizeLcdDimSeconds(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return 30;
+    return Math.min(120, Math.max(1, Math.round(n)));
+  }
+
+  function setLcdEffectiveBrightness(level) {
+    const factor = (normalizeLcdBrightness(level) / 100).toFixed(2);
+    for (const el of themeTargets()) {
+      el.style.setProperty("--kit-lcd-brightness", factor);
+    }
+  }
+
+  function syncLcdDimIndicator() {
+    const el = $("#lcd-dim-indicator");
+    if (!el) return;
+    el.setAttribute("aria-pressed", String(lcdDimEnabled));
+    const label = lcdDimEnabled
+      ? "Auto-dim on. Click to disable."
+      : "Auto-dim off. Click to enable.";
+    el.title = label;
+    el.setAttribute("aria-label", label);
+  }
+
+  function syncLcdDimControls() {
+    const check = $("#lcd-dim");
+    const secs = $("#lcd-dim-seconds");
+    if (check) check.checked = lcdDimEnabled;
+    if (secs) {
+      if (Number(secs.value) !== lcdDimSeconds) secs.value = String(lcdDimSeconds);
+      secs.disabled = !lcdDimEnabled;
+    }
+    syncLcdDimIndicator();
+  }
+
+  function clearLcdDimTimer() {
+    if (lcdDimTimer) {
+      clearTimeout(lcdDimTimer);
+      lcdDimTimer = 0;
+    }
+  }
+
+  function enterLcdDim() {
+    lcdDimTimer = 0;
+    if (!lcdDimEnabled) return;
+    if (lcdPreferredBright <= LCD_BRIGHT_FLOOR) {
+      lcdDimmed = true;
+      return;
+    }
+    lcdDimmed = true;
+    setLcdEffectiveBrightness(LCD_BRIGHT_FLOOR);
+  }
+
+  function noteLcdActivity() {
+    if (lcdDimmed) {
+      lcdDimmed = false;
+      setLcdEffectiveBrightness(lcdPreferredBright);
+    }
+    clearLcdDimTimer();
+    if (!lcdDimEnabled) return;
+    lcdDimTimer = setTimeout(enterLcdDim, lcdDimSeconds * 1000);
+  }
+
+  function applyLcdBrightness(value, { persist = false, quiet = false } = {}) {
+    lcdPreferredBright = normalizeLcdBrightness(value);
+    lcdDimmed = false;
+    setLcdEffectiveBrightness(lcdPreferredBright);
+    const slider = $("#lcd-brightness");
+    if (slider && Number(slider.value) !== lcdPreferredBright) {
+      slider.value = String(lcdPreferredBright);
+    }
+    const label = $("#lcd-brightness-value");
+    if (label) label.textContent = `${lcdPreferredBright}%`;
+    if (persist) prefs.save({ lcd_brightness: lcdPreferredBright });
+    if (!quiet) noteLcdActivity();
+  }
+
+  function applyLcdDimEnabled(on, { persist = false } = {}) {
+    lcdDimEnabled = Boolean(on);
+    syncLcdDimControls();
+    if (persist) prefs.save({ lcd_dim: lcdDimEnabled });
+    if (lcdDimEnabled) {
+      noteLcdActivity();
+      return;
+    }
+    clearLcdDimTimer();
+    if (lcdDimmed) {
+      lcdDimmed = false;
+      setLcdEffectiveBrightness(lcdPreferredBright);
+    }
+  }
+
+  function applyLcdDimSeconds(value, { persist = false } = {}) {
+    lcdDimSeconds = normalizeLcdDimSeconds(value);
+    const secs = $("#lcd-dim-seconds");
+    if (secs && Number(secs.value) !== lcdDimSeconds) secs.value = String(lcdDimSeconds);
+    if (persist) prefs.save({ lcd_dim_seconds: lcdDimSeconds });
+    if (lcdDimEnabled) noteLcdActivity();
+  }
+
   $$(".theme-swatch[data-body]").forEach((btn) => {
     btn.onclick = () => {
       applyBodyTheme(btn.dataset.body);
@@ -1994,6 +2199,36 @@
       prefs.save({ lcd: document.body.dataset.lcd });
     };
   });
+
+  const brightnessSlider = $("#lcd-brightness");
+  if (brightnessSlider) {
+    brightnessSlider.addEventListener("input", () => {
+      applyLcdBrightness(brightnessSlider.value, { persist: true });
+    });
+  }
+
+  const lcdDimCheck = $("#lcd-dim");
+  if (lcdDimCheck) {
+    lcdDimCheck.addEventListener("change", () => {
+      applyLcdDimEnabled(lcdDimCheck.checked, { persist: true });
+    });
+  }
+  const lcdDimSecondsInput = $("#lcd-dim-seconds");
+  if (lcdDimSecondsInput) {
+    lcdDimSecondsInput.addEventListener("change", () => {
+      applyLcdDimSeconds(lcdDimSecondsInput.value, { persist: true });
+    });
+  }
+  bindClick("#lcd-dim-indicator", () => {
+    applyLcdDimEnabled(!lcdDimEnabled, { persist: true });
+  });
+
+  // Local presses wake the LCD and restart the idle timer.
+  const deckForDim = $("#deck");
+  if (deckForDim) {
+    deckForDim.addEventListener("pointerdown", () => noteLcdActivity(), true);
+    deckForDim.addEventListener("keydown", () => noteLcdActivity(), true);
+  }
 
   const highlightPicker = $("#highlight-color");
   if (highlightPicker) {
@@ -2074,6 +2309,9 @@
       await prefs.load();
       applyBodyTheme(prefs.get("body") || "black");
       applyLcdTheme(prefs.get("lcd") || "green");
+      applyLcdBrightness(prefs.get("lcd_brightness") ?? 100, { quiet: true });
+      applyLcdDimSeconds(prefs.get("lcd_dim_seconds") ?? 30);
+      applyLcdDimEnabled(prefs.get("lcd_dim") === true);
       applyLcdGlass(prefs.get("lcd_glass") || "matrix");
       applyHighlight(prefs.get("highlight"));
       const hideDisabled = $("#hide-disabled");
@@ -2081,6 +2319,8 @@
         hideDisabled.checked = prefs.get("hide_disabled") === true;
         hideDisabled.addEventListener("change", () => {
           prefs.save({ hide_disabled: hideDisabled.checked });
+          // Force a snap even if the count briefly matches (disabled set race).
+          lastGridSnapCount = -1;
           draw();
         });
       }
@@ -2096,6 +2336,10 @@
       const view = prefs.get("view");
       if (VIEW_MODES.includes(view) && view !== viewMode()) {
         setViewMode(view, { resizeWindow: true });
+      } else if (isApp || isPopup) {
+        // Same view as the HTML default — still snap once prefs/chrome are ready
+        // so we do not keep a tall empty window from the first paint.
+        sizeWidgetToMode({ resizeWindow: true });
       }
       const onTop = $("#btn-on-top");
       if (onTop) onTop.setAttribute("aria-pressed", String(prefs.get("on_top") === true));

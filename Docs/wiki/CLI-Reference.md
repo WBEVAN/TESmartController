@@ -37,7 +37,10 @@ tesmartctl --via auto disable Office
 
 ```bash
 tesmartctl peek off|once|always|query   # exact subcommands per README
-tesmartctl cycle …
+tesmartctl cycle inputs 1,2,4
+tesmartctl cycle mode automatic --every 15
+tesmartctl cycle run                    # local timer on this computer
+tesmartctl --via auto cycle run         # listener-owned cycle (SSE to every kit/panel)
 tesmartctl rotate …
 ```
 
@@ -58,7 +61,7 @@ tesmartctl panel
 ```bash
 tesmartctl banner "Door unlocked"
 tesmartctl banner Meeting in 5 --seconds 12
-tesmartctl banner "Stay on camera" --sticky
+tesmartctl banner "Stay on camera" --sticky --from Hubitat
 tesmartctl banner
 tesmartctl banner --history
 tesmartctl banner --dismiss

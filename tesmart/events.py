@@ -3,7 +3,8 @@
 Outbound Hubitat-style callbacks POST to registered URLs. Browsers cannot
 receive those; they open ``GET /events`` or ``GET /api/events`` and hold the
 connection while this hub fans out the same logical payloads (``input_changed``,
-``names_changed``, ``enabled_changed``, ``banner``, ``shutdown``).
+``names_changed``, ``enabled_changed``, ``banner``, ``peek``, ``peek_follow``,
+``shutdown``).
 """
 
 from __future__ import annotations

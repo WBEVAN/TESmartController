@@ -53,6 +53,11 @@ def log(message: str) -> None:
     print(f"debug: {message}", file=sys.stderr, flush=True)
 
 
+def log_process() -> None:
+    """Print this process id. No-op when debug is off."""
+    log(f"pid {os.getpid()}")
+
+
 def default_source() -> str:
     """IPv4 the OS would use as the source toward a non-local address.
 

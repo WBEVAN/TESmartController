@@ -132,14 +132,20 @@
       const glass = ["matrix", "phosphor", "off"].includes(prefs.lcd_glass)
         ? prefs.lcd_glass
         : "matrix";
+      let brightness = Number(prefs.lcd_brightness);
+      if (!Number.isFinite(brightness)) brightness = 100;
+      brightness = Math.min(100, Math.max(40, Math.round(brightness / 5) * 5));
+      const brightFactor = (brightness / 100).toFixed(2);
       document.body.dataset.body = body;
       document.body.dataset.lcd = lcd;
       document.body.dataset.glass = glass;
+      document.body.style.setProperty("--kit-lcd-brightness", brightFactor);
       const deck = $("#deck");
       if (deck) {
         deck.dataset.body = body;
         deck.dataset.lcd = lcd;
         deck.dataset.glass = glass;
+        deck.style.setProperty("--kit-lcd-brightness", brightFactor);
       }
     } catch {
       /* ignore */

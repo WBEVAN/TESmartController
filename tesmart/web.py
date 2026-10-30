@@ -46,6 +46,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from . import callbacks, config, panel, version as pkg_version
 from .banner import BannerBoard
+from .cycle import Cycler
 from .events import EventHub, stream_sse
 from .peek import PeekFollow, Peeker, apply_follow
 from .switch import SwitchError, TesmartSwitch, next_input, parse_input_list, previous_input
@@ -73,11 +74,13 @@ ROUTES = {
     "/peek/once": "the next plain input change peeks, then later changes stick",
     "/peek/always": "every plain input change peeks until /peek/off",
     "/peek/off": "plain input changes stick again",
+    "/cycle/start": "start the listener-owned automatic cycle (mode must be automatic)",
+    "/cycle/stop": "stop the automatic cycle",
     "/enable/N": "allow input N (number or local name) for selection, peek, and next/previous",
     "/disable/N": "ignore input N (number or local name) for selection, peek, and next/previous",
     "/names": "GET local input names; POST {\"names\": {\"2\": \"Office\", \"3\": \"\"}} to set or clear",
-    "/banner": "GET last LCD message; POST {\"text\",\"seconds\"|\"sticky\":true}; POST {\"show\":true}|{\"dismiss\":true}|{\"clear\":true}",
-    "/events": "Server-Sent Events stream (input_changed, names_changed, banner); kit/panel use /api/events",
+    "/banner": "GET last LCD message; POST {\"text\",\"seconds\"|\"sticky\":true,\"from\":\"Hubitat\"}; POST {\"show\":true}|{\"dismiss\":true}|{\"clear\":true}",
+    "/events": "Server-Sent Events stream (input_changed, names_changed, banner, peek, cycle); kit/panel use /api/events",
     "/callbacks": "GET list; POST {\"url\",\"name\"} register; POST {\"timeout\":10}; GET|POST /health probe; DELETE remove",
     "/panel": "browser-only control panel (only when started with --panel)",
     "/kit": "floating UI application kit (only when started with --panel)",
@@ -188,6 +191,10 @@ def _parse_request(path: str) -> WebRequest:
         if target.isdigit():
             return WebRequest("peek", int(target), as_text, include_network, None, None, seconds)
         return WebRequest("peek", None, as_text, include_network, None, target, seconds)
+    if head == "cycle":
+        if len(segments) != 2 or segments[1].lower() not in {"start", "stop"}:
+            raise LookupError(parts.path)
+        return WebRequest(f"cycle-{segments[1].lower()}", None, as_text, include_network)
     if head not in {"input", "get", "set"} or len(segments) > 2:
         raise LookupError(parts.path)
 
@@ -246,6 +253,12 @@ def _status_text(payload: dict) -> str:
             lines.append(f"cycle: automatic every {rotate.get('seconds')}s; {cycle} ({chosen})")
         else:
             lines.append(f"cycle: manual (next/previous); {cycle} ({chosen})")
+        active = rotate.get("active")
+        if active:
+            lines.append(
+                f"cycle running: input {active.get('active_input')} → next {active.get('next_input')} "
+                f"in {active.get('remaining')}s"
+            )
     peek = payload.get("peek") or {}
     if peek:
         lines.append(f"peek: {peek.get('seconds')}s then back")
@@ -337,6 +350,23 @@ class _Handler(BaseHTTPRequestHandler):
                 payload["seconds"] = state["seconds"]
             panel._publish_peek_follow(self.server, state)
             self._send(HTTPStatus.OK, payload, request.as_text, state["mode"])
+            return
+        if request.verb in {"cycle-start", "cycle-stop"}:
+            try:
+                if request.verb == "cycle-start":
+                    active = self.server.cycler.start()
+                    payload = {"rotate": {"active": active}, "active": active, "active_input": active.get("active_input")}
+                    text = f"cycling {', '.join(str(n) for n in active.get('cycle') or [])}" if request.as_text else None
+                else:
+                    payload = self.server.cycler.stop()
+                    text = "cycle stopped" if request.as_text else None
+            except SwitchError as exc:
+                self._send(HTTPStatus.BAD_REQUEST, {"error": str(exc)}, request.as_text)
+                return
+            except TransportError as exc:
+                self._send(HTTPStatus.BAD_GATEWAY, {"error": str(exc)}, request.as_text)
+                return
+            self._send(HTTPStatus.OK, payload, request.as_text, text)
             return
         if request.verb in {
             "callbacks",
@@ -438,7 +468,9 @@ class _Handler(BaseHTTPRequestHandler):
             payload["mdns_name"] = getattr(self.server, "mdns_name", None)
             payload.update(config.input_enablement(self.server.switch.input_count, self.server.env_file))
             payload["rotate"] = config.rotate_info(self.server.env_file, input_count=self.server.switch.input_count)
+            payload["rotate"]["active"] = self.server.cycler.status()
             payload["peek"] = config.peek_info(self.server.env_file)
+            payload["peek"]["active"] = self.server.peeker.status()
             payload["peek"]["follow"] = self.server.peek_follow.status()["mode"]
             # Remembered write-only settings (buzzer / LED / auto-detect) from this host.
             payload["last_sent"] = dict(self.server.last_sent)
@@ -560,7 +592,12 @@ class _Handler(BaseHTTPRequestHandler):
             board.reshow()
             _notify()
             return _pack()
-        board.show(body.get("text"), body.get("seconds"), sticky=body.get("sticky"))
+        board.show(
+            body.get("text"),
+            body.get("seconds"),
+            sticky=body.get("sticky"),
+            from_=body.get("from"),
+        )
         _notify()
         return _pack()
 
@@ -775,13 +812,32 @@ class WebServer(ThreadingHTTPServer):
         # Last write-only values sent through this host (persisted in the env file).
         self.last_sent: dict[str, object] = config.read_last_sent(env_file)
         self.lock = threading.Lock()
-        # Shared so a peek started from /peek or the panel is visible to /api/state.
-        self.peeker = Peeker(switch, self.lock)
         # Browser kit/panel subscribe via GET /events or /api/events (SSE).
         self.events = EventHub()
+        self.callbacks = callbacks.CallbackHub(switch, self.lock, env_file, events=self.events)
+        # Shared so a peek started from /peek or the panel is visible to /api/state.
+        # Publishes SSE ``peek`` and notes the temporary / restored input for callbacks.
+        self.peeker = Peeker(
+            switch,
+            self.lock,
+            events=self.events,
+            notify_active=lambda active, previous=None: self.callbacks.note_active(
+                active, previous=previous, source="command"
+            ),
+        )
         # Armed by /peek/once or /peek/always. The next plain input change peeks.
         self.peek_follow = PeekFollow(events=self.events)
-        self.callbacks = callbacks.CallbackHub(switch, self.lock, env_file, events=self.events)
+        # Listener-owned automatic cycle; kit/panel/CLI start and stop it.
+        self.cycler = Cycler(
+            switch,
+            self.lock,
+            env_file=env_file,
+            events=self.events,
+            notify_active=lambda active, previous=None: self.callbacks.note_active(
+                active, previous=previous, source="command"
+            ),
+            peeking=lambda: self.peeker.status() is not None,
+        )
         # LCD banner + history (restored from env file so kit icons return on startup).
         self.banner = BannerBoard(
             history=config.read_banner_history(env_file),
@@ -828,6 +884,9 @@ def serve_http(
         f"HTTP listener on http://{bound_host}:{bound_port}/ (Ctrl-C to stop).",
         file=sys.stderr,
     )
+    from .debug import log_process
+
+    log_process()
     print(f"  HDMI switch:  {switch.endpoint}", file=sys.stderr)
     if getattr(switch, "simulated", False):
         print(

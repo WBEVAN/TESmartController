@@ -1,4 +1,4 @@
-/* Remembered kit settings (view size, colours, hide disabled inputs, display names, peek-follow, Always on top).
+/* Remembered kit settings (view size, colours, LCD brightness, auto-dim, hide disabled inputs, display names, peek-follow, Always on top).
  *
  * In the frameless pywebview window localStorage is wiped every launch, so
  * settings go through the Python bridge (get_prefs / set_prefs →

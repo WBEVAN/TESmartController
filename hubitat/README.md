@@ -29,8 +29,8 @@ If Uninstall already lists a package named **`null`**, uninstall that entry firs
 
 This Hubitat package expects a recent tesmartctl server on a host the hub can reach. On that computer run `tesmartctl install`, then leave `tesmartctl quickstart` running.
 
-- Minimum server: **0.0.7.17+** (Manager checks `POST /compat` on connection test)
-- Hubitat package version: **1.7.0** (shown on the Manager main screen)
+- Minimum server: **0.0.7.18+** (Manager checks `POST /compat` on connection test)
+- Hubitat package version: **1.7.1** (shown on the Manager main screen)
 - Namespace: **`wbevan_tesmart`**
 - Push notifications need OAuth on the Manager app (set via `"oauth": true` in the manifest)
 

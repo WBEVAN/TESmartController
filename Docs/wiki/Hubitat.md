@@ -4,8 +4,8 @@ Drive the TESmart switch from Hubitat Elevation: one Manager app, one controller
 
 ## What you need
 
-1. A server started with `tesmartctl install`, then left running with `tesmartctl quickstart` (**0.0.7.17+**, on a host and port Hubitat can reach)
-2. The Hubitat package from this repo (`hubitat/`) — currently **1.7.0** (shown on the Manager screen)
+1. A server started with `tesmartctl install`, then left running with `tesmartctl quickstart` (**0.0.7.18+**, on a host and port Hubitat can reach)
+2. The Hubitat package from this repo (`hubitat/`) — currently **1.7.1** (shown on the Manager screen)
 3. Network path from the Hub to the machine running the listener
 
 ## Install the package
@@ -45,17 +45,17 @@ The Manager main screen has **Status**, which reads `GET /status` and shows the 
 
 ## Banner & peek follow (controller device)
 
-On **TESmart Controller** (package 1.6.0+):
+On **TESmart Controller** (package **1.7.1+** for From / `bannerFrom`):
 
 | Command | Effect |
 | --- | --- |
 | `deviceNotification` | **Notification** capability — Rule Machine Notify / Notifications app → kit LCD |
-| `showBanner` | Timed LCD message on kit/panel (`POST /banner`) |
-| `showStickyBanner` | Sticky until `dismissBanner` |
+| `showBanner` | Timed LCD message on kit/panel (`POST /banner`). Optional **From** (blank → `HUBITAT`) for the kit status line |
+| `showStickyBanner` | Sticky until dismiss. Same optional **From** as `showBanner` |
 | `bannerAction` | Dropdown: dismiss / reshow / clear (clear = message **and** history) |
 | `setPeekFollow` | `off` / `once` / `always` (same as kit PEEK) |
 
-Preferences **Notifications stay until dismissed** and **Notification seconds** control how `deviceNotification` behaves. Attributes: `bannerText`, `bannerShowing`, `bannerMode`, `bannerRemaining`, `peekFollow`. Push `event: banner` updates those without polling.
+Preferences **Notifications stay until dismissed** and **Notification seconds** control how `deviceNotification` behaves. Attributes: `bannerText`, `bannerFrom`, `bannerShowing`, `bannerMode`, `bannerRemaining`, `peekFollow`. Push `event: banner` updates those without polling.
 
 ## Child input (package 1.7.0+)
 
@@ -74,7 +74,7 @@ The controller device has the same `enableInput` and `disableInput` commands for
 
 - Rule: motion / mode → select input N
 - Dashboard tiles for each input child
-- Rule: mode / contact → `showBanner` / `showStickyBanner` on the controller
+- Rule: mode / contact → `showBanner` / `showStickyBanner` on the controller (optional From for the kit status line)
 - Rule: set peek follow to `once` before an input change from another tile
 
 ## Deeper detail

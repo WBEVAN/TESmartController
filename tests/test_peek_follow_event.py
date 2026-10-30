@@ -38,13 +38,24 @@ def _assert_quiet(subscribed: queue.Queue) -> None:
     raise AssertionError(leaked)
 
 
+def _next_named(subscribed: queue.Queue, name: str, timeout: float = 2.0) -> dict:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        wait = max(0.05, deadline - time.monotonic())
+        payload = subscribed.get(timeout=wait)
+        if payload.get("event") == name:
+            return payload
+    raise AssertionError(f"no {name} event")
+
+
 def test_once_event_is_published_before_the_switch_returns() -> None:
     hub = EventHub()
     subscribed = hub.subscribe()
     switch = _Switch(1)
     follow = PeekFollow(events=hub)
     follow.set_mode("once", 1)
-    peeker = Peeker(switch)
+    # Peeker also publishes ``peek`` when events are wired; follow still owns peek_follow.
+    peeker = Peeker(switch, events=hub)
 
     errors: list[BaseException] = []
 
@@ -56,7 +67,7 @@ def test_once_event_is_published_before_the_switch_returns() -> None:
 
     worker = threading.Thread(target=run)
     worker.start()
-    payload = subscribed.get(timeout=2)
+    payload = _next_named(subscribed, "peek_follow")
     seen = time.monotonic()
     worker.join(timeout=3)
     assert errors == []
@@ -69,6 +80,7 @@ def test_once_event_is_published_before_the_switch_returns() -> None:
         "previous": 1,
         "active_input": 4,
         "seconds": 1,
+        "source": "command",
     }
     assert switch.returned_at is not None
     assert seen < switch.returned_at
@@ -81,10 +93,10 @@ def test_always_event_uses_real_inputs_and_stays_armed() -> None:
     switch = _Switch(1)
     follow = PeekFollow(events=hub)
     follow.set_mode("always", 8)
-    peeker = Peeker(switch)
+    peeker = Peeker(switch, events=hub)
 
     result = apply_follow(follow, peeker, 4, 5, block=False)
-    payload = subscribed.get(timeout=1)
+    payload = _next_named(subscribed, "peek_follow")
     _finish(peeker)
 
     assert payload["mode"] == "always"

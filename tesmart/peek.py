@@ -20,12 +20,16 @@ from __future__ import annotations
 
 import threading
 import time
+from collections.abc import Callable
 from contextlib import nullcontext
 from dataclasses import asdict, dataclass
 from typing import ContextManager
 
 from .events import EventHub
 from .switch import SwitchError, TesmartSwitch
+
+# Called when a peek moves the switch (start, retarget, or end).
+NotifyActive = Callable[[int, int | None], None]
 
 
 @dataclass
@@ -159,6 +163,7 @@ def _publish_claimed_peek(follow: PeekFollow, followed: str, started: dict, seco
             "previous": previous,
             "active_input": active,
             "seconds": seconds,
+            "source": "command",
         }
     )
 
@@ -166,9 +171,18 @@ def _publish_claimed_peek(follow: PeekFollow, followed: str, started: dict, seco
 class Peeker:
     """Peek at an input and come back. One peek at a time per switch."""
 
-    def __init__(self, switch: TesmartSwitch, lock: ContextManager | None = None):
+    def __init__(
+        self,
+        switch: TesmartSwitch,
+        lock: ContextManager | None = None,
+        *,
+        events: EventHub | None = None,
+        notify_active: NotifyActive | None = None,
+    ):
         self._switch = switch
         self._device = lock if lock is not None else nullcontext()
+        self._events = events
+        self._notify_active = notify_active
         self._guard = threading.Lock()  # protects _state, _cancel, _thread
         self._wake = threading.Event()
         self._thread: threading.Thread | None = None
@@ -208,7 +222,10 @@ class Peeker:
                     reported = self._switch.set_input(number, verify=True)
                 self._state.update(peeked=reported or number, seconds=seconds, until=time.monotonic() + seconds)
                 self._wake.set()
-                return self._snapshot()
+                snap = self._snapshot()
+                assert snap is not None
+                self._announce_active(snap)
+                return snap
             with self._device:
                 previous = self._switch.get_active_input()
                 reported = self._switch.set_input(number, verify=True)
@@ -222,7 +239,10 @@ class Peeker:
             self._wake.clear()
             self._thread = threading.Thread(target=self._wait_then_return, name="tesmart-peek", daemon=True)
             self._thread.start()
-            return self._snapshot()
+            snap = self._snapshot()
+            assert snap is not None
+            self._announce_active(snap)
+            return snap
 
     def cancel(self) -> bool:
         """Return to the previous input now. False if no peek is running."""
@@ -251,6 +271,57 @@ class Peeker:
             "remaining": round(remaining, 1),
         }
 
+    def _announce_active(self, snap: dict) -> None:
+        """Tell SSE clients and Hubitat-style callbacks the temporary input is live."""
+        previous = _real_input(snap.get("previous"))
+        peeked = _real_input(snap.get("peeked"))
+        if peeked is None:
+            return
+        if self._events is not None:
+            self._events.publish(
+                {
+                    "event": "peek",
+                    "active": snap,
+                    "active_input": peeked,
+                    "previous": previous,
+                    "seconds": snap.get("seconds"),
+                    "source": "command",
+                }
+            )
+        if self._notify_active is not None:
+            self._notify_active(peeked, previous)
+
+    def _announce_ended(self, result: PeekResult) -> None:
+        """Clear the temporary peek for browsers and report the restored input."""
+        current = _real_input(result.active_input)
+        origin = _real_input(result.previous)
+        peeked = _real_input(result.peeked)
+        if self._events is not None:
+            self._events.publish(
+                {
+                    "event": "peek",
+                    "active": None,
+                    "active_input": current,
+                    "previous": origin,
+                    "peeked": peeked,
+                    "restored": _real_input(result.restored),
+                    "interrupted": result.interrupted,
+                    "cancelled": result.cancelled,
+                    "source": "command",
+                }
+            )
+        # Note the real on-screen transition (peeked → restored). Passing the
+        # peek origin as previous produced input_changed origin→origin and left
+        # UIs briefly showing the peeked input as selected (green) before the
+        # restore. Interrupted peeks skip this: the foreign change already noted.
+        if (
+            current is not None
+            and self._notify_active is not None
+            and result.restored is not None
+            and peeked is not None
+        ):
+            self._notify_active(current, peeked)
+
     def _wait_then_return(self) -> None:
         while True:
             with self._guard:
@@ -268,8 +339,9 @@ class Peeker:
             peeked = self._state["peeked"]
             seconds = self._state["seconds"]
             cancelled = self._cancel
-            self._state = None  # a new start() from here on begins a fresh peek
-            self._cancel = False
+            # Leave _state set until the restore finishes so /status and polls
+            # still report peeking — otherwise UIs can flash the peeked input
+            # as selected (green) while the switch is still on that port.
 
         restored: int | None = None
         current: int | None = None
@@ -285,4 +357,8 @@ class Peeker:
                     interrupted = True
         except Exception as exc:  # noqa: BLE001 - reported through PeekResult.error
             error = str(exc)
+        with self._guard:
+            self._state = None  # a new start() from here on begins a fresh peek
+            self._cancel = False
         self.last = PeekResult(previous, peeked, seconds, restored, interrupted, cancelled, current, error)
+        self._announce_ended(self.last)

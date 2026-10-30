@@ -18,9 +18,9 @@ import groovy.transform.Field
 @Field static final String DOCS_URL = "https://wbevan.github.io/TESmartController/"
 @Field static final String LISTENER_DOCS = "https://github.com/WBEVAN/TESmartController/blob/main/Docs/listener.md"
 /** Hubitat package version (keep in sync with packageManifest.json). */
-@Field static final String PACKAGE_VERSION = "1.7.0"
+@Field static final String PACKAGE_VERSION = "1.7.1"
 /** Oldest tesmartctl this package is tested against (must expose /compat). */
-@Field static final String MIN_SERVER_VERSION = "0.0.7.17"
+@Field static final String MIN_SERVER_VERSION = "0.0.7.18"
 @Field static final List REQUIRED_SERVER_FEATURES = [
     "compat", "callbacks", "callbacks.name", "callbacks.health", "names_changed",
     "last_sent", "banner", "enabled_changed", "enable", "shutdown", "online"

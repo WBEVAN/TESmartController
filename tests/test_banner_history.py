@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from tesmart.banner import HISTORY_MAX, BannerBoard
+from tesmart.banner import DEFAULT_FROM, HISTORY_MAX, BannerBoard
 
 
 def test_eleventh_message_drops_oldest() -> None:
@@ -23,3 +23,19 @@ def test_clear_empties_history() -> None:
     board.clear()
     assert board.history() == []
     assert board.status() is None
+
+
+def test_from_defaults_to_message() -> None:
+    board = BannerBoard()
+    snap = board.show("hello", 5)
+    assert snap["from"] == DEFAULT_FROM
+    assert board.history()[0]["from"] == DEFAULT_FROM
+
+
+def test_from_custom_label() -> None:
+    board = BannerBoard()
+    snap = board.show("Door unlocked", 8, from_="Hubitat")
+    assert snap["from"] == "Hubitat"
+    assert board.history()[0]["from"] == "Hubitat"
+    board.show("Alarm", sticky=True, from_="Alarm")
+    assert board.status()["from"] == "Alarm"

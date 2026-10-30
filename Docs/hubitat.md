@@ -22,13 +22,13 @@ App and drivers use the Hubitat namespace **`wbevan_tesmart`**. If you previousl
 
 ### Push notifications (callbacks)
 
-With a recent `tesmartctl listen --http`, **TESmart Manager** can register this hub as a named callback (`name` like `Hubitat <location>`). When the switch input changes, or when local input names are updated on the server, the listener POSTs JSON (`event`: `input_changed` or `names_changed`) to Hubitat so the controller and child labels update without waiting for the next poll. Enabling or disabling an input (`GET /enable/N`, `GET /disable/N`, `tesmartctl --via auto enable 4`, or the panel) also posts `event`: `enabled_changed` (`disabled`, `names`, `input_count`) to that same callback URL. The Manager stores `enabledInputs` and `disabledInputs`. The controller updates each TESmart Input child’s `inputEnabled` attribute and leaves the selected child’s switch as it was. A `tesmartctl enable` on the listener machine without `--via` writes only that computer’s env file, so Hubitat sees it on the next Refresh (`GET /status` includes `disabled`). The same channel receives `event: banner` when an LCD message is shown or cleared (`POST /banner` / `POST /api/banner` / `tesmartctl banner`); the controller updates `bannerText` / `bannerShowing` / `bannerMode`. `GET /callbacks/health` on the server can probe the hub with `event: health_check` (acknowledged without changing devices). Turn this on under **Push notifications** in the Manager app (requires OAuth enabled for the app — HPM sets this when `oauth` is true in the package).
+With a recent `tesmartctl listen --http`, **TESmart Manager** can register this hub as a named callback (`name` like `Hubitat <location>`). When the switch input changes, or when local input names are updated on the server, the listener POSTs JSON (`event`: `input_changed` or `names_changed`) to Hubitat so the controller and child labels update without waiting for the next poll. Enabling or disabling an input (`GET /enable/N`, `GET /disable/N`, `tesmartctl --via auto enable 4`, or the panel) also posts `event`: `enabled_changed` (`disabled`, `names`, `input_count`) to that same callback URL. The Manager stores `enabledInputs` and `disabledInputs`. The controller updates each TESmart Input child’s `inputEnabled` attribute and leaves the selected child’s switch as it was. A `tesmartctl enable` on the listener machine without `--via` writes only that computer’s env file, so Hubitat sees it on the next Refresh (`GET /status` includes `disabled`). The same channel receives `event: banner` when an LCD message is shown or cleared (`POST /banner` / `POST /api/banner` / `tesmartctl banner`); the controller updates `bannerText` / `bannerFrom` / `bannerShowing` / `bannerMode`. `GET /callbacks/health` on the server can probe the hub with `event: health_check` (acknowledged without changing devices). Turn this on under **Push notifications** in the Manager app (requires OAuth enabled for the app — HPM sets this when `oauth` is true in the package).
 
 Browser kit/panel clients do **not** use this outbound POST path. They open `GET /api/events` (Server-Sent Events) for the same logical events. See [`listener.md`](listener.md#server-sent-events-kit--panel).
 
 ## Prerequisites
 
-On a host Hubitat can reach, run a recent enough `tesmartctl` (this Hubitat package **1.7.0** checks `/compat` and requires **0.0.7.17+**). Configure that server first, and choose a listen address the hub can open:
+On a host Hubitat can reach, run a recent enough `tesmartctl` (this Hubitat package **1.7.1** checks `/compat` and requires **0.0.7.18+**). Configure that server first, and choose a listen address the hub can open:
 
 ```bash
 tesmartctl install
@@ -41,7 +41,7 @@ Confirm the server version:
 curl http://192.168.1.20:8080/version
 curl -X POST http://192.168.1.20:8080/compat \
   -H 'Content-Type: application/json' \
-  -d '{"min_server":"0.0.7.17","client":"hubitat","client_version":"1.7.0"}'
+  -d '{"min_server":"0.0.7.18","client":"hubitat","client_version":"1.7.1"}'
 ```
 
 Optional local names (shown in Hubitat as `2 — Office`):
@@ -93,7 +93,7 @@ Packaging follows the [HPM developer documentation](https://hubitatpackagemanage
 
 1. **Apps** → **Add User App** → **TESmart Manager** (skipped if HPM already opened it)
 2. Read the intro (banner loads from GitHub).
-3. **Configure server host & port** — enter the machine running `tesmartctl`, run the connection test. Manager calls `POST /compat` first (needs **tesmartctl 0.0.7.17+**); an old server fails with an upgrade message. The Manager main screen shows Hubitat package **1.7.0**. **Status** reads `GET /status` and shows the server version and active input, refreshes the enabled and disabled lists, and marks the controller online. The main screen also lists those inputs and can enable or disable one input on the listener.
+3. **Configure server host & port** — enter the machine running `tesmartctl`, run the connection test. Manager calls `POST /compat` first (needs **tesmartctl 0.0.7.18+**); an old server fails with an upgrade message. The Manager main screen shows Hubitat package **1.7.1**. **Status** reads `GET /status` and shows the server version and active input, refreshes the enabled and disabled lists, and marks the controller online. The main screen also lists those inputs and can enable or disable one input on the listener.
 4. **Edit port names** — **Refresh Names**, edit the fields, then **Done**. Hubitat writes them with `POST /names` to the tesmartctl server. You can still use `tesmartctl name set N Label` on the host; name changes also notify Hubitat when callbacks are enabled.
 5. Set the device label, leave **Create child switch per input** on if you want dashboard tiles.
 6. Leave **Push notifications** on so Manager registers a named callback with the server (OAuth access token).
@@ -115,7 +115,7 @@ After the next device **Refresh** (or a callback), children labeled `Input N` ar
 | `setPeekFollow` | `GET /peek/off` · `/peek/once` · `/peek/always` (optional seconds for once/always) |
 | Preferences → **Peek follow mode** | Same as `setPeekFollow` from the device page |
 | `deviceNotification` (Notification) | Same as timed/sticky banner — pick this device in Rule Machine **Notify** / Notifications app |
-| `showBanner` / `showStickyBanner` | `POST /banner` timed or sticky LCD message (kit/panel) |
+| `showBanner` / `showStickyBanner` | `POST /banner` timed or sticky LCD message (kit/panel); optional **From** (blank → `HUBITAT`) for the kit status line |
 | `bannerAction` | Device-page dropdown + Run: **dismiss** (hide, keep history), **reshow** (last message again), **clear** (erase message **and** history) |
 | `createChildInputs` / `deleteChildInputs` | manage child devices |
 
@@ -129,6 +129,7 @@ After the next device **Refresh** (or a callback), children labeled `Input N` ar
 | `inputCount` | 8 or 16 |
 | `peekFollow` | `off` / `once` / `always` (from `/status` or `setPeekFollow`) |
 | `bannerText` | Last / current LCD message text |
+| `bannerFrom` | Kit status-line label (Hubitat show commands default to `HUBITAT`; override with optional From) |
 | `bannerShowing` | `true` / `false` |
 | `bannerMode` | `timed` / `sticky` / `none` |
 | `bannerRemaining` | Seconds left when timed and showing (else `0`) |
@@ -173,7 +174,7 @@ Add child devices as Switch tiles. The lit tile is the active input.
 | Peek | `GET /peek/N` (controller `peek`, or the child `peek` command) |
 | Enable / disable | `GET /enable/N`, `GET /disable/N` (child `enableInput` / `disableInput`, or the Manager buttons) |
 | Peek follow | `GET /peek/off`, `/peek/once`, `/peek/always` |
-| Banner | `POST /banner` (`text` / `sticky` / `dismiss` / `show` / `clear`) |
+| Banner | `POST /banner` (`text` / optional `from` / `sticky` / `dismiss` / `show` / `clear`) |
 | Load / save port names | `GET /names`, `POST /names` |
 | Register / remove push URL | `POST /callbacks`, `POST /callbacks/remove` |
 | Server → Hubitat push | `POST` to Manager `/tesmart-event` (`input_changed`, `names_changed`, `enabled_changed`, `online`, `shutdown`, `banner`, `health_check`). The drivers apply input, name, banner, enablement, startup, and shutdown. `online` marks the controller online and refreshes the current input. `enabled_changed` updates the Manager lists and each child’s `inputEnabled`. |

@@ -49,6 +49,10 @@
         <div class="lcd-meta">
           <p id="detail"></p>
           <div class="lcd-message-actions">
+            <button type="button" id="lcd-dim-indicator" class="lcd-dim-btn" aria-pressed="false"
+                    title="Auto-dim off. Click to enable." aria-label="Auto-dim off. Click to enable.">
+              <img class="action-icon" src="/static/kit/svg/icon-dim.svg" alt="">
+            </button>
             <button type="button" id="btn-message-list" class="lcd-message-btn" hidden
                     aria-label="Message history" title="Browse last messages on this kit">
               <img class="action-icon" src="/static/kit/svg/icon-message-list.svg" alt="">
@@ -153,6 +157,21 @@
             <button type="button" class="theme-swatch" data-lcd="blue" aria-pressed="false" title="Blue" aria-label="Blue LCD"></button>
             <button type="button" class="theme-swatch" data-lcd="red" aria-pressed="false" title="Red" aria-label="Red LCD"></button>
             <button type="button" class="theme-swatch" data-lcd="amber" aria-pressed="false" title="Dark with orange" aria-label="Dark orange LCD"></button>
+          </div>
+          <div class="theme-row theme-row-brightness" role="group" aria-label="LCD brightness">
+            <span>Bright</span>
+            <input type="range" id="lcd-brightness" class="lcd-brightness" min="40" max="100" step="5" value="100"
+                   title="LCD brightness" aria-label="LCD brightness">
+            <span id="lcd-brightness-value" class="lcd-brightness-value" aria-hidden="true">100%</span>
+          </div>
+          <div class="theme-row theme-row-dim" role="group" aria-label="LCD auto-dim">
+            <label class="theme-check" for="lcd-dim">
+              <input type="checkbox" id="lcd-dim">
+              Auto-dim
+            </label>
+            <input type="number" id="lcd-dim-seconds" class="lcd-dim-seconds" min="1" max="120" value="30"
+                   disabled title="Seconds of idle before the LCD dims to 40%" aria-label="Auto-dim after seconds">
+            <span class="lcd-dim-seconds-suffix">sec</span>
           </div>
           <div class="theme-row theme-row-highlight" role="group" aria-label="Highlight colour">
             <span>Highlight</span>

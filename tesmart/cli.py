@@ -19,7 +19,9 @@ from typing import Any
 
 from . import config, notices
 from .version import package_version
+from .banner import DEFAULT_FROM as BANNER_DEFAULT_FROM
 from .banner import DEFAULT_SECONDS as BANNER_DEFAULT_SECONDS
+from .banner import MAX_FROM as BANNER_MAX_FROM
 from .banner import MAX_SECONDS as BANNER_MAX_SECONDS
 from .banner import MAX_TEXT as BANNER_MAX_TEXT
 from .banner import MIN_SECONDS as BANNER_MIN_SECONDS
@@ -315,6 +317,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--sticky",
         action="store_true",
         help="keep showing until dismissed (ignores --seconds)",
+    )
+    p_banner.add_argument(
+        "--from",
+        dest="from_label",
+        default=None,
+        metavar="LABEL",
+        help=f"status-line label on the kit (default {BANNER_DEFAULT_FROM}; max {BANNER_MAX_FROM} chars)",
     )
     banner_action = p_banner.add_mutually_exclusive_group()
     banner_action.add_argument(
@@ -1216,18 +1225,19 @@ def _render_banner(banner: dict[str, Any] | None) -> str:
     if not banner:
         return "No LCD message"
     text = banner.get("text") or ""
+    from_label = banner.get("from") or BANNER_DEFAULT_FROM
     mode = banner.get("mode") or "timed"
     showing = banner.get("showing")
     if mode == "sticky":
         state = "showing" if showing else "hidden"
-        return f"Banner: {text!r} (sticky, {state})"
+        return f"Banner [{from_label}]: {text!r} (sticky, {state})"
     remaining = banner.get("remaining")
     if showing and remaining is not None:
-        return f"Banner: {text!r} (timed, {remaining}s left)"
+        return f"Banner [{from_label}]: {text!r} (timed, {remaining}s left)"
     seconds = banner.get("seconds")
     if showing:
-        return f"Banner: {text!r} (timed, {seconds}s)"
-    return f"Banner: {text!r} (timed, hidden; was {seconds}s)"
+        return f"Banner [{from_label}]: {text!r} (timed, {seconds}s)"
+    return f"Banner [{from_label}]: {text!r} (timed, hidden; was {seconds}s)"
 
 
 def _render_banner_history(history: list[Any]) -> str:
@@ -1240,11 +1250,12 @@ def _render_banner_history(history: list[Any]) -> str:
         when = item.get("at_iso") or ""
         mode = item.get("mode") or "timed"
         text = item.get("text") or ""
+        from_label = item.get("from") or BANNER_DEFAULT_FROM
         if mode == "sticky":
-            lines.append(f"{when}  sticky  {text}")
+            lines.append(f"{when}  [{from_label}] sticky  {text}")
         else:
             seconds = item.get("seconds")
-            lines.append(f"{when}  {seconds}s  {text}")
+            lines.append(f"{when}  [{from_label}] {seconds}s  {text}")
     return "\n".join(lines) if lines else "No message history"
 
 
@@ -1260,6 +1271,11 @@ def cmd_banner(args: argparse.Namespace) -> int:
         raise SystemExit(f"--seconds must be between {BANNER_MIN_SECONDS} and {BANNER_MAX_SECONDS}")
     if text and len(text) > BANNER_MAX_TEXT:
         raise SystemExit(f"text must be at most {BANNER_MAX_TEXT} characters")
+    from_label = getattr(args, "from_label", None)
+    if from_label is not None and len(str(from_label).strip()) > BANNER_MAX_FROM:
+        raise SystemExit(f"--from must be at most {BANNER_MAX_FROM} characters")
+    if from_label is not None and not text and not args.show:
+        raise SystemExit("--from applies when sending a message (or use --show after a message that set it)")
 
     base = _banner_base_url(args)
     if args.history:
@@ -1285,11 +1301,13 @@ def cmd_banner(args: argparse.Namespace) -> int:
             body["sticky"] = True
         elif args.seconds is not None:
             body["seconds"] = args.seconds
+        if from_label is not None:
+            body["from"] = str(from_label).strip()
         payload = _banner_request(base, "POST", body)
         emit(args, payload, _render_banner(payload.get("banner")))
         return 0
-    if args.sticky or args.seconds is not None:
-        raise SystemExit("pass a message with --seconds / --sticky, or omit flags to read the last message")
+    if args.sticky or args.seconds is not None or from_label is not None:
+        raise SystemExit("pass a message with --seconds / --sticky / --from, or omit flags to read the last message")
     payload = _banner_request(base, "GET")
     emit(args, payload, _render_banner(payload.get("banner")))
     return 0
@@ -1468,12 +1486,18 @@ def main(argv: list[str] | None = None) -> int:
             from . import via_client
             from .mdns import MdnsError
 
-            supported = {"status", "input", "rotate", "next", "previous", "peek", "enable", "disable"}
+            supported = {"status", "input", "rotate", "next", "previous", "peek", "cycle", "enable", "disable"}
             if args.command not in supported:
                 print(
                     f"error: --via does not support `{args.command}`; "
-                    "use status, input, rotate, next, previous, peek, enable, disable "
+                    "use status, input, rotate, next, previous, peek, cycle run, enable, disable "
                     "(banner/kit accept --via without going through this path)",
+                    file=sys.stderr,
+                )
+                return 2
+            if args.command == "cycle" and args.cycle_command != "run":
+                print(
+                    "error: --via cycle only supports `cycle run` (config stays on this computer)",
                     file=sys.stderr,
                 )
                 return 2

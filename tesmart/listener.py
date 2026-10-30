@@ -252,6 +252,9 @@ def serve_stdio(switch: TesmartSwitch, *, as_json: bool = False, stdin: TextIO |
     source = stdin if stdin is not None else sys.stdin
     sink = stdout if stdout is not None else sys.stdout
     print("Command listener on stdin (Ctrl-C or 'quit' to stop).", file=sys.stderr)
+    from .debug import log_process
+
+    log_process()
     print(f"  HDMI switch:  {switch.endpoint}", file=sys.stderr)
     print(HELP, file=sys.stderr)
     follow = PeekFollow()
@@ -333,6 +336,9 @@ def serve_tcp(switch: TesmartSwitch, host: str, port: int, *, as_json: bool = Fa
         f"Command listener on {bound_host}:{bound_port} (Ctrl-C to stop).",
         file=sys.stderr,
     )
+    from .debug import log_process
+
+    log_process()
     print(f"  HDMI switch:  {switch.endpoint}", file=sys.stderr)
     print(HELP, file=sys.stderr)
     try:

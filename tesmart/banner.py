@@ -19,6 +19,9 @@ DEFAULT_SECONDS = 8
 MIN_SECONDS = 1
 MAX_SECONDS = 60
 MAX_TEXT = 160
+# Status-line label above the LCD text (kit shows this instead of a hard-coded MESSAGE).
+DEFAULT_FROM = "MESSAGE"
+MAX_FROM = 32
 HISTORY_MAX = 10
 
 MODE_TIMED = "timed"
@@ -48,6 +51,18 @@ def _clean_text(value: Any) -> str:
     return text
 
 
+def _clean_from(value: Any) -> str:
+    """Optional sender / origin label for the kit status line. Blank → MESSAGE."""
+    if value is None:
+        return DEFAULT_FROM
+    text = " ".join(str(value).split())
+    if not text:
+        return DEFAULT_FROM
+    if len(text) > MAX_FROM:
+        raise ValueError(f"from must be at most {MAX_FROM} characters")
+    return text
+
+
 def _as_bool(value: Any) -> bool:
     if isinstance(value, bool):
         return value
@@ -70,6 +85,7 @@ class BannerBoard:
         self._lock = threading.Lock()
         self._id = 0
         self._text = ""
+        self._from = DEFAULT_FROM
         self._mode = MODE_TIMED
         self._seconds = 0
         self._at = 0.0
@@ -106,10 +122,15 @@ class BannerBoard:
             at_iso = item.get("at_iso")
             if not at_iso and at:
                 at_iso = datetime.fromtimestamp(at, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            try:
+                from_label = _clean_from(item.get("from"))
+            except ValueError:
+                from_label = DEFAULT_FROM
             cleaned.append(
                 {
                     "id": entry_id,
                     "text": text[:MAX_TEXT],
+                    "from": from_label,
                     "at": round(at, 3),
                     "at_iso": at_iso,
                     "mode": mode,
@@ -122,6 +143,7 @@ class BannerBoard:
         newest = cleaned[0]
         self._id = max(int(item["id"]) for item in cleaned)
         self._text = str(newest["text"])
+        self._from = str(newest.get("from") or DEFAULT_FROM)
         self._mode = newest["mode"]
         self._seconds = int(newest["seconds"] or 0) if newest["mode"] == MODE_TIMED else 0
         self._at = float(newest["at"] or 0)
@@ -133,9 +155,21 @@ class BannerBoard:
             return
         self._persist([dict(item) for item in self._history])
 
-    def show(self, text: Any, seconds: Any = None, *, sticky: Any = False) -> dict[str, Any]:
-        """Store a new last message, push history, and mark it showing."""
+    def show(
+        self,
+        text: Any,
+        seconds: Any = None,
+        *,
+        sticky: Any = False,
+        from_: Any = None,
+    ) -> dict[str, Any]:
+        """Store a new last message, push history, and mark it showing.
+
+        ``from_`` is the optional status-line label (JSON/CLI field ``from``).
+        When omitted it is ``MESSAGE``.
+        """
         cleaned = _clean_text(text)
+        from_label = _clean_from(from_)
         is_sticky = _as_bool(sticky)
         if is_sticky:
             duration = 0
@@ -147,6 +181,7 @@ class BannerBoard:
         with self._lock:
             self._id += 1
             self._text = cleaned
+            self._from = from_label
             self._mode = mode
             self._seconds = duration
             self._at = now
@@ -192,6 +227,7 @@ class BannerBoard:
             self._expire_locked(now)
             previous = self._snapshot_locked(now) if self._text else None
             self._text = ""
+            self._from = DEFAULT_FROM
             self._mode = MODE_TIMED
             self._seconds = 0
             self._until = 0.0
@@ -222,6 +258,7 @@ class BannerBoard:
         return {
             "id": self._id,
             "text": self._text,
+            "from": self._from or DEFAULT_FROM,
             "at": round(self._at, 3),
             "at_iso": datetime.fromtimestamp(self._at, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "mode": self._mode,
@@ -245,6 +282,7 @@ class BannerBoard:
         return {
             "id": self._id,
             "text": self._text,
+            "from": self._from or DEFAULT_FROM,
             "at": round(self._at, 3),
             "at_iso": datetime.fromtimestamp(self._at, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "mode": self._mode,

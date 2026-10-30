@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -34,6 +35,7 @@ VIA_COMMANDS = frozenset(
         "next",
         "previous",
         "peek",
+        "cycle",
         "enable",
         "disable",
         "banner",
@@ -143,6 +145,10 @@ def run_via_command(args: Any, base: str) -> int:
         return _via_rotate(args, base)
     if command == "peek":
         return _via_peek(args, base)
+    if command == "cycle":
+        if getattr(args, "cycle_command", None) != "run":
+            raise SystemExit("--via cycle only supports `cycle run` (config stays on this computer)")
+        return _via_cycle_run(args, base)
     if command in {"enable", "disable"}:
         return _via_enable(args, base)
     raise SystemExit(f"--via does not support `{command}` yet")
@@ -198,6 +204,12 @@ def _render_via_status(status: dict[str, Any], base: str) -> str:
             )
         else:
             lines.append(f"Cycle:         manual (next/previous); {cycle_text} ({chosen})")
+        active = rotate.get("active")
+        if active:
+            lines.append(
+                f"Cycle running: input {active.get('active_input')} → next {active.get('next_input')} "
+                f"in {active.get('remaining')}s"
+            )
     peek = status.get("peek") or {}
     if peek:
         lines.append(f"Peek:          {peek.get('seconds')}s on another input, then back")
@@ -334,4 +346,39 @@ def _via_peek(args: Any, base: str) -> int:
         _emit(args, payload, f"Input was changed to {current} during the peek; left as is")
         return 1
     _emit(args, payload, f"Active input: {current}")
+    return 0
+
+
+def _via_cycle_run(args: Any, base: str) -> int:
+    """Start the listener-owned cycle and wait until it stops (Ctrl-C → stop)."""
+    timeout = max(float(args.timeout), 10.0)
+    try:
+        started = request_json(base, "/cycle/start", timeout=timeout)
+    except SystemExit as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    active = started.get("active") or (started.get("rotate") or {}).get("active") or {}
+    cycle = active.get("cycle") or []
+    seconds = active.get("seconds")
+    cycle_text = ", ".join(str(number) for number in cycle) if cycle else "saved inputs"
+    if not args.json:
+        print(
+            f"Cycling {cycle_text} every {seconds}s via listener (Ctrl-C to stop).",
+            file=sys.stderr,
+        )
+    try:
+        while True:
+            time.sleep(1.0)
+            status = request_json(base, "/status?network=0", timeout=timeout)
+            running = (status.get("rotate") or {}).get("active")
+            if not running:
+                break
+    except KeyboardInterrupt:
+        print(file=sys.stderr)
+        request_json(base, "/cycle/stop", timeout=timeout)
+        if not args.json:
+            print("Cycle stopped.", file=sys.stderr)
+        return 0
+    if args.json:
+        _emit(args, started, "")
     return 0

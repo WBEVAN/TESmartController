@@ -223,7 +223,6 @@ class Panel {
     this.state = null;
     this.busy = false;
     this.pollTimer = null;
-    this.cycleTimer = null;
     this.peekTimer = null;
     this.peekRefresh = null;
     this.bannerTimer = null;
@@ -256,6 +255,7 @@ class Panel {
       bannerClear: document.getElementById("banner-clear"),
       bannerHistory: document.getElementById("banner-history"),
       bannerText: document.getElementById("banner-text"),
+      bannerFrom: document.getElementById("banner-from"),
       bannerSeconds: document.getElementById("banner-seconds"),
       bannerSticky: document.getElementById("banner-sticky"),
       bannerSend: document.getElementById("banner-send"),
@@ -400,7 +400,7 @@ class Panel {
         /* ignore malformed frames */
       }
     };
-    ["hello", "input_changed", "names_changed", "enabled_changed", "banner", "peek_follow", "shutdown"].forEach((name) => {
+    ["hello", "input_changed", "names_changed", "enabled_changed", "banner", "peek", "peek_follow", "cycle", "shutdown"].forEach((name) => {
       es.addEventListener(name, onNamed);
     });
     es.onerror = () => {
@@ -465,12 +465,42 @@ class Panel {
       this.render();
       return;
     }
+    if (kind === "peek") {
+      if (!this.state.peek) this.state.peek = {};
+      this.state.peek.active = data.active || null;
+      if (typeof data.active_input === "number") this.state.active_input = data.active_input;
+      if (data.active && typeof data.active.peeked === "number") {
+        this.state.active_input = data.active.peeked;
+      }
+      this.render();
+      return;
+    }
+    if (kind === "cycle") {
+      if (!this.state.rotate) this.state.rotate = {};
+      this.state.rotate.active = data.active || null;
+      if (typeof data.active_input === "number") this.state.active_input = data.active_input;
+      if (data.active && Array.isArray(data.active.cycle)) {
+        this.state.rotate.cycle = data.active.cycle;
+      }
+      this.render();
+      return;
+    }
     if (kind === "peek_follow") {
       const mode = String(data.mode || data.peek_follow || "off");
       if (!["off", "once", "always"].includes(mode)) return;
       this.state.peek = { ...(this.state.peek || {}), follow: mode };
       if (typeof data.seconds === "number" && data.seconds >= 1) {
         this.state.peek.seconds = data.seconds;
+      }
+      // Claimed follow peeks include the temporary input until a peek frame arrives.
+      if (data.previous != null && data.active_input != null) {
+        this.state.peek.active = {
+          previous: data.previous,
+          peeked: data.active_input,
+          seconds: data.seconds,
+          remaining: data.seconds,
+        };
+        this.state.active_input = data.active_input;
       }
       this.render();
     }
@@ -643,13 +673,19 @@ class Panel {
 
   async sendBanner() {
     const text = (this.el.bannerText.value || "").trim();
+    const from = (this.el.bannerFrom?.value || "").trim();
     const sticky = Boolean(this.el.bannerSticky.checked);
     const seconds = Math.round(Number(this.el.bannerSeconds.value));
     if (!text) {
       this.toaster.error("Enter a message to show on the LCD.");
       return;
     }
+    if (from.length > 32) {
+      this.toaster.error("From label must be at most 32 characters.");
+      return;
+    }
     const body = sticky ? { text, sticky: true } : { text, seconds };
+    if (from) body.from = from;
     if (!sticky && (!Number.isFinite(seconds) || seconds < 1 || seconds > 60)) {
       this.toaster.error("Duration must be a whole number of seconds from 1 to 60.");
       return;
@@ -701,13 +737,16 @@ class Panel {
       return;
     }
     this.el.bannerLabel.textContent = banner.text;
+    const badge = this.el.bannerStatus.querySelector(".badge");
+    if (badge) badge.textContent = "LCD";
     const showing = Boolean(banner.showing);
+    const fromLabel = String(banner.from || "MESSAGE").trim() || "MESSAGE";
     if (banner.mode === "sticky") {
       this.el.bannerRemaining.textContent = showing
-        ? "Sticky · until dismissed"
+        ? `${fromLabel} · until dismissed`
         : "Last message · hidden";
     } else if (showing && Number(banner.remaining) > 0) {
-      this.el.bannerRemaining.textContent = `${Math.max(1, Math.ceil(Number(banner.remaining)))} s left`;
+      this.el.bannerRemaining.textContent = `${fromLabel} · ${Math.max(1, Math.ceil(Number(banner.remaining)))} s left`;
     } else {
       this.el.bannerRemaining.textContent = "Last message · hidden";
     }
@@ -960,21 +999,36 @@ class Panel {
     this.el.networkForm.reset();
   }
 
-  // --- auto cycle (runs in the browser) -----------------------------------
+  // --- auto cycle (listener-owned) ----------------------------------------
 
-  #applyAutoCycle() {
-    if (this.cycleTimer) clearInterval(this.cycleTimer);
-    this.cycleTimer = null;
+  async #applyAutoCycle() {
     const rotate = this.state?.rotate || {};
-    const seconds = rotate.seconds || Number(this.el.cycleSeconds.value) || 10;
+    const seconds = Number(this.el.cycleSeconds.value) || rotate.seconds || 10;
     if (this.el.autoCycle.checked) {
-      this.cycleTimer = setInterval(() => {
-        if (!this.busy && !document.hidden && !this.peeking) this.step("next");
-      }, seconds * 1000);
-      this.el.autoCycleInfo.textContent = `every ${seconds} s`;
-    } else {
-      this.el.autoCycleInfo.textContent = rotate.mode === "automatic" ? `(${seconds} s saved)` : "";
+      const inputs = [...this.el.cycleInputs.querySelectorAll("input:checked")].map((box) => Number(box.value));
+      const saved = await this.#call(() =>
+        this.api.post("/api/cycle", { inputs, mode: "automatic", seconds }),
+      );
+      if (!saved) {
+        this.el.autoCycle.checked = false;
+        return;
+      }
+      const started = await this.#call(() => this.api.post("/api/cycle/start", {}));
+      if (!started) {
+        this.el.autoCycle.checked = false;
+        return;
+      }
+      this.state.rotate = started.rotate || { ...(this.state.rotate || {}), active: started.active };
+      this.el.autoCycleInfo.textContent = `every ${seconds} s (listener)`;
+      this.renderCycle();
+      return;
     }
+    if (rotate.active) {
+      const stopped = await this.#call(() => this.api.post("/api/cycle/stop", {}));
+      if (stopped?.rotate) this.state.rotate = stopped.rotate;
+      else if (this.state.rotate) this.state.rotate.active = null;
+    }
+    this.el.autoCycleInfo.textContent = rotate.mode === "automatic" ? `(${seconds} s saved)` : "";
   }
 
   // --- rendering -----------------------------------------------------------
@@ -990,9 +1044,20 @@ class Panel {
     this.renderNames();
     this.renderCycle();
     this.renderNetwork();
-    if (!this.el.autoCycle.dataset.initialised) {
-      this.el.autoCycle.dataset.initialised = "1";
-      this.#applyAutoCycle();
+    this.#syncAutoCycleCheckbox();
+  }
+
+  #syncAutoCycleCheckbox() {
+    const active = Boolean(this.state?.rotate?.active);
+    if (this.el.autoCycle.checked !== active) {
+      this.el.autoCycle.checked = active;
+    }
+    const rotate = this.state?.rotate || {};
+    const seconds = rotate.seconds || Number(this.el.cycleSeconds.value) || 10;
+    if (active) {
+      this.el.autoCycleInfo.textContent = `every ${seconds} s (listener)`;
+    } else {
+      this.el.autoCycleInfo.textContent = rotate.mode === "automatic" ? `(${seconds} s saved)` : "";
     }
   }
 
@@ -1255,33 +1320,56 @@ class Panel {
 
 /* Lists the routes from GET /api and shows the raw status and body of whatever is sent. */
 class Explorer {
+  static STREAM_EVENTS = [
+    "hello",
+    "input_changed",
+    "names_changed",
+    "enabled_changed",
+    "banner",
+    "peek",
+    "peek_follow",
+    "cycle",
+    "shutdown",
+    "online",
+  ];
+
   constructor(api, onChanged) {
     this.api = api;
     this.onChanged = onChanged;
     this.catalog = [];
     this.selected = null;
     this.sending = false;
+    this.eventSource = null;
+    this.eventCount = 0;
     this.el = {
       list: document.getElementById("api-list"),
       method: document.getElementById("api-method"),
       path: document.getElementById("api-path"),
       body: document.getElementById("api-body"),
+      bodyWrap: document.getElementById("api-body-wrap"),
       send: document.getElementById("api-send"),
+      clearLog: document.getElementById("api-clear-log"),
       hint: document.getElementById("api-hint"),
       status: document.getElementById("api-status"),
+      outputLabel: document.getElementById("api-output-label"),
       response: document.getElementById("api-response"),
+      responseRaw: document.getElementById("api-response-raw"),
+      eventLog: document.getElementById("api-event-log"),
     };
   }
 
   start() {
+    if (!this.el.list || !this.el.send) return;
     this.el.list.addEventListener("click", (event) => {
       const item = event.target.closest("[data-index]");
       if (item) this.select(Number(item.dataset.index));
     });
     this.el.send.addEventListener("click", () => this.send());
-    document.getElementById("api-modal").addEventListener("show.bs.modal", () => {
-      if (this.catalog.length === 0) this.load();
-    });
+    this.el.clearLog?.addEventListener("click", () => this.#clearStreamLog());
+    window.addEventListener("pagehide", () => this.#stopStream());
+    window.addEventListener("beforeunload", () => this.#stopStream());
+    // Standalone pop-out page: load the catalog immediately.
+    void this.load();
   }
 
   async load() {
@@ -1293,12 +1381,42 @@ class Explorer {
       this.el.list.textContent = error.message;
       return;
     }
-    this.el.list.replaceChildren(
-      ...this.catalog.map((route, index) => {
+    const groups = new Map();
+    this.catalog.forEach((route, index) => {
+      const name = route.group || "Other";
+      if (!groups.has(name)) groups.set(name, []);
+      groups.get(name).push({ route, index });
+    });
+
+    const tree = document.createElement("div");
+    tree.className = "api-tree";
+    let firstGroup = true;
+    for (const [name, entries] of groups) {
+      const branch = document.createElement("details");
+      branch.className = "api-tree-group";
+      // First group open so a route is visible; others start collapsed.
+      if (firstGroup) branch.open = true;
+      firstGroup = false;
+
+      const summary = document.createElement("summary");
+      summary.className = "api-group";
+      const label = document.createElement("span");
+      label.className = "api-group-label";
+      label.textContent = name;
+      const count = document.createElement("span");
+      count.className = "badge text-bg-secondary api-group-count";
+      count.textContent = String(entries.length);
+      summary.append(label, count);
+
+      const children = document.createElement("div");
+      children.className = "list-group list-group-flush api-tree-children";
+      entries.forEach(({ route, index }) => {
         const button = document.createElement("button");
         button.type = "button";
         button.className = "list-group-item list-group-item-action";
         button.dataset.index = String(index);
+        const line = document.createElement("div");
+        line.className = "api-path-line";
         const method = document.createElement("span");
         const methodClass =
           route.method === "GET"
@@ -1306,38 +1424,108 @@ class Explorer {
             : route.method === "DELETE"
               ? "text-bg-danger"
               : "text-bg-primary";
-        method.className = `badge me-2 ${methodClass}`;
+        method.className = `badge ${methodClass}`;
         method.textContent = route.method;
         const path = document.createElement("span");
         path.className = "font-monospace";
         path.textContent = route.path;
-        const summary = document.createElement("div");
-        summary.className = "small text-body-secondary";
-        summary.textContent = route.summary;
-        button.append(method, path, summary);
-        return button;
-      }),
-    );
+        line.append(method, path);
+        if (route.stream) {
+          const stream = document.createElement("span");
+          stream.className = "badge text-bg-success badge-stream";
+          stream.textContent = "SSE";
+          line.append(stream);
+        }
+        if (route.blocked) {
+          const blocked = document.createElement("span");
+          blocked.className = "badge text-bg-warning badge-stream";
+          blocked.textContent = "blocked";
+          line.append(blocked);
+        }
+        const hint = document.createElement("div");
+        hint.className = "small text-body-secondary";
+        hint.textContent = route.summary;
+        button.append(line, hint);
+        children.append(button);
+      });
+      branch.append(summary, children);
+      tree.append(branch);
+    }
+
+    const toolbar = document.createElement("div");
+    toolbar.className = "api-tree-toolbar";
+    const expand = document.createElement("button");
+    expand.type = "button";
+    expand.className = "btn btn-link btn-sm py-0 px-1";
+    expand.textContent = "Expand all";
+    expand.addEventListener("click", () => {
+      tree.querySelectorAll("details.api-tree-group").forEach((el) => {
+        el.open = true;
+      });
+    });
+    const collapse = document.createElement("button");
+    collapse.type = "button";
+    collapse.className = "btn btn-link btn-sm py-0 px-1";
+    collapse.textContent = "Collapse all";
+    collapse.addEventListener("click", () => {
+      tree.querySelectorAll("details.api-tree-group").forEach((el) => {
+        el.open = false;
+      });
+    });
+    toolbar.append(expand, collapse);
+
+    this.el.list.replaceChildren(toolbar, tree);
     if (this.catalog.length) this.select(0);
   }
 
   select(index) {
+    this.#stopStream();
     this.selected = this.catalog[index];
-    [...this.el.list.children].forEach((item, i) => item.classList.toggle("active", i === index));
+    [...this.el.list.querySelectorAll("[data-index]")].forEach((item) => {
+      const on = Number(item.dataset.index) === index;
+      item.classList.toggle("active", on);
+      if (on) {
+        const branch = item.closest("details.api-tree-group");
+        if (branch) branch.open = true;
+      }
+    });
     const route = this.selected;
+    const streaming = this.#isStreamRoute(route);
     this.el.method.textContent = route.method;
     this.el.path.value = route.path;
     this.el.body.value = route.sample === undefined ? "" : JSON.stringify(route.sample, null, 2);
-    this.el.body.disabled = route.method === "GET";
+    this.el.body.disabled = route.method === "GET" || streaming;
+    if (this.el.bodyWrap) this.el.bodyWrap.classList.toggle("d-none", streaming);
+    if (this.el.clearLog) this.el.clearLog.classList.toggle("d-none", !streaming);
+    this.el.response.classList.toggle("is-stream", streaming);
+    if (this.el.outputLabel) {
+      this.el.outputLabel.textContent = streaming ? "Event log (newest first)" : "Raw response";
+    }
     this.el.send.disabled = Boolean(route.blocked);
-    this.el.send.textContent = route.blocked ? "Not from here" : "Send";
+    this.el.send.className = streaming ? "btn btn-success" : "btn btn-primary";
+    this.el.send.textContent = route.blocked ? "Not from here" : streaming ? "Listen" : "Send";
     this.el.hint.textContent = route.blocked
       ? "Address changes are not sent from this dialog. Use Change address, which warns twice and then reads the values back."
-      : route.summary;
+      : streaming
+        ? "Opens a live Server-Sent Events stream. Newest events appear at the top — expand a row to read the full JSON."
+        : route.summary;
+    this.el.status.textContent = "";
+    this.el.status.className = "small font-monospace";
+    this.#showRawPlaceholder(
+      streaming
+        ? "Press Listen to open /api/events. Newest frames appear at the top; expand a row for the full payload."
+        : "Choose a route and send it. The status line and body appear here, exactly as the listener returned them.",
+      { stream: streaming, empty: true },
+    );
   }
 
   async send() {
     if (this.sending) return;
+    if (this.#isStreamRoute(this.selected) || this.#isStreamPath(this.el.path.value)) {
+      if (this.eventSource) this.#stopStream();
+      else this.#startStream();
+      return;
+    }
     const method = this.el.method.textContent;
     const path = this.el.path.value.trim();
     if (method === "POST" && path.split("?")[0] === "/api/network") {
@@ -1368,10 +1556,262 @@ class Explorer {
     }
   }
 
+  #isStreamRoute(route) {
+    return Boolean(route && (route.stream || this.#isStreamPath(route.path)));
+  }
+
+  #isStreamPath(path) {
+    const clean = String(path || "").trim().split("?")[0];
+    return clean === "/api/events" || clean === "/events";
+  }
+
+  #startStream() {
+    if (typeof EventSource === "undefined") {
+      this.#showResult(null, "This browser does not support EventSource.");
+      return;
+    }
+    const path = this.el.path.value.trim() || "/api/events";
+    this.eventCount = 0;
+    this.#showRawPlaceholder("", { stream: true, empty: true });
+    this.el.response.classList.add("is-stream");
+    this.el.status.textContent = "connecting…";
+    this.el.status.className = "small font-monospace text-body-secondary";
+    this.el.send.textContent = "Stop";
+    this.el.send.className = "btn btn-outline-danger";
+    if (this.el.clearLog) this.el.clearLog.classList.remove("d-none");
+
+    const es = new EventSource(path);
+    this.eventSource = es;
+    const onNamed = (ev) => this.#appendStreamEvent(ev.type || "message", ev.data);
+    Explorer.STREAM_EVENTS.forEach((name) => es.addEventListener(name, onNamed));
+    es.onmessage = (ev) => this.#appendStreamEvent(ev.type || "message", ev.data);
+    es.onerror = () => {
+      if (!this.eventSource) return;
+      this.el.status.textContent = `live · ${this.eventCount} event(s) · reconnecting…`;
+      this.el.status.className = "small font-monospace text-warning";
+    };
+  }
+
+  #stopStream() {
+    if (!this.eventSource) return;
+    try {
+      this.eventSource.close();
+    } catch (_) {
+      /* ignore */
+    }
+    this.eventSource = null;
+    const streaming = this.#isStreamRoute(this.selected);
+    this.el.send.textContent = streaming ? "Listen" : this.selected?.blocked ? "Not from here" : "Send";
+    this.el.send.className = streaming ? "btn btn-success" : "btn btn-primary";
+    this.el.send.disabled = Boolean(this.selected && this.selected.blocked);
+    if (streaming) {
+      this.el.status.textContent = `stopped · ${this.eventCount} event(s)`;
+      this.el.status.className = "small font-monospace text-body-secondary";
+    }
+  }
+
+  #clearStreamLog() {
+    this.eventCount = 0;
+    if (this.eventSource) {
+      this.#showRawPlaceholder("", { stream: true, empty: true });
+      this.el.status.textContent = "live · 0 event(s)";
+      this.el.status.className = "small font-monospace text-success";
+      return;
+    }
+    this.#showRawPlaceholder(
+      "Press Listen to open /api/events. Newest frames appear at the top; expand a row for the full payload.",
+      { stream: true, empty: true },
+    );
+  }
+
+  #appendStreamEvent(name, raw) {
+    this.eventCount += 1;
+    this.el.status.textContent =
+      this.eventCount === 1 ? "live · 1 event" : `live · ${this.eventCount} event(s)`;
+    this.el.status.className = "small font-monospace text-success";
+
+    let parsed = null;
+    let body = raw || "";
+    try {
+      parsed = JSON.parse(raw);
+      body = JSON.stringify(parsed, null, 2);
+    } catch (_) {
+      /* keep raw text */
+    }
+
+    const source = this.#eventSourceKey(name, parsed);
+    const stamp = new Date().toLocaleTimeString();
+    const details = document.createElement("details");
+    details.className = "api-event";
+    if (source) details.dataset.source = source;
+    const summary = document.createElement("summary");
+    const time = document.createElement("span");
+    time.className = "api-event-time";
+    time.textContent = stamp;
+    const icon = document.createElement("i");
+    icon.className = `bi ${this.#eventIcon(name, parsed)} api-event-icon`;
+    icon.setAttribute("aria-hidden", "true");
+    const label = document.createElement("span");
+    label.className = "api-event-name";
+    label.textContent = name;
+    const origin = this.#eventSourceBadge(source);
+    const preview = document.createElement("span");
+    preview.className = "api-event-preview";
+    preview.textContent = this.#eventPreview(name, parsed, body);
+    summary.append(time, icon, label);
+    if (origin) summary.append(origin);
+    summary.append(preview);
+    const pre = document.createElement("pre");
+    pre.className = "api-event-body";
+    pre.textContent = body || "(empty)";
+    details.append(summary, pre);
+
+    this.el.responseRaw.classList.add("d-none");
+    this.el.eventLog.classList.remove("d-none");
+    if (this.eventCount === 1) this.el.eventLog.replaceChildren();
+    this.el.eventLog.prepend(details);
+    this.el.response.scrollTop = 0;
+  }
+
+  #eventIcon(name, parsed) {
+    if (name === "peek" && parsed && !parsed.active) return "bi-eye-slash";
+    if (name === "cycle" && parsed && !parsed.active) return "bi-pause-circle";
+    const icons = {
+      hello: "bi-plug",
+      online: "bi-broadcast",
+      shutdown: "bi-power",
+      input_changed: "bi-arrow-left-right",
+      names_changed: "bi-tag",
+      enabled_changed: "bi-toggle-on",
+      banner: "bi-chat-left-text",
+      peek: "bi-eye",
+      peek_follow: "bi-lightning",
+      cycle: "bi-arrow-repeat",
+    };
+    return icons[name] || "bi-activity";
+  }
+
+  /** Normalize payload ``source`` for display (switch front panel vs listener). */
+  #eventSourceKey(name, parsed) {
+    if (!parsed || typeof parsed !== "object") return "";
+    const raw = String(parsed.source || "").trim().toLowerCase();
+    if (raw === "unsolicited") return "unsolicited";
+    if (raw === "command" || raw === "listener") return "command";
+    if (raw === "startup") return "startup";
+    if (name === "hello") return "hello";
+    if (name === "shutdown") return "shutdown";
+    return raw;
+  }
+
+  #eventSourceBadge(source) {
+    const meta = {
+      unsolicited: {
+        label: "Switch",
+        title: "Originated on the HDMI switch (front panel, IR, auto-detect, or another client)",
+        icon: "bi-hdmi",
+        className: "text-bg-warning",
+      },
+      command: {
+        label: "Listener",
+        title: "Originated from this listener (panel, kit, HTTP, CLI, or Hubitat)",
+        icon: "bi-hdd-network",
+        className: "text-bg-primary",
+      },
+      startup: {
+        label: "Startup",
+        title: "Listener process started",
+        icon: "bi-play-circle",
+        className: "text-bg-success",
+      },
+      hello: {
+        label: "SSE",
+        title: "This browser just connected to the event stream",
+        icon: "bi-reception-4",
+        className: "text-bg-secondary",
+      },
+      shutdown: {
+        label: "Shutdown",
+        title: "Listener is stopping",
+        icon: "bi-power",
+        className: "text-bg-dark",
+      },
+    }[source];
+    if (!meta) return null;
+    const badge = document.createElement("span");
+    badge.className = `badge api-event-source ${meta.className}`;
+    badge.title = meta.title;
+    const icon = document.createElement("i");
+    icon.className = `bi ${meta.icon}`;
+    icon.setAttribute("aria-hidden", "true");
+    const text = document.createElement("span");
+    text.textContent = meta.label;
+    badge.append(icon, text);
+    return badge;
+  }
+
+  #eventPreview(name, parsed, body) {
+    if (parsed && typeof parsed === "object") {
+      if (name === "peek_follow" || parsed.peek_follow || parsed.mode) {
+        const mode = parsed.mode || parsed.peek_follow;
+        const seconds = parsed.seconds != null ? ` · ${parsed.seconds}s` : "";
+        const followed = parsed.followed ? ` · followed ${parsed.followed}` : "";
+        return `${mode || "peek_follow"}${seconds}${followed}`;
+      }
+      if (name === "peek") {
+        if (!parsed.active) {
+          const note = parsed.interrupted ? "interrupted" : parsed.cancelled ? "cancelled" : "ended";
+          const restored = parsed.restored != null ? ` → ${parsed.restored}` : "";
+          return `${note}${restored}`;
+        }
+        return `→ ${parsed.active.peeked ?? parsed.active_input} · ${parsed.active.remaining ?? parsed.seconds}s`;
+      }
+      if (name === "cycle") {
+        if (!parsed.active) return parsed.stopped ? "stopped" : "ended";
+        const list = Array.isArray(parsed.active.cycle) ? parsed.active.cycle.join(",") : "";
+        const cur = parsed.active.active_input ?? parsed.active_input;
+        const nxt = parsed.active.next_input != null ? ` → ${parsed.active.next_input}` : "";
+        const secs = parsed.active.seconds != null ? ` · ${parsed.active.seconds}s` : "";
+        return `${list || "cycle"} @ ${cur}${nxt}${secs}`;
+      }
+      if (name === "input_changed" && parsed.active_input != null) {
+        const from = parsed.previous != null ? `${parsed.previous} → ` : "";
+        return `${from}${parsed.active_input}`;
+      }
+      if (name === "banner" && parsed.banner) {
+        const text = parsed.banner.text || "";
+        return text.length > 48 ? `${text.slice(0, 48)}…` : text || "(banner)";
+      }
+      if (name === "hello") return parsed.mdns_name || "connected";
+      if (parsed.message) return String(parsed.message);
+    }
+    const flat = String(body || "").replace(/\s+/g, " ").trim();
+    return flat.length > 64 ? `${flat.slice(0, 64)}…` : flat;
+  }
+
+  #showRawPlaceholder(text, { stream = false, empty = false } = {}) {
+    this.el.response.classList.toggle("is-stream", stream);
+    if (stream) {
+      this.el.responseRaw.classList.add("d-none");
+      this.el.eventLog.classList.remove("d-none");
+      this.el.eventLog.replaceChildren();
+      if (empty && text) {
+        const note = document.createElement("div");
+        note.className = "small text-body-secondary p-2";
+        note.textContent = text;
+        this.el.eventLog.append(note);
+      }
+      return;
+    }
+    this.el.eventLog.classList.add("d-none");
+    this.el.eventLog.replaceChildren();
+    this.el.responseRaw.classList.remove("d-none");
+    this.el.responseRaw.textContent = text;
+  }
+
   #showResult(result, note) {
     if (!result) {
       this.el.status.textContent = "";
-      this.el.response.textContent = note;
+      this.#showRawPlaceholder(note, { stream: false });
       return;
     }
     this.el.status.textContent = `${result.status}  ${result.ms} ms`;
@@ -1382,7 +1822,7 @@ class Explorer {
     } catch (error) {
       /* leave non-JSON bodies as they arrived */
     }
-    this.el.response.textContent = text || "(empty body)";
+    this.#showRawPlaceholder(text || "(empty body)", { stream: false });
   }
 }
 
@@ -1447,10 +1887,37 @@ class ConnectGuide {
 document.addEventListener("DOMContentLoaded", () => {
   const api = new Api();
   const toaster = new Toaster(document.getElementById("toasts"));
+  const explorerOnly = document.body.classList.contains("api-explorer-page");
+
+  if (explorerOnly) {
+    new Explorer(api, null).start();
+    return;
+  }
+
   const panel = new Panel(api, toaster);
   panel.start();
-  new Explorer(api, () => panel.refresh(false)).start();
   new ConnectGuide(panel, toaster).start();
+
+  const apiBtn = document.getElementById("btn-api-explorer");
+  if (apiBtn) {
+    apiBtn.addEventListener("click", () => {
+      const url = `${location.origin}/panel/api${location.search.includes("fresh=1") ? "?fresh=1" : ""}`;
+      const win = window.open(
+        url,
+        "tesmart-api-explorer",
+        "popup=yes,width=1100,height=800,resizable=yes,scrollbars=yes",
+      );
+      if (win) {
+        try {
+          win.focus();
+        } catch {
+          /* ignore */
+        }
+      } else {
+        toaster.error("Pop-up blocked. Allow pop-ups for this site, or open /panel/api yourself.");
+      }
+    });
+  }
 
   const floatingKit = document.getElementById("btn-floating-kit");
   if (floatingKit) {

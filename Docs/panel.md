@@ -45,12 +45,14 @@ The kit remembers, per machine:
 | Peek-follow | **Always** is re-armed if the listener has it off; **Once** is one-shot and not remembered |
 | Body colour | Charcoal black (default) or metallic silver |
 | LCD colour | Green (default), blue, red, or dark with orange phosphor |
+| LCD brightness | **40%–100%** (default **100%**); Setup slider under LCD colour |
+| LCD auto-dim | Off by default. When on, after **1–120** idle seconds (default **30**) the glass fades to **40%** without changing Bright; input, banner, peek, and cycle activity restore Bright and restart the timer. A half-sun icon on the LCD shows when auto-dim is enabled |
 | Highlight colour | Optional custom `#RRGGBB`; **Default** in Setup restores the LCD match |
 | LCD glass | **Matrix** (default mesh), **Phosphor** (mesh + colour bleed in glyphs), or **Off** |
 | Hide disabled inputs | When on, the layout shows enabled inputs only, in number order |
 | Display names | When on, each button shows its local name. An unnamed input keeps its number |
 
-The active input key keeps the metal face artwork and shows an inset ring plus numeral and monitor glyph in the highlight colour (LCD match by default, or a custom colour from Setup). Setup toggles and theme swatches use that same colour. On the silver body, chrome and input keys are raised brushed metal with dark ink so they stay readable on the fascia. LCD **Glass** in Setup chooses the look: **Matrix** is a visible pixel grill over solid type; **Phosphor** adds a soft LCD-colour glow on the text; **Off** is plain glass. Glyphs are never punched into dots (that went unreadable when the window was large).
+The active input key keeps the metal face artwork and shows an inset ring plus numeral and monitor glyph in the highlight colour (LCD match by default, or a custom colour from Setup). Setup toggles and theme swatches use that same colour. On the silver body, chrome and input keys are raised brushed metal with dark ink so they stay readable on the fascia. LCD **Glass** in Setup chooses the look: **Matrix** is a visible pixel grill over solid type; **Phosphor** adds a soft LCD-colour glow on the text; **Off** is plain glass. Glyphs are never punched into dots (that went unreadable when the window was large). Opening or closing the Setup door grows or shrinks height for the bay; if you have stretched the window wider than Compact/Full, that width is kept (it does not snap back to the design width).
 
 The peek duration is already stored by the listener in its env file, so it is shared by every client.
 
@@ -112,7 +114,7 @@ Replace `192.168.1.20:8080` with the listener’s address. There is no authentic
 
 **Connect info** in the top bar opens a dialog with this listener's address, the HDMI switch endpoint, the mDNS name when the process is advertising, and sample `curl` / `tesmartctl` commands. **Copy samples** puts that block on the clipboard. The same links are printed by `tesmartctl install` ([Docs/install.md](install.md)).
 
-**API** in the top bar opens a dialog that lists every `/api` route (`GET /api` returns the same list as `catalog`). Picking a route fills the path and a sample body; **Send** shows the status code and the raw body. `POST /api/network` is listed but not sent from there: address changes stay on **Change address**.
+**API** in the top bar opens `/panel/api` in a separate browser window so you can keep using the control panel underneath. That page lists every `/api` route in groups (`GET /api` returns the same list as `catalog`, with a `group` on each entry). Picking a route fills the path and a sample body; **Send** shows the status code and the raw body. **Live events** → `GET /api/events` is marked SSE: **Listen** opens the stream and lists frames newest first (icon + short preview; expand a row for the full JSON). Rows that carry a `source` show **Switch** (`unsolicited` — front panel, IR, auto-detect, or another client) or **Listener** (`command` — this process changed it). **Stop** closes the stream. `POST /api/network` is listed but not sent from there: address changes stay on **Change address**.
 
 ![API explorer](images/api-explorer.png)
 
@@ -121,10 +123,10 @@ Replace `192.168.1.20:8080` with the listener’s address. There is no authentic
 | Section | What it does | Where it is stored |
 | --- | --- | --- |
 | Inputs | One button per input. The face shows the number; hover the button to see the input name. The active input is highlighted. | The switch |
-| LCD message | Dedicated **LCD message** block on `/panel`: type a line and **Send** (timed seconds or **Sticky**). **Show last**, **Dismiss**, and **Clear history** call the listener so the floating kit updates too. Recent messages (up to 10; the 11th drops the oldest) appear under the compose row — click one to send it again. Same from the CLI: `tesmartctl banner "…"`. History is persisted in the env file. **Dismiss** (panel / Hubitat / CLI) sets `showing: false` on the listener — kits hide that broadcast; the text stays in history. The kit message icon can still show/hide locally while the server still says showing; a server dismiss or reshow overrides that. History picks on the kit stay local to that kit. After a UI upgrade, open `/panel?fresh=1` or `/kit?fresh=1` once so the browser drops a stale cached JS. | This listener (`POST /api/banner` / `tesmartctl banner`, persisted). Panel Show / Dismiss / Clear sync via the API. |
+| LCD message | Dedicated **LCD message** block on `/panel`: type a line and **Send** (timed seconds or **Sticky**). **Show last**, **Dismiss**, and **Clear history** call the listener so the floating kit updates too. Recent messages (up to 10; the 11th drops the oldest) appear under the compose row — click one to send it again. Same from the CLI: `tesmartctl banner "…"` (optional `--from`). History is persisted in the env file. **Dismiss** (panel / Hubitat / CLI) sets `showing: false` on the listener — kits hide that broadcast; the text stays in history. The kit message icon can still show/hide locally while the server still says showing; a server dismiss or reshow overrides that. On the kit, message history floats over the deck (translucent scrim; no window resize); picks stay local to that kit. After a UI upgrade, open `/panel?fresh=1` or `/kit?fresh=1` once so the browser drops a stale cached JS. | This listener (`POST /api/banner` / `tesmartctl banner`, persisted). Panel Show / Dismiss / Clear sync via the API. |
 | Previous / Next | Step through the saved cycle | The switch, using the local cycle list |
 | Peek | With Peek on, an input button shows that input for the number of seconds beside it and then returns. The header shows a countdown and **Back now**. Changing the seconds saves the default. | This listener times it; the duration is in the env file |
-| Auto cycle | Steps to the next cycle input on the saved interval while Auto cycle is switched on. Stops when the tab is hidden or Auto cycle is switched off. | This browser tab only |
+| Auto cycle | Starts or stops the listener-owned automatic cycle (same runner as kit **Start cycle** and `tesmartctl cycle run --via`). The checkbox follows `rotate.active` from `/api/state` / SSE `cycle`. | This listener |
 | Buzzer, display timeout, auto input detection | The same three write-only settings as the vendor General page | Sent to the switch and remembered in the listener env file (`last_sent`). Other clients can read them from `/status` or `/api/state`. |
 | Input names | Local labels, saved when you leave the field. Empty clears a name. Each row has an **Enabled** checkbox. Unchecked inputs are ignored for selection, peek, and next/previous. At least one input must stay enabled. Inputs are enabled unless the box is cleared, `GET /disable/N` says otherwise, or `tesmartctl disable` does. `tesmartctl --via auto disable 4` writes the listener. A command without `--via` writes this computer. | The listener env file |
 | Cycle | Which inputs Previous, Next, and Auto cycle walk, plus manual or automatic and the interval. Saved on every change. | The env file |
@@ -151,18 +153,18 @@ The API enforces the same two acknowledgements: `POST /api/network` is rejected 
 
 ## API
 
-The page talks to JSON routes under `/api`. `GET /api` lists them. Errors are `{"error": "..."}`.
+The page talks to JSON routes under `/api`. `GET /api` lists them. Errors are `{"error": "..."}`. The interactive explorer lives at `/panel/api` (opened from the **API** button as a separate window).
 
 | Method and path | Body | Result |
 | --- | --- | --- |
-| `GET /api/state` | | Active input, names, which inputs are enabled, cycle, LAN settings, `last_sent`, and `version` |
+| `GET /api/state` | | Active input, names, which inputs are enabled, cycle (`rotate.active` while cycling), LAN settings, `last_sent`, and `version` |
 | `GET /api/version` | | Package version and feature tags |
 | `GET` / `POST /api/compat` | `{"min_server":"0.0.7.9","features":["callbacks"]}` | Whether this server meets the client’s requirements |
 | `GET /api/state?network=0` | | Same, without the four LAN queries. First load, and a fallback poll (~30s online with SSE; ~2s while the switch is unreachable). |
-| `GET /api/events` | | Server-Sent Events stream (`hello`, `input_changed`, `names_changed`, `enabled_changed`, `banner`, `peek_follow`, `shutdown`, `online`). Kit and panel subscribe here for live updates. Same payloads as registered callbacks; `banner` includes `banner_history`. `online` is also POSTed to callback URLs when the listener starts. |
+| `GET /api/events` | | Server-Sent Events stream (`hello`, `input_changed`, `names_changed`, `enabled_changed`, `banner`, `peek`, `peek_follow`, `cycle`, `shutdown`, `online`). Kit and panel subscribe here for live updates. Same payloads as registered callbacks; `banner` includes `banner_history`. `peek` mirrors `/api/state` → `peek.active` for remote peeks. `cycle` mirrors `rotate.active` for the listener-owned automatic cycle. `online` is also POSTed to callback URLs when the listener starts. |
 | `POST /api/input` | `{"input": 3}` or `{"input": "Office"}` | `active_input` after the switch reports it |
 | `POST /api/next`, `POST /api/previous` | | Next or previous input in the saved cycle |
-| `POST /api/peek` | `{"input": 3, "seconds": 5}` | Switches now and returns at once. `/api/state` carries `peek.active` with `previous`, `peeked`, `seconds`, `remaining` until the listener has returned. |
+| `POST /api/peek` | `{"input": 3, "seconds": 5}` | Switches now and returns at once. Publishes SSE `peek` immediately. `/api/state` carries `peek.active` with `previous`, `peeked`, `seconds`, `remaining` until the listener has returned. |
 | `POST /api/peek` | `{"cancel": true}` | Return to the previous input now |
 | `POST /api/peek-default` | `{"seconds": 8}` | Save the default peek duration |
 | `POST /api/peek-follow` | `{"mode": "once"}` | `once`, `always`, or `off`. Optional `"seconds"` overrides the duration for changes taken while this mode is armed |
@@ -181,13 +183,15 @@ The page talks to JSON routes under `/api`. `GET /api` lists them. Errors are `{
 | `GET` / `POST /api/callbacks/health` | | Probe each client with a `health_check` event; returns `healthy` / `unhealthy` / `results` |
 | `DELETE /api/callbacks` | `{"url": "…"}` or `{"name": "…"}` | Unregister |
 | `POST /api/callbacks/remove` | `{"url": "…"}` or `{"name": "…"}` | Same as DELETE (for clients that cannot send DELETE) |
-| `GET /api/banner` | | `banner` envelope (or null) plus `banner_history` (up to 10, newest first; each has `at` / `at_iso`) |
-| `POST /api/banner` | `{"text": "Door unlocked", "seconds": 8}` | Timed message in the name slot; max 160 chars, 1–60 s (default 8). Kept as last message after it hides. |
-| `POST /api/banner` | `{"text": "Door unlocked", "sticky": true}` | Sticky message until dismissed (kit: press active input again, or message icon / Dismiss) |
+| `GET /api/banner` | | `banner` envelope (or null) plus `banner_history` (up to 10, newest first; each has `at` / `at_iso` / `from`) |
+| `POST /api/banner` | `{"text": "Door unlocked", "seconds": 8}` | Timed message in the name slot; max 160 chars, 1–60 s (default 8). Kept as last message after it hides. Optional `"from"` replaces the kit status-line label (default `MESSAGE`). |
+| `POST /api/banner` | `{"text": "Door unlocked", "sticky": true, "from": "Hubitat"}` | Sticky message until dismissed (kit: press active input again, or message icon / Dismiss) |
 | `POST /api/banner` | `{"show": true}` | Put the last message back on the LCD for kit / panel / SSE clients |
 | `POST /api/banner` | `{"dismiss": true}` | Hide the current message (kept in history) |
 | `POST /api/banner` | `{"clear": true}` | Erase the last message and history |
-| `POST /api/cycle` | `{"inputs": [1, 3, 5], "mode": "manual", "seconds": 15}` | An empty `inputs` list means every input |
+| `POST /api/cycle` | `{"inputs": [1, 3, 5], "mode": "automatic", "seconds": 15}` | Save list/mode/interval. An empty `inputs` list means every input. Mode must be `automatic` before start. |
+| `POST /api/cycle/start` | `{}` | Start the listener-owned cycle; publishes SSE `cycle` with list + current input. |
+| `POST /api/cycle/stop` | `{}` | Stop the cycle; SSE `cycle` with `active: null`. |
 | `POST /api/kit-window` | `{"prefer": "auto"}` optional `width`/`height`/`url` | Opens `/kit` without browser chrome on the listener host (`chromium-app` or `webview`) |
 
 `POST /api/network` may include any of `ip`, `port`, `gateway`, and `mask`. At least one is required, and both `confirm` and `accept_risk` must be true. `stored` is the full set of four values the switch reports after the write; `verified` compares each requested key against it. `all_verified` is the only result that should be treated as "stored, safe to power-cycle".

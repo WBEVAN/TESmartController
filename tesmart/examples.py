@@ -39,6 +39,7 @@ EXAMPLES: dict[str, list[tuple[str, str]]] = {
         ("tesmartctl cycle mode manual", "only move when next or previous is asked"),
         ("tesmartctl cycle mode automatic --every 15", "remember a 15s timer; does not start it"),
         ("tesmartctl cycle run", "step through the saved inputs until Ctrl-C (automatic mode)"),
+        ("tesmartctl --via auto cycle run", "start the listener-owned cycle; Ctrl-C stops it"),
         ("tesmartctl cycle show", "print mode, interval, and inputs"),
     ],
     "next": [

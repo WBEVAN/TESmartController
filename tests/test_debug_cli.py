@@ -1,9 +1,11 @@
 """``--debug`` and ``--version`` plus the listener-choice line they print."""
 
+import os
+
 import pytest
 
 from tesmart.cli import build_parser
-from tesmart.debug import log, set_enabled
+from tesmart.debug import log, log_process, set_enabled
 from tesmart.kit_window import probe_failure_detail
 from tesmart.mdns import DiscoveredListener, address_rank_label, describe_listener
 from tesmart.version import package_version
@@ -21,6 +23,15 @@ def test_version_after_command(capsys):
         build_parser().parse_args(["kit", "--version"])
     assert caught.value.code == 0
     assert package_version() in capsys.readouterr().out
+
+
+def test_debug_process_line_includes_the_pid(capsys):
+    set_enabled(True)
+    try:
+        log_process()
+    finally:
+        set_enabled(False)
+    assert f"debug: pid {os.getpid()}" in capsys.readouterr().err
 
 
 def test_debug_before_or_after_the_command():

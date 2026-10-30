@@ -43,7 +43,7 @@ tesmartctl listen --http 0.0.0.0:8080 --no-mdns  # LAN HTTP without advertising
 
 Those HTTP options are what `install` writes: `TESMART_HTTP`, `TESMART_HTTP_PORT`, `TESMART_HTTP_PANEL` (`1` or `0`), and `TESMART_HTTP_MDNS`. The switch address stays in `TESMART_HOST` / `TESMART_PORT` or `TESMART_SERIAL`.
 
-A bare port binds `127.0.0.1`, so only this computer can connect. `0.0.0.0` accepts every network interface. Other devices then use the address of the computer running `tesmartctl`, for example `http://192.168.1.20:8080/input/3`. There is no authentication. `--bind` and `--http` cannot be used together; start two processes to expose both. Ctrl-C prints `stopping.`, sends `event: shutdown` to SSE clients and registered callback URLs, then closes the socket, callback thread, and mDNS advertisement. Clients that receive that event show a shutdown status. A crash or a dropped connection does not send it, so those stay offline. When the HTTP listener starts, it POSTs `event: online` to those same callback URLs with the current input, names, and disabled list, so Hubitat can mark the controller online without waiting for the next change. Another Ctrl-C during that teardown is ignored so zeroconf's shutdown does not print a traceback. Connection flags (`--host`, `--serial`, `--inputs`, `--timeout`, `--env-file`) work the same way as the rest of `tesmartctl`; see the README.
+A bare port binds `127.0.0.1`, so only this computer can connect. `0.0.0.0` accepts every network interface. Other devices then use the address of the computer running `tesmartctl`, for example `http://192.168.1.20:8080/input/3`. There is no authentication. `--bind` and `--http` cannot be used together; start two processes to expose both. With `--debug`, the listener prints `debug: pid N` for this process. Ctrl-C prints `stopping.`, sends `event: shutdown` to SSE clients and registered callback URLs, then closes the socket, callback thread, and mDNS advertisement. Clients that receive that event show a shutdown status. A crash or a dropped connection does not send it, so those stay offline. When the HTTP listener starts, it POSTs `event: online` to those same callback URLs with the current input, names, and disabled list, so Hubitat can mark the controller online without waiting for the next change. Another Ctrl-C during that teardown is ignored so zeroconf's shutdown does not print a traceback. Connection flags (`--host`, `--serial`, `--inputs`, `--timeout`, `--env-file`) work the same way as the rest of `tesmartctl`; see the README.
 
 There is no authentication. Leave the bind address on `127.0.0.1` unless every machine that can open the port is trusted.
 
@@ -136,6 +136,8 @@ JSON is the default. Add `format=text` to get plain text: a bare input number, o
 | `/peek/once` | the next `/input/N`, `/next`, or `/previous` peeks; later changes stick | `{"peek_follow": "once"}` |
 | `/peek/always` | every one of those peeks until `/peek/off` | `{"peek_follow": "always"}` |
 | `/peek/off` | those routes stick again | `{"peek_follow": "off"}` |
+| `/cycle/start` | start the listener-owned automatic cycle (mode must be automatic) | `{"active": {"cycle":[1,2,4],"seconds":15,"active_input":2,"next_input":4,"remaining":15}, …}` |
+| `/cycle/stop` | stop the automatic cycle | `{"active": null, "active_input": 2, "stopped": true}` |
 | `/input?set=3` | switch to 3, then read it back | `{"active_input": 3, "requested": 3}` |
 | `/input/3` | same as `/input?set=3` | `{"active_input": 3, "requested": 3}` |
 | `/input/Office`, `/set?input=Office` | select by a local name | `{"active_input": 2, "requested": 2, "active_name": "Office", ...}` |
@@ -143,8 +145,8 @@ JSON is the default. Add `format=text` to get plain text: a bare input number, o
 | `/set/3` | same as `/input?set=3` | `{"active_input": 3, "requested": 3}` |
 | `/status` | active input and saved LAN settings | see below (includes `"version"`) |
 | `/status?network=0` | active input only | `"network": null` plus `"version"` |
-| `/banner` | last LCD message + history for kit / panel / callbacks (also `tesmartctl banner`) | GET `banner` + `banner_history` (≤10, with `at` / `at_iso`); POST `{"text","seconds"}` or `{"sticky":true}`; POST `{"show":true}` / `{"dismiss":true}` / `{"clear":true}` |
-| `/events` | Server-Sent Events for browser clients (same payloads as callbacks) | long-lived `text/event-stream`; named events `hello`, `input_changed`, `names_changed`, `enabled_changed`, `banner`, `peek_follow` |
+| `/banner` | last LCD message + history for kit / panel / callbacks (also `tesmartctl banner`) | GET `banner` + `banner_history` (≤10, with `at` / `at_iso` / `from`); POST `{"text","seconds","from"}` or `{"sticky":true,"from":"Hubitat"}` (`from` optional, default `MESSAGE`); POST `{"show":true}` / `{"dismiss":true}` / `{"clear":true}` |
+| `/events` | Server-Sent Events for browser clients (same payloads as callbacks) | long-lived `text/event-stream`; named events `hello`, `input_changed`, `names_changed`, `enabled_changed`, `banner`, `peek`, `peek_follow`, `cycle` |
 | `/version` | package name, version, feature tags, and `mdns_name` (the instance this process is advertising, or `null`) | `{"name":"tesmartctl","version":"0.0.7.9","features":[…],"mdns_name":"OfficeHDMI"}` |
 | `/compat` | GET or POST compatibility check | `{"min_server":"0.0.7.9","features":["callbacks"]}` → `{"compatible":true,…}` |
 | `/enable/4`, `/enable?input=4`, `/enable/Office` | allow that input again | `{"input": 4, "enabled": true, "disabled": [], "inputs": [...]}` |
@@ -187,11 +189,15 @@ curl -X POST http://127.0.0.1:8080/compat \
 
 ### Server-Sent Events (kit / panel)
 
-Browsers cannot register as outbound callback URLs. With `--panel`, the kit and control panel open `GET /api/events` (plain listener also exposes `GET /events`) and receive push frames as soon as the active input, local names, enablement, LCD banner, or peek-follow mode changes. Event bodies match the callback JSON (`event`, `active_input`, `banner`, …); `banner` frames also include `banner_history` when available. Named SSE events: `hello` (on connect), `input_changed`, `names_changed`, `enabled_changed`, `banner`, `peek_follow`, `shutdown` (Ctrl-C, before the socket closes), `online` (listener startup; also POSTed to registered callback URLs with the current input, names, and disabled list). A `: keepalive` comment is sent about every 20 seconds. Feature tag: `sse`.
+Browsers cannot register as outbound callback URLs. With `--panel`, the kit and control panel open `GET /api/events` (plain listener also exposes `GET /events`) and receive push frames as soon as the active input, local names, enablement, LCD banner, peek, peek-follow mode, or automatic cycle changes. Event bodies match the callback JSON (`event`, `active_input`, `banner`, …); `banner` frames also include `banner_history` when available. Named SSE events: `hello` (on connect), `input_changed`, `names_changed`, `enabled_changed`, `banner`, `peek`, `peek_follow`, `cycle`, `shutdown` (Ctrl-C, before the socket closes), `online` (listener startup; also POSTed to registered callback URLs with the current input, names, and disabled list). A `: keepalive` comment is sent about every 20 seconds. Feature tags: `sse`, `peek`, `cycle`.
+
+A temporary peek (`/peek/N`, `POST /api/peek`, or an armed follow peek) publishes `event: peek` when the switch moves and again when it returns. While active, `active` carries `previous`, `peeked`, `seconds`, and `remaining` (the same shape as `/api/state` → `peek.active`). When the peek ends, `active` is `null` and `active_input` is the restored or interrupted input. The peeker also notes those inputs through the callback hub, so Hubitat sees `input_changed` for the temporary port (origin → peeked) and the restore (peeked → origin) without a dedicated peek callback. Feature tag: `peek`.
+
+The automatic cycle runs on the listener (not in each browser tab). `GET /cycle/start` or `POST /api/cycle/start` (mode must be `automatic`) publishes `event: cycle` with `active` carrying the input list, interval, current input, next input, and remaining seconds until the next step — the same shape as `/status` / `/api/state` → `rotate.active`. Each step still emits ordinary `input_changed`. `GET /cycle/stop` / `POST /api/cycle/stop` clears `active` (`null`) and sets `stopped: true`. While a peek is in progress the cycler skips steps. Feature tag: `cycle`.
 
 Setting the mode (`/peek/once`, `/peek/always`, `/peek/off`, or the panel control) sends `mode` and `peek_follow` (`off`, `once`, or `always`), plus `seconds` when a duration was stored. That frame has no `followed` and no `previous`.
 
-When an armed follow peek actually moves the switch, a second `peek_follow` goes out as soon as the return input is known, before a blocking peek waits for the switch to come back. `mode` and `peek_follow` are the mode after the claim (`off` for Once, `always` when Always stays armed). `followed` is what this peek consumed (`once` or `always`). `previous` is the input that will be restored. `active_input` is the input showing for the peek. `input_changed` is unchanged and still describes the move on its own.
+When an armed follow peek actually moves the switch, a second `peek_follow` goes out as soon as the return input is known, before a blocking peek waits for the switch to come back. `mode` and `peek_follow` are the mode after the claim (`off` for Once, `always` when Always stays armed). `followed` is what this peek consumed (`once` or `always`). `previous` is the input that will be restored. `active_input` is the input showing for the peek. The matching `peek` frame carries the countdown for kit and panel UI.
 
 ```json
 {
@@ -279,6 +285,7 @@ LCD banner (`POST /banner`, `POST /api/banner`, or `tesmartctl banner "…"`; Hu
   "banner": {
     "id": 3,
     "text": "Door unlocked",
+    "from": "MESSAGE",
     "at": 1710000000.123,
     "mode": "timed",
     "seconds": 8,
@@ -293,7 +300,7 @@ LCD banner (`POST /banner`, `POST /api/banner`, or `tesmartctl banner "…"`; Hu
 }
 ```
 
-The last message is kept after it leaves the LCD (`showing: false`). `mode` is `timed` or `sticky`. `POST {"dismiss": true}` hides it for every client that follows the listener (kit, panel, Hubitat); `POST {"show": true}` puts it back; `POST {"clear": true}` erases it and history (`banner: null`, `banner_history: []`). History (up to 10, with `at` / `at_iso`) is stored in the listener env file, so after a restart kits still receive `banner` / `banner_history` and can show the message icons — the LCD does not auto-pop the last message until the client shows it or a new one is sent. `/api/state` includes the same fields.
+The last message is kept after it leaves the LCD (`showing: false`). `mode` is `timed` or `sticky`. Optional `from` is the kit status-line label while the banner is showing (default `MESSAGE`; e.g. `"from":"Hubitat"`). `POST {"dismiss": true}` hides it for every client that follows the listener (kit, panel, Hubitat); `POST {"show": true}` puts it back; `POST {"clear": true}` erases it and history (`banner: null`, `banner_history: []`). History (up to 10, with `at` / `at_iso` / `from`) is stored in the listener env file, so after a restart kits still receive `banner` / `banner_history` and can show the message icons — the LCD does not auto-pop the last message until the client shows it or a new one is sent. `/api/state` includes the same fields.
 
 `source` is `unsolicited` for switch-originated input reports and `command` when this listener changed the input, names, or banner. The same URL registered twice stays a single entry (a new `name` updates the label). Entries are stored as JSON objects in the env file (`TESMART_CALLBACKS`); older plain-URL lists still load. The POST timeout (`TESMART_CALLBACK_TIMEOUT`) also lives in the env file.
 
