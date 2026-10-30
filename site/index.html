@@ -70,6 +70,12 @@
             <button type="button" class="chip" data-kit-toggle="names" aria-pressed="false">Display names</button>
             <button type="button" class="chip" data-kit-toggle="hide-disabled" aria-pressed="false">Hide disabled inputs</button>
           </div>
+          <div class="control-group" role="group" aria-label="LCD brightness">
+            <button type="button" class="chip is-active" data-kit-bright="100" aria-pressed="true">Bright 100%</button>
+            <button type="button" class="chip" data-kit-bright="70" aria-pressed="false">70%</button>
+            <button type="button" class="chip" data-kit-bright="40" aria-pressed="false">40%</button>
+            <button type="button" class="chip" data-kit-toggle="auto-dim" aria-pressed="false">Auto-dim</button>
+          </div>
           <div class="control-group" role="group" aria-label="Hubitat banners">
             <button type="button" class="chip" data-kit-banner="door">Door unlocked</button>
             <button type="button" class="chip" data-kit-banner="meeting">Meeting in 5</button>
@@ -82,11 +88,11 @@
             id="kit-frame"
             class="kit-frame"
             title="Interactive tesmartctl floating kit demo"
-            src="kit-demo.html?v=12"
+            src="kit-demo.html?v=18"
           ></iframe>
         </div>
         <p class="preview-note">
-          Interactive demo — same UI as <code>tesmartctl kit</code>. Try size, colour, names, hiding a disabled input, and Hubitat-style banners.
+          Interactive demo — same UI as <code>tesmartctl kit</code>. Try size, colour, brightness, auto-dim, names, hiding a disabled input, and Hubitat-style banners (<code>from</code> on the status line).
         </p>
       </div>
     </header>

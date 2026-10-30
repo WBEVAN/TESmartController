@@ -41,6 +41,14 @@
     });
   });
 
+  document.querySelectorAll("[data-kit-bright]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const level = btn.getAttribute("data-kit-bright");
+      setPressed("bright", level);
+      send({ type: "kit-demo-brightness", level: Number(level) });
+    });
+  });
+
   document.querySelectorAll("[data-kit-toggle]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const on = btn.getAttribute("aria-pressed") !== "true";
@@ -49,6 +57,7 @@
       const which = btn.getAttribute("data-kit-toggle");
       if (which === "names") send({ type: "kit-demo-names", on });
       if (which === "hide-disabled") send({ type: "kit-demo-hide-disabled", on });
+      if (which === "auto-dim") send({ type: "kit-demo-auto-dim", on });
     });
   });
 
@@ -60,9 +69,9 @@
         return;
       }
       const samples = {
-        door: { text: "Door unlocked", seconds: 8 },
-        meeting: { text: "Meeting in 5", seconds: 12 },
-        sticky: { text: "Stay on camera", sticky: true },
+        door: { text: "Door unlocked", seconds: 8, from: "HUBITAT" },
+        meeting: { text: "Meeting in 5", seconds: 12, from: "HUBITAT" },
+        sticky: { text: "Stay on camera", sticky: true, from: "HUBITAT" },
       };
       const sample = samples[kind] || samples.door;
       send({ type: "kit-demo-banner", ...sample });
@@ -84,9 +93,13 @@
       const which = btn.getAttribute("data-kit-toggle");
       if (which === "names") send({ type: "kit-demo-names", on });
       if (which === "hide-disabled") send({ type: "kit-demo-hide-disabled", on });
+      if (which === "auto-dim") send({ type: "kit-demo-auto-dim", on });
     });
+    const bright = document.querySelector("[data-kit-bright][aria-pressed='true']");
+    if (bright) send({ type: "kit-demo-brightness", level: Number(bright.getAttribute("data-kit-bright")) });
     setPressed("view", "compact");
     setPressed("body", "black");
     setPressed("lcd", "green");
+    setPressed("bright", "100");
   });
 })();

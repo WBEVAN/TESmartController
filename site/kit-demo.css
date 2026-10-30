@@ -35,27 +35,31 @@ html[data-kit-shell="demo"] body.kit-float.is-popup .panel.mini {
   display: inline-block;
 }
 
-/* Keep LCD message icons readable on the phosphor glass in the marketing iframe. */
+/* Keep LCD message / dim icons readable on the phosphor glass in the marketing iframe. */
 .kit-float .lcd-message-actions {
   position: relative;
   z-index: 2;
 }
 
+.kit-float .lcd-dim-btn,
 .kit-float .lcd-message-btn {
   color: currentColor !important;
   opacity: 1 !important;
 }
 
+.kit-float .lcd-dim-btn .action-icon,
 .kit-float .lcd-message-btn .action-icon {
   width: 20px;
   height: 20px;
 }
 
+.kit-float .panel.compact .lcd-dim-btn,
 .kit-float .panel.compact .lcd-message-btn {
   width: 26px;
   height: 26px;
 }
 
+.kit-float .panel.compact .lcd-dim-btn .action-icon,
 .kit-float .panel.compact .lcd-message-btn .action-icon {
   width: 20px;
   height: 20px;
