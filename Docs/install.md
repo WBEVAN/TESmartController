@@ -4,6 +4,7 @@
 
 ```bash
 tesmartctl install
+tesmartctl install --import office.json
 ```
 
 Press Enter to keep the value in brackets. Each section has a heading and a blank line before the next question. On a terminal that supports ANSI color (macOS, Linux, and Windows 10 consoles) headings, commands, and success lines are colored. Set `NO_COLOR` to leave the text plain. `startup.txt` is always plain text. The wizard exits when the configuration is saved, or when you decline the last question. Declining leaves the env file unchanged.
@@ -15,6 +16,8 @@ If that env file already has connection settings, the wizard says it will use th
 If the file is missing, the questions start from those built-in defaults and the wizard says so.
 
 Flags still win for the value they set. `tesmartctl --host 192.168.1.50 install` starts the switch address at `192.168.1.50`.
+
+`--import FILE` loads a portable dump from `tesmartctl config export` (or the panel Backup card). The wizard shows a summary (switch address, names, messages, callbacks, kit prefs), asks you to apply it as the starting point, writes that dump now, then continues so you can confirm or adjust this computer’s connection settings. See [Config backup](config-backup.md).
 
 ## Server
 

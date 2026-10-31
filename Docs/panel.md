@@ -131,6 +131,8 @@ Replace `192.168.1.20:8080` with the listener’s address. There is no authentic
 | Input names | Local labels, saved when you leave the field. Empty clears a name. Each row has an **Enabled** checkbox. Unchecked inputs are ignored for selection, peek, and next/previous. At least one input must stay enabled. Inputs are enabled unless the box is cleared, `GET /disable/N` says otherwise, or `tesmartctl disable` does. `tesmartctl --via auto disable 4` writes the listener. A command without `--via` writes this computer. | The listener env file |
 | Cycle | Which inputs Previous, Next, and Auto cycle walk, plus manual or automatic and the interval. Saved on every change. | The env file |
 | Network | Shows the address stored in the switch. Query reads it again. Apply writes IP, port, gateway, or mask after two separate acknowledgements, then reads the values back. | The switch. Used only after a power cycle. |
+| Backup | **Export…** downloads a portable JSON dump of this listener (names, enablement, cycle, peek, message history, callbacks, listen settings, kit prefs). **Import…** picks a file, shows a summary in a Bootstrap modal, then replaces the env file and reloads banners in memory. Same format as `tesmartctl config export` / `import`. | This listener (`GET` / `POST /api/config`) |
+| Mesh | Role badge (proxy / client / off), switch id, proxy URL, peer list. Connect info also shows mesh summary. No kit UI for mesh. | This listener (`GET /api/mesh`, `GET /mesh`) when started with `--mesh` / `TESMART_HTTP_MESH` |
 
 The switch still cannot say which HDMI inputs have a signal. The cycle is the list you choose. Leaving every box clear means all inputs.
 

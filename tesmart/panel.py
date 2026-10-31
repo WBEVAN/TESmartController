@@ -31,11 +31,34 @@ import time
 from urllib.parse import parse_qs, urlsplit
 
 from . import callbacks, config, kit_window, notices, version as pkg_version
+from .config_bundle import BundleError, apply_bundle, export_bundle, parse_bundle, summarize_bundle
 from .events import stream_sse
+from .mesh import MeshError, client_proxy_url, forward_to_proxy, sync_shared_state_from_proxy
 from .peek import apply_follow
 from .protocol import LedTimeout
 from .switch import SwitchError, next_input, previous_input
 from .transport import TransportError
+
+# Panel/API routes owned by the mesh proxy (mesh clients forward these).
+_MESH_RELAY_POST = frozenset(
+    {
+        "input",
+        "next",
+        "previous",
+        "peek",
+        "peek-default",
+        "peek-follow",
+        "buzzer",
+        "led",
+        "autodetect",
+        "network",
+        "names",
+        "enabled",
+        "cycle",
+        "banner",
+        "callbacks",
+    }
+)
 
 if TYPE_CHECKING:  # pragma: no cover
     from .web import _Handler
@@ -272,6 +295,31 @@ API_CATALOG: list[dict[str, Any]] = [
         "summary": "open /kit in a chrome-less desktop window on the listener host (Chrome/Edge --app, or pywebview)",
         "sample": {"prefer": "auto"},
     },
+    {
+        "group": "Backup",
+        "method": "GET",
+        "path": "/api/config",
+        "summary": "portable JSON dump of this listener (env file, message history, optional kit prefs)",
+    },
+    {
+        "group": "Backup",
+        "method": "POST",
+        "path": "/api/config",
+        "summary": "replace this listener's env file (and kit prefs) from a portable dump; reloads banners in memory",
+        "sample": {"format": "tesmartctl-config", "version": 1, "env": {"TESMART_HOST": "192.168.1.10"}},
+    },
+    {
+        "group": "Mesh",
+        "method": "GET",
+        "path": "/api/mesh",
+        "summary": "mesh role, switch id, proxy URL, and peers (empty when mesh is off)",
+    },
+    {
+        "group": "Mesh",
+        "method": "GET",
+        "path": "/mesh",
+        "summary": "same as GET /api/mesh (public route)",
+    },
 ]
 
 
@@ -410,12 +458,76 @@ def _content_type(name: str) -> str:
 # --- state -------------------------------------------------------------------
 
 
+def _degraded_switch_status(switch: Any) -> dict[str, Any]:
+    """Listener-up payload when the switch session is missing or the old proxy is dead."""
+    return {
+        "endpoint": str(getattr(switch, "endpoint", "") or ""),
+        "active_input": None,
+        "input_count": int(getattr(switch, "input_count", 8) or 8),
+        "network": None,
+        "unsolicited_reports": [],
+    }
+
+
+def _compute_api_state(handler: "_Handler", include_network: bool, proxy: str | None) -> dict[str, Any]:
+    """Build the full ``/api/state`` payload (in-memory; no HDMI I/O on the hot path)."""
+    if proxy:
+        try:
+            state = forward_to_proxy(
+                handler.server,
+                f"/api/state?network={'1' if include_network else '0'}",
+                timeout=3.0,
+            )
+        except MeshError:
+            state = build_state(handler, include_network)
+        else:
+            sync_shared_state_from_proxy(handler.server, state)
+        mesh = getattr(handler.server, "mesh", None)
+        if mesh is not None:
+            state["mesh"] = mesh.snapshot()
+        state["version"] = pkg_version.package_version()
+        from .mdns import attach_mdns_identity
+
+        attach_mdns_identity(state, handler.server)
+        return state
+    state = build_state(handler, include_network)
+    state["version"] = pkg_version.package_version()
+    from .mdns import attach_mdns_identity
+
+    attach_mdns_identity(state, handler.server)
+    return state
+
+
 def build_state(handler: "_Handler", include_network: bool) -> dict[str, Any]:
     server = handler.server
     switch = server.switch
     names = config.read_names(server.env_file)
-    with server.lock:
-        status = switch.read_status(include_network=include_network).to_dict()
+    remote = bool(getattr(switch, "mesh_remote", False) or getattr(switch, "proxy_url", None))
+    role = ""
+    mesh = getattr(server, "mesh", None)
+    if mesh is not None:
+        try:
+            role = str(mesh.snapshot().get("role") or "")
+        except Exception:
+            role = ""
+    # Never touch the HDMI TCP session on this path. A wedged TESmart link was
+    # blocking /api/state for many seconds (0 bytes on the wire) while /kit and
+    # /mesh stayed fine — the kit stayed CONTROLLER OFFLINE despite probe ok.
+    # Active input comes from CallbackHub cache / SSE; optional network block
+    # stays off for kit polls (network=0).
+    hub = getattr(server, "callbacks", None)
+    cached_active = getattr(hub, "_last_active", None) if hub is not None else None
+    status = _degraded_switch_status(switch)
+    status["active_input"] = cached_active
+    if remote and role in {"proxy", "client"}:
+        status["switch_ready"] = False
+    else:
+        status["switch_ready"] = True
+    # Network ASCII queries take seconds under the shared lock and pin the
+    # callback watcher / commands. Do not run them on /api/state — panel can
+    # hit a dedicated network route when it needs the form.
+    if include_network and not remote:
+        status["network"] = None
     config.apply_names(status, names, include_map=True)
     if getattr(switch, "simulated", False):
         status["simulated"] = True
@@ -440,6 +552,11 @@ def build_state(handler: "_Handler", include_network: bool) -> dict[str, Any]:
     banner_payload = server.banner.payload()
     status["banner"] = banner_payload["banner"]
     status["banner_history"] = banner_payload["banner_history"]
+    mesh = getattr(server, "mesh", None)
+    if mesh is not None:
+        status["mesh"] = mesh.snapshot()
+    else:
+        status["mesh"] = {"enabled": False, "role": "off", "peers": []}
     return status
 
 
@@ -564,14 +681,24 @@ def _action_peek_follow(handler: "_Handler", body: dict[str, Any]) -> dict[str, 
 
 
 def _publish_peek_follow(server: Any, state: dict[str, Any]) -> None:
-    """Tell open kit/panel pages the peek-follow mode changed (SSE)."""
+    """Tell kit/panel (SSE) and Hubitat callbacks that peek-follow mode changed.
+
+    Goes through :class:`~tesmart.callbacks.CallbackHub` when present so the
+    mesh proxy POSTs to registered URLs; mesh clients keep SSE-only outbound.
+    """
+    mode = str(state.get("mode") or "off")
+    seconds = state.get("seconds")
+    callbacks_hub = getattr(server, "callbacks", None)
+    note = getattr(callbacks_hub, "note_peek_follow", None) if callbacks_hub is not None else None
+    if callable(note):
+        note(mode, seconds=seconds, source="command")
+        return
     hub = getattr(server, "events", None)
     if hub is None:
         return
-    mode = str(state.get("mode") or "off")
     payload: dict[str, Any] = {"event": "peek_follow", "mode": mode, "peek_follow": mode}
-    if state.get("seconds") is not None:
-        payload["seconds"] = state["seconds"]
+    if seconds is not None:
+        payload["seconds"] = seconds
     hub.publish(payload)
 
 
@@ -843,11 +970,19 @@ def handle(handler: "_Handler", method: str, path: str) -> bool:
             _send_json(handler, HTTPStatus.NOT_FOUND, payload)
         else:
             _send_json(handler, exc.status, {"error": str(exc)})
-    except (config.ConfigError, SwitchError, ValueError) as exc:
-        _send_json(handler, HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+    except (config.ConfigError, BundleError, MeshError, SwitchError, ValueError) as exc:
+        status = HTTPStatus.BAD_GATEWAY if isinstance(exc, MeshError) else HTTPStatus.BAD_REQUEST
+        _send_json(handler, status, {"error": str(exc)})
     except TransportError as exc:
         _send_json(handler, HTTPStatus.BAD_GATEWAY, {"error": str(exc)})
     return True
+
+
+def _mesh_relay_path(segments: list[str], query_text: str) -> str:
+    path = "/api/" + "/".join(segments)
+    if query_text:
+        return f"{path}?{query_text}"
+    return path
 
 
 def _api(handler: "_Handler", method: str, segments: list[str], query_text: str) -> dict[str, Any]:
@@ -855,31 +990,75 @@ def _api(handler: "_Handler", method: str, segments: list[str], query_text: str)
         return {"routes": _routes(), "catalog": API_CATALOG, "version": pkg_version.package_version()}
     name = segments[0].lower()
     query = parse_qs(query_text, keep_blank_values=True)
+    proxy = client_proxy_url(handler.server)
 
     if name == "state" and method == "GET":
         include_network = query.get("network", ["1"])[0].lower() not in {"0", "off", "false", "no"}
-        state = build_state(handler, include_network)
-        state["version"] = pkg_version.package_version()
-        state["mdns_name"] = getattr(handler.server, "mdns_name", None)
-        return state
+        # In-memory only (no HDMI TCP). Do not spawn per-request watchdog
+        # threads — after mesh promote those piled up into hundreds of stuck
+        # workers, every poll hit the timeout, and the degraded snapshot lied
+        # about peek.follow=off so the kit could not keep a peek mode.
+        return _compute_api_state(handler, include_network, proxy)
     if name == "version" and method == "GET":
         info = pkg_version.version_info()
-        info["mdns_name"] = getattr(handler.server, "mdns_name", None)
+        from .mdns import attach_mdns_identity
+
+        attach_mdns_identity(info, handler.server)
+        mesh = getattr(handler.server, "mesh", None)
+        if mesh is not None:
+            info["mesh"] = mesh.snapshot()
         return info
     if name == "compat" and method in {"GET", "POST", "PUT"}:
         return _action_compat(handler, method, query)
+    if name == "mesh":
+        return _action_mesh(handler, method)
+    if name == "config":
+        return _action_config(handler, method)
     if name == "network" and method == "GET":
         if len(segments) == 2 and segments[1].lower() == "notice":
             return _network_notice()
+        if proxy:
+            return forward_to_proxy(handler.server, _mesh_relay_path(segments, query_text))
         return _action_network_get(handler)
     if name == "callbacks":
+        if proxy:
+            body = None
+            if method.upper() in {"POST", "PUT", "DELETE"}:
+                body = _read_json(handler)
+            result = forward_to_proxy(
+                handler.server,
+                _mesh_relay_path(segments, query_text),
+                method=method.upper() if method.upper() != "GET" else "GET",
+                body=body,
+            )
+            return result
         return _action_callbacks(handler, method, segments[1:])
     if name == "banner":
+        if proxy:
+            body = _read_json(handler) if method.upper() != "GET" else None
+            result = forward_to_proxy(
+                handler.server,
+                "/api/banner",
+                method=method.upper(),
+                body=body if method.upper() != "GET" else None,
+            )
+            if isinstance(result, dict):
+                sync_shared_state_from_proxy(
+                    handler.server,
+                    {
+                        "banner": result.get("banner"),
+                        "banner_history": result.get("banner_history") or [],
+                        "peek": {},
+                    },
+                )
+            return result
         return _action_banner(handler, method)
     if name == "cycle" and len(segments) == 2:
         action = segments[1].lower()
         if method != "POST":
             raise PanelError("use POST for this route", HTTPStatus.METHOD_NOT_ALLOWED)
+        if proxy:
+            return forward_to_proxy(handler.server, f"/api/cycle/{action}", method="POST", body={})
         if action == "start":
             return _action_cycle_start(handler)
         if action == "stop":
@@ -895,6 +1074,29 @@ def _api(handler: "_Handler", method: str, segments: list[str], query_text: str)
     if method != "POST":
         raise PanelError("use POST for this route", HTTPStatus.METHOD_NOT_ALLOWED)
     body = _read_json(handler)
+    if proxy and name in _MESH_RELAY_POST:
+        result = forward_to_proxy(
+            handler.server,
+            _mesh_relay_path(segments, query_text),
+            method="POST",
+            body=body,
+        )
+        if name == "peek-follow" and isinstance(result, dict):
+            mode = result.get("peek_follow") or result.get("mode")
+            seconds = result.get("seconds")
+            if mode in {"off", "once", "always"}:
+                try:
+                    handler.server.peek_follow.set_mode(
+                        str(mode),
+                        int(seconds) if mode != "off" and seconds is not None else None,
+                    )
+                except Exception:
+                    pass
+                _publish_peek_follow(
+                    handler.server,
+                    {"mode": mode, "seconds": seconds},
+                )
+        return result
     actions = {
         "input": lambda: _action_input(handler, body),
         "next": lambda: _action_step(handler, 1),
@@ -1037,6 +1239,72 @@ def _action_compat(handler: "_Handler", method: str, query: dict[str, list[str]]
         client=str(client) if client is not None else None,
         client_version=str(client_version) if client_version is not None else None,
     )
+
+
+def _action_mesh(handler: "_Handler", method: str) -> dict[str, Any]:
+    """Mesh membership for the panel Mesh card."""
+    if method != "GET":
+        raise PanelError("use GET /api/mesh", HTTPStatus.METHOD_NOT_ALLOWED)
+    mesh = getattr(handler.server, "mesh", None)
+    if mesh is None:
+        return {"enabled": False, "role": "off", "peers": []}
+    snap = mesh.snapshot()
+    return snap
+
+
+def _action_config(handler: "_Handler", method: str) -> dict[str, Any]:
+    """Export or import the portable listener configuration dump."""
+    env = handler.server.env_file
+    if method == "GET":
+        include_kit = True
+        # Optional ?kit=0 to omit kit prefs (CLI --no-kit equivalent).
+        query = parse_qs(urlsplit(handler.path).query)
+        kit_flag = (query.get("kit") or ["1"])[0].lower()
+        if kit_flag in {"0", "off", "false", "no"}:
+            include_kit = False
+        bundle = export_bundle(env, include_kit=include_kit)
+        return {
+            "bundle": bundle,
+            "summary": summarize_bundle(bundle),
+        }
+    if method != "POST":
+        raise PanelError("use GET or POST /api/config", HTTPStatus.METHOD_NOT_ALLOWED)
+    body = _read_json(handler)
+    # Accept either the raw bundle or {"bundle": {...}, "merge": true, "kit": false}.
+    raw = body.get("bundle") if isinstance(body.get("bundle"), dict) else body
+    merge = bool(body.get("merge"))
+    include_kit = body.get("kit", True) is not False and body.get("include_kit", True) is not False
+    try:
+        parsed = parse_bundle(raw)
+    except BundleError as exc:
+        raise PanelError(str(exc)) from exc
+    result = apply_bundle(
+        parsed,
+        env,
+        include_kit=include_kit,
+        replace=not merge,
+    )
+    # Reload in-memory banner history so kits/panels see messages without a restart.
+    board = getattr(handler.server, "banner", None)
+    if board is not None:
+        history = config.read_banner_history(env)
+        snap = board.replace_history(history)
+        _notify_banner(getattr(handler.server, "callbacks", None), board, cleared=not snap.get("banner_history"))
+    handler.server.last_sent = dict(config.read_last_sent(env))
+    # Refresh state so the panel redraws names / enablement / banners immediately.
+    state = build_state(handler, include_network=False)
+    state["version"] = pkg_version.package_version()
+    from .mdns import attach_mdns_identity
+
+    attach_mdns_identity(state, handler.server)
+    return {
+        "imported": True,
+        "env_file": result["env_file"],
+        "keys": result["keys"],
+        "kit_written": result["kit_written"],
+        "summary": result["summary"],
+        "state": state,
+    }
 
 
 def _action_callbacks(handler: "_Handler", method: str, rest: list[str]) -> dict[str, Any]:

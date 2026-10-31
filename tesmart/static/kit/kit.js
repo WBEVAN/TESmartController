@@ -4,6 +4,16 @@
   const $$ = (s) => [...document.querySelectorAll(s)];
 
   const params = new URLSearchParams(location.search);
+  // ``tesmartctl --debug kit`` → ?debug=1 (summaries). Use ?debug=2 for full
+  // /api/state JSON on every poll (also printed on the kit terminal).
+  const debugLevel = (() => {
+    if (!params.has("debug")) return 0;
+    const raw = String(params.get("debug") || "1").trim().toLowerCase();
+    if (raw === "0" || raw === "off" || raw === "false" || raw === "no") return 0;
+    if (raw === "2" || raw === "state" || raw === "verbose" || raw === "full") return 2;
+    return 1;
+  })();
+  const kitDebug = debugLevel > 0;
   // pywebview / Chromium --app / tesmartctl kit always pass ?app=1. Also
   // treat an injected pywebview bridge as app so chrome never flashes.
   const isApp = params.has("app") || Boolean(window.pywebview);
@@ -105,25 +115,122 @@
     if (text) text.textContent = label;
   }
 
-  async function api(method, path, body) {
+  let dbgMuted = false;
+  window.addEventListener("pagehide", () => {
+    dbgMuted = true;
+  });
+  window.addEventListener("pageshow", () => {
+    dbgMuted = false;
+  });
+
+  function dbg(message, detail) {
+    if (!kitDebug || dbgMuted) return;
+    let line = String(message || "");
+    if (detail !== undefined) {
+      try {
+        line +=
+          typeof detail === "string"
+            ? " " + detail
+            : " " + JSON.stringify(detail);
+      } catch (_) {
+        line += " " + String(detail);
+      }
+    }
+    _dbgWrite(line);
+  }
+
+  function dbgState(data) {
+    // One line — multiline dumps race pywebview return callbacks on failover navigate.
+    if (!kitDebug || dbgMuted) return;
+    try {
+      _dbgWrite("GET /api/state → " + JSON.stringify(data));
+    } catch (_) {
+      _dbgWrite("GET /api/state → <unserializable>");
+    }
+  }
+
+  function _dbgWrite(line) {
+    const text = String(line || "");
+    try {
+      console.log("[kit]", text);
+    } catch (_) {
+      /* ignore */
+    }
+    if (dbgMuted) return;
+    try {
+      const bridge = (window.pywebview && window.pywebview.api) || null;
+      if (bridge && typeof bridge.kit_debug === "function") {
+        // Fire-and-forget; ignore return (navigate tears down the callback).
+        Promise.resolve(bridge.kit_debug(text)).catch(() => {});
+      }
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
+  function snapshotUi() {
+    return {
+      debugLevel,
+      href: String(location.href || ""),
+      online: !!state.online,
+      shutdown: !!state.shutdown,
+      sse: !!state.sse,
+      mdnsBlocked: !!state.mdnsBlocked,
+      message: state.message || "",
+      active: state.active,
+      endpoint: state.endpoint || "",
+      expectedMdns: (params.get("mdns") || "").trim(),
+      bootPhase: state.bootPhase || null,
+    };
+  }
+
+  async function api(method, path, body, { timeoutMs = 12000 } = {}) {
     const opts = { method, headers: { Accept: "application/json" } };
     if (body !== undefined) {
       opts.headers["Content-Type"] = "application/json";
       opts.body = JSON.stringify(body);
     }
-    const res = await fetch(path, opts);
+    const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+    let timer = 0;
+    const started = performance.now();
+    if (ctrl && timeoutMs > 0) {
+      opts.signal = ctrl.signal;
+      timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    }
+    let res;
+    try {
+      res = await fetch(path, opts);
+    } catch (err) {
+      const ms = Math.round(performance.now() - started);
+      if (ctrl && err && err.name === "AbortError") {
+        dbg("api timeout", { method, path, timeoutMs, ms });
+        const timed = new Error(
+          path.indexOf("/api/state") >= 0 ? "State timed out" : "Request timed out"
+        );
+        timed.status = 0;
+        timed.timeout = true;
+        throw timed;
+      }
+      dbg("api error", { method, path, ms, error: err && err.message });
+      throw err;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
     let data = null;
     try {
       data = await res.json();
     } catch {
       data = {};
     }
+    const ms = Math.round(performance.now() - started);
     if (!res.ok) {
+      dbg("api http", { method, path, status: res.status, ms, body: data });
       const err = new Error((data && (data.error || data.message)) || `HTTP ${res.status}`);
       err.status = res.status;
       err.data = data;
       throw err;
     }
+    dbg("api ok", { method, path, status: res.status, ms });
     return data;
   }
 
@@ -251,7 +358,9 @@
           : state.shutdown
             ? "LISTENER STOPPED"
             : state.online
-              ? `INPUT ${state.active} SELECTED`
+              ? state.active == null
+                ? "INPUT UNKNOWN"
+                : `INPUT ${state.active} SELECTED`
               : "INPUT STATE UNKNOWN";
     let detail = `${state.message} • ${peekLabel}`;
     if (state.peek) {
@@ -299,16 +408,29 @@
 
   async function refresh() {
     const wasOnline = state.online;
+    dbg("refresh begin", snapshotUi());
+    // Debug waits longer so a slow /api/state still dumps; normal polls fail faster.
+    const stateTimeoutMs = kitDebug ? 15000 : 3500;
     try {
-      const data = await api("GET", "/api/state?network=0");
-      if (mdnsConflict(data && data.mdns_name)) {
+      const data = await api("GET", "/api/state?network=0", undefined, {
+        timeoutMs: stateTimeoutMs,
+      });
+      if (debugLevel >= 1) dbgState(data);
+      if (mdnsConflict(data && data.mdns_name, data && data.mesh_mdns_name)) {
         state.mdnsBlocked = true;
         const err = new Error(`Wrong mDNS name (${data.mdns_name})`);
         err.mdnsConflict = true;
         throw err;
       }
+      // Mesh promote window: /kit answers but TCP to the HDMI switch is not ready.
+      if (data && data.switch_ready === false) {
+        const err = new Error("Waiting for switch…");
+        err.switchPending = true;
+        throw err;
+      }
       state.mdnsBlocked = false;
       state.shutdown = false;
+      clearBootPhase();
       state.online = true;
       state.active = data.active_input ?? data.activeInput ?? state.active;
       state.realCount = data.input_count ?? data.inputCount ?? state.realCount;
@@ -323,7 +445,9 @@
         state.peekSeconds = peek.seconds;
         $("#seconds").value = String(peek.seconds);
       }
-      if (peek.follow) state.mode = String(peek.follow);
+      // Degraded / partial snapshots used to hardcode follow=off and wipe the
+      // mode the operator just set. Only trust follow from a full state.
+      if (peek.follow && !data.state_degraded) state.mode = String(peek.follow);
       adoptServerPeek(peek.active);
       const rotate = data.rotate || {};
       if (Array.isArray(rotate.cycle) && rotate.configured) {
@@ -339,10 +463,26 @@
       if (!state.peek && !state.cycling) state.message = "Ready";
       applyBannerFromState(data.banner, data.banner_history);
       if (!state.eventSource) startEvents();
+      dbg("refresh applied", snapshotUi());
       draw();
     } catch (err) {
+      const loadFailed = /load failed/i.test(String((err && err.message) || ""));
+      // Abort mid-navigation (failover load_url) — not a real offline.
+      if (loadFailed && (dbgMuted || document.hidden)) {
+        dbg("refresh ignored (navigating)", { error: err && err.message });
+        return;
+      }
       state.online = false;
       state.message = state.shutdown ? "Controller shutdown" : (err.message || "Offline");
+      clearBootPhase();
+      dbg("refresh fail", {
+        error: err && err.message,
+        timeout: !!(err && err.timeout),
+        switchPending: !!(err && err.switchPending),
+        mdnsConflict: !!(err && err.mdnsConflict),
+        body: err && err.data,
+        ui: snapshotUi(),
+      });
       if (err && err.mdnsConflict) stopEvents();
       setLed("error");
       draw();
@@ -355,8 +495,8 @@
     if (!data || !data.event) return;
     const kind = String(data.event);
     if (kind === "hello") {
-      if (mdnsConflict(data.mdns_name)) {
-        failMdns(data.mdns_name);
+      if (mdnsConflict(data.mdns_name, data.mesh_mdns_name)) {
+        failMdns(data.mdns_name || data.mesh_mdns_name);
         return;
       }
       state.mdnsBlocked = false;
@@ -403,6 +543,8 @@
       stopEvents();
       draw();
       schedulePoll();
+      // Mesh proxy resign / stop — browse again for the failover alias.
+      void maybeRediscover();
       return;
     }
     if (kind === "peek") {
@@ -520,11 +662,19 @@
     return String(value || "").trim().replace(/\./g, "-").toLowerCase();
   }
 
-  function mdnsConflict(reported) {
+  function mdnsConflict(reported, alsoKnownAs) {
     const want = normalizeMdns(expectedMdns);
-    const got = normalizeMdns(reported);
-    if (!want || !got) return false;
-    return want !== got;
+    if (!want) return false;
+    const aliases = [];
+    const push = (value) => {
+      const got = normalizeMdns(value);
+      if (got) aliases.push(got);
+    };
+    push(reported);
+    if (Array.isArray(alsoKnownAs)) alsoKnownAs.forEach(push);
+    else if (alsoKnownAs) push(alsoKnownAs);
+    if (!aliases.length) return false;
+    return !aliases.includes(want);
   }
 
   function failMdns(reported) {
@@ -540,20 +690,11 @@
   }
 
   async function maybeRediscover() {
-    // --via auto only. The native side browses mDNS and reloads /kit when the
-    // listener is advertising on a different host or port. The same address
-    // with a different mDNS name is a failed connection, not a recovery.
-    if (!autoDiscover || rediscoverBusy || state.online) return;
-    const bridge = pyApi();
-    if (!bridge || typeof bridge.rediscover_listener !== "function") return;
-    rediscoverBusy = true;
-    try {
-      await bridge.rediscover_listener();
-    } catch (_) {
-      /* the window also browses on its own while auto-discover is on */
-    } finally {
-      rediscoverBusy = false;
-    }
+    // --via auto: the native kit watcher already browses and load_url's on its
+    // own. Calling js_api rediscover_listener races that navigation and throws
+    // JavascriptException when pywebview tries to deliver the return value to a
+    // document that has already been replaced — leave rediscovery to Python.
+    return;
   }
 
   function schedulePoll() {
@@ -1141,11 +1282,10 @@
 
   // Re-arm a remembered "always" peek-follow when the listener has it off
   // (listener restarts forget it). Never pushes "off" over another client.
+  // Call only after the kit is online — do not wait here or the boot LCD
+  // stays on "Loading preferences…" for many seconds before connect.
   async function restorePeekFollow() {
     if (prefs.get("peek_follow") !== "always") return;
-    for (let i = 0; i < 20 && !state.online; i++) {
-      await new Promise((r) => setTimeout(r, 500));
-    }
     if (!state.online || state.mode !== "off") return;
     const seconds = Number(prefs.get("peek_seconds")) || state.peekSeconds;
     await withBusy(async () => {
@@ -2343,7 +2483,6 @@
       }
       const onTop = $("#btn-on-top");
       if (onTop) onTop.setAttribute("aria-pressed", String(prefs.get("on_top") === true));
-      await restorePeekFollow();
     } catch (err) {
       console.error("kit prefs restore failed", err);
     }
@@ -2354,19 +2493,32 @@
     } catch (err) {
       console.error("kit refresh failed", err);
     }
+    // refresh() swallows errors into offline state — still leave the sticky
+    // connecting banner so a dead proxy cannot pin the LCD forever.
+    if (!state.online) clearBootPhase();
 
-    setBootPhase("Opening live events…", { sticky: true });
+    if (state.online) setBootPhase("Opening live events…", { sticky: true });
     // A name mismatch already closed the stream. Leave it closed until the
     // named listener answers; refresh() opens it again on the next match.
     if (!state.eventSource && !state.mdnsBlocked) startEvents();
     schedulePoll();
+
+    // After the listener answers — peek-follow is in-memory on the proxy and
+    // forgotten across promote/restart. Prefs load must not wait for this.
+    if (state.online) {
+      try {
+        await restorePeekFollow();
+      } catch (err) {
+        console.error("kit peek-follow restore failed", err);
+      }
+    }
 
     setBootPhase(
       state.online
         ? "Ready"
         : state.message && state.message !== "Connecting…"
           ? state.message
-          : "Listener up · waiting for switch",
+          : "Looking for listener…",
       { sticky: false }
     );
     // Drop the ticker once a real banner takes the LCD, or after the auto-clear.

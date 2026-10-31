@@ -56,6 +56,8 @@ tesmartctl discover --mdns-name OfficeHDMI --save   # write TESMART_VIA (+ name)
 tesmartctl --json discover
 ```
 
+Human output is split into **MESH** (failover alias, then `proxy` / `client` instance peers) and **STANDALONE** (listeners without mesh). Color is used when stdout is a TTY (honors `NO_COLOR` / `FORCE_COLOR`). A standalone that advertises the same `switch=` as a mesh group is flagged with a warning. Pin the failover alias name for HA clients, or an instance name to stay sticky.
+
 Talk through a discovered (or remembered) listener (same commands on macOS, Linux, and Windows):
 
 ```bash
@@ -81,6 +83,8 @@ Direct switch commands (`net`, `raw`, `monitor`, `buzzer`, `led`, `autodetect`, 
 3. When this computer has no client connection, `TESMART_MDNS_NAME`, then `TESMART_VIA`
 4. Else the only service on the LAN
 5. If several remain, error — pass `--mdns-name`
+
+With **mesh** enabled, the proxy also advertises a shared failover name (default `{instance}-mesh`). Pin that name for clients that should follow reelection; pin the instance name to stay sticky to one host. See [mesh.md](mesh.md).
 
 A client install writes `TESMART_CLIENT_VIA` and `TESMART_CLIENT_MDNS_NAME` and leaves the server listener settings as they are. A successful `--via auto` (and `discover --save`) updates those client keys when a client connection is already saved. With no client connection, it stores `TESMART_VIA` and `TESMART_MDNS_NAME`.
 

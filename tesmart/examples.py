@@ -109,12 +109,28 @@ EXAMPLES: dict[str, list[tuple[str, str]]] = {
         ("tesmartctl install", "answer the server or client questions; nothing is saved until the last yes"),
         ("tesmartctl --host 192.168.1.50 install", "start from that switch address instead of the saved one"),
         ("tesmartctl --env-file ./tesmart.env install", "read and write a configuration file in this directory"),
+        ("tesmartctl install --import office.json", "start from a portable dump, then confirm or adjust"),
         ("tesmartctl quickstart", "after a server install, start the listener from the saved address"),
     ],
     "quickstart": [
         ("tesmartctl install", "configure the server or a client; then start the server with quickstart"),
         ("tesmartctl quickstart", "start the server from the address, port, browser UI, and mDNS options saved by install"),
+        ("tesmartctl quickstart --mesh", "start with mesh so peers for this switch elect one TCP owner"),
+        ("tesmartctl quickstart --mesh --mesh-mdns-name OfficeHDMI-mesh", "same, with an explicit failover mDNS name"),
         ("tesmartctl --env-file ./tesmart.env quickstart", "use a configuration file in this directory"),
+    ],
+    "listen": [
+        ("tesmartctl listen --http 8080 --panel --mesh", "HTTP panel with mesh (oldest peer owns the switch)"),
+        ("tesmartctl listen --http 8080 --panel --mesh --mdns-name OfficeHDMI1", "instance OfficeHDMI1; proxy also advertises OfficeHDMI1-mesh"),
+    ],
+    "mesh": [
+        ("tesmartctl mesh status", "browse mesh peers for this switch; query a live /mesh when found"),
+        ("tesmartctl --via auto mesh status", "ask the resolved listener for its live mesh snapshot"),
+        ("tesmartctl --via auto --mdns-name OfficeHDMI1-mesh status", "follow the mesh failover alias"),
+    ],
+    "mesh status": [
+        ("tesmartctl mesh status", "browse mesh peers for this switch; query a live /mesh when found"),
+        ("tesmartctl --via http://192.168.1.20:8080 mesh status", "query that listener's /mesh"),
     ],
     "config": [
         ("tesmartctl config show", "effective host/port/serial/inputs and where each came from"),
@@ -123,12 +139,24 @@ EXAMPLES: dict[str, list[tuple[str, str]]] = {
         ("tesmartctl config set serial /dev/tty.usbserial-A1", "use RS232 instead of LAN"),
         ("tesmartctl config unset serial", "back to LAN"),
         ("tesmartctl config path", "print the env file location"),
+        ("tesmartctl config export office.json", "portable dump including names, messages, and kit prefs"),
+        ("tesmartctl config import office.json", "replace this computer's env file from that dump"),
     ],
     "config set": [
         ("tesmartctl config set host 192.168.1.50", "persist the switch address"),
         ("tesmartctl config set port 5000", "TCP port of the switch"),
         ("tesmartctl config set inputs 16", "for a 16x1 switch"),
         ("tesmartctl config set serial /dev/tty.usbserial-A1", "use RS232 instead of LAN"),
+    ],
+    "config export": [
+        ("tesmartctl config export", "print the portable JSON dump on stdout"),
+        ("tesmartctl config export office.json", "write the dump to a file"),
+        ("tesmartctl config export office.json --no-kit", "omit kit look/feel prefs"),
+    ],
+    "config import": [
+        ("tesmartctl config import office.json", "replace the env file (and kit prefs) from the dump"),
+        ("tesmartctl config import office.json --merge", "keep existing env keys the dump does not set"),
+        ("tesmartctl install --import office.json", "seed install from the dump, then confirm or adjust"),
     ],
     "disable": [
         ("tesmartctl disable 4", "ignore input 4 on this computer"),

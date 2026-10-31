@@ -68,11 +68,19 @@ def resolve_base_url(
     service = resolve_listener(name=name, prefer_url=prefer, timeout=timeout)
     base = service.base_url
     if remember:
+        # Prefer the shared mesh failover name when the peer advertises one, else
+        # the name the client asked for — never replace a mesh alias with a
+        # short-lived instance name (that pins --via auto to a dead host).
+        props = service.properties or {}
+        mesh_alias = str(props.get("mesh_name") or "").strip() or None
+        keep_name = mesh_alias or name or service.instance_name
         config.remember_client_listener(
             base,
             env_file,
-            mdns_name=service.instance_name if name else None,
+            mdns_name=keep_name,
         )
+        if keep_name and name and keep_name.casefold() != name.casefold():
+            log(f"remember mdns {keep_name} (was {name})")
     return base
 
 

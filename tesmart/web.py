@@ -28,6 +28,8 @@ Routes (GET or POST)
 ``/names``                   local input names (GET list; POST JSON to set)
 ``/version``                 package name, version, and feature tags
 ``/compat``                  GET/POST compatibility check (min server version + features)
+``/mesh``                    mesh role, switch id, peers (when ``--mesh``)
+``/mesh/join`` ``/mesh/leave`` ``/mesh/peers`` ``/mesh/config``
 ``/events``                  Server-Sent Events stream for browser clients
 ``/callbacks``               GET list; POST {\"url\": \"...\", \"name\": \"...\"} register; DELETE remove;
                              POST {\"timeout\": 10} set wait; GET|POST /callbacks/health probe clients
@@ -39,6 +41,7 @@ from __future__ import annotations
 import json
 import sys
 import threading
+import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import NamedTuple
@@ -46,6 +49,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from . import callbacks, config, panel, version as pkg_version
 from .banner import BannerBoard
+from .mdns import attach_mdns_identity
 from .cycle import Cycler
 from .events import EventHub, stream_sse
 from .peek import PeekFollow, Peeker, apply_follow
@@ -64,6 +68,12 @@ ROUTES = {
     "/status?network=0": "active input only (skips the LAN queries)",
     "/version": "tesmartctl package version and feature tags",
     "/compat": "GET/POST {\"min_server\":\"0.0.7.9\",\"features\":[\"callbacks\"]} → compatible?",
+    "/mesh": "mesh role, switch id, proxy, peers (only with --mesh)",
+    "/mesh/peers": "mesh peer list",
+    "/mesh/join": "POST mesh client announce (proxy only)",
+    "/mesh/leave": "POST graceful leave",
+    "/mesh/proxy-leaving": "POST from resigning proxy → client elects immediately",
+    "/mesh/config": "GET portable listener config (same shape as /api/config)",
     "/next": "next input in the saved local cycle",
     "/previous": "previous input in the saved local cycle",
     "/rotate": "same as /next",
@@ -140,6 +150,18 @@ def _parse_request(path: str) -> WebRequest:
         if len(segments) != 1:
             raise LookupError(parts.path)
         return WebRequest(head, None, as_text, include_network)
+    if head == "mesh":
+        if len(segments) == 1:
+            return WebRequest("mesh", None, as_text, include_network)
+        if len(segments) == 2 and segments[1].lower() in {
+            "peers",
+            "join",
+            "leave",
+            "config",
+            "proxy-leaving",
+        }:
+            return WebRequest(f"mesh-{segments[1].lower()}", None, as_text, include_network)
+        raise LookupError(parts.path)
     if head == "names":
         if len(segments) != 1:
             raise LookupError(parts.path)
@@ -330,8 +352,26 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if request.verb == "version":
             payload = pkg_version.version_info()
-            payload["mdns_name"] = getattr(self.server, "mdns_name", None)
+            attach_mdns_identity(payload, self.server)
+            mesh = getattr(self.server, "mesh", None)
+            if mesh is not None:
+                payload["mesh"] = mesh.snapshot()
             text = f"{payload['name']} {payload['version']}" if request.as_text else None
+            self._send(HTTPStatus.OK, payload, request.as_text, text)
+            return
+        if request.verb.startswith("mesh"):
+            try:
+                payload = self._mesh(request.verb, self.command)
+            except ValueError as exc:
+                self._send(HTTPStatus.BAD_REQUEST, {"error": str(exc)}, request.as_text)
+                return
+            except LookupError:
+                self._send(HTTPStatus.NOT_FOUND, {"error": "mesh is not enabled on this listener"}, False)
+                return
+            text = None
+            if request.as_text:
+                role = (payload.get("role") or payload.get("mesh", {}).get("role") or "-")
+                text = f"mesh {role}"
             self._send(HTTPStatus.OK, payload, request.as_text, text)
             return
         if request.verb == "compat":
@@ -344,6 +384,34 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(HTTPStatus.OK, payload, request.as_text, text)
             return
         if request.verb == "peek-mode":
+            from .mesh import MeshError, client_proxy_url, forward_to_proxy
+
+            if client_proxy_url(self.server):
+                mode = request.label or "off"
+                body: dict = {"mode": mode}
+                if request.seconds is not None:
+                    body["seconds"] = request.seconds
+                try:
+                    payload = forward_to_proxy(self.server, "/api/peek-follow", method="POST", body=body)
+                except MeshError as exc:
+                    self._send(HTTPStatus.BAD_GATEWAY, {"error": str(exc)}, request.as_text)
+                    return
+                follow = payload.get("peek_follow") or mode
+                seconds = payload.get("seconds")
+                try:
+                    self.server.peek_follow.set_mode(
+                        str(follow),
+                        int(seconds) if follow != "off" and seconds is not None else None,
+                    )
+                except Exception:
+                    pass
+                panel._publish_peek_follow(
+                    self.server,
+                    {"mode": follow, "seconds": seconds},
+                )
+                text = str(follow) if request.as_text else None
+                self._send(HTTPStatus.OK, payload, request.as_text, text)
+                return
             state = self.server.peek_follow.set_mode(request.label or "off", request.seconds)
             payload = {"peek_follow": state["mode"]}
             if state["seconds"] is not None:
@@ -465,7 +533,7 @@ class _Handler(BaseHTTPRequestHandler):
             if getattr(self.server.switch, "simulated", False):
                 payload["simulated"] = True
             payload["version"] = pkg_version.package_version()
-            payload["mdns_name"] = getattr(self.server, "mdns_name", None)
+            attach_mdns_identity(payload, self.server)
             payload.update(config.input_enablement(self.server.switch.input_count, self.server.env_file))
             payload["rotate"] = config.rotate_info(self.server.env_file, input_count=self.server.switch.input_count)
             payload["rotate"]["active"] = self.server.cycler.status()
@@ -477,6 +545,9 @@ class _Handler(BaseHTTPRequestHandler):
             banner_payload = self.server.banner.payload()
             payload["banner"] = banner_payload["banner"]
             payload["banner_history"] = banner_payload["banner_history"]
+            mesh = getattr(self.server, "mesh", None)
+            if mesh is not None:
+                payload["mesh"] = mesh.snapshot()
         if request.verb in {"set", "rotate", "previous", "peek"}:
             self._note_callback_change(payload, request.verb)
         text = _status_text(payload) if request.verb == "status" else None
@@ -548,6 +619,48 @@ class _Handler(BaseHTTPRequestHandler):
             client=str(client) if client is not None else None,
             client_version=str(client_version) if client_version is not None else None,
         )
+
+    def _mesh(self, verb: str, method: str) -> dict:
+        mesh = getattr(self.server, "mesh", None)
+        if mesh is None:
+            raise LookupError("mesh disabled")
+        method = method.upper()
+        if verb == "mesh":
+            if method != "GET":
+                raise ValueError("use GET /mesh")
+            return mesh.snapshot()
+        if verb == "mesh-peers":
+            if method != "GET":
+                raise ValueError("use GET /mesh/peers")
+            snap = mesh.snapshot()
+            return {"peers": snap.get("peers") or [], "mesh": snap}
+        if verb == "mesh-config":
+            if method != "GET":
+                raise ValueError("use GET /mesh/config")
+            from .config_bundle import export_bundle, summarize_bundle
+
+            bundle = export_bundle(self.server.env_file, include_kit=False)
+            return {"bundle": bundle, "summary": summarize_bundle(bundle)}
+        if verb == "mesh-join":
+            if method != "POST":
+                raise ValueError("use POST /mesh/join")
+            body = self._read_json_body()
+            return mesh.handle_join(body)
+        if verb == "mesh-leave":
+            if method != "POST":
+                raise ValueError("use POST /mesh/leave")
+            body = self._read_json_body()
+            # A proxy records peer leave; a client resigns itself.
+            snap = mesh.snapshot()
+            if snap.get("role") == "proxy":
+                return mesh.handle_leave(body)
+            return mesh.resign()
+        if verb == "mesh-proxy-leaving":
+            if method != "POST":
+                raise ValueError("use POST /mesh/proxy-leaving")
+            body = self._read_json_body()
+            return mesh.handle_proxy_leaving(body)
+        raise LookupError(verb)
 
     def _banner(self, method: str) -> dict:
         """Show, dismiss, reshow, or read the LCD banner (in-memory for this process)."""
@@ -765,13 +878,30 @@ class _Handler(BaseHTTPRequestHandler):
                     previous = None
                 reported = switch.set_input(number, verify=True)
             return {"previous": previous, "active_input": reported, "requested": number}
+        if request.verb in {"status", "get"}:
+            # Prefer cached input from the watcher — never block Hubitat/kit-style
+            # polls on a wedged HDMI TCP session (same failure mode as /api/state).
+            hub = getattr(self.server, "callbacks", None)
+            cached = getattr(hub, "_last_active", None) if hub is not None else None
+            if request.verb == "get" and cached is not None:
+                return {"active_input": cached}
+            if not self.server.lock.acquire(timeout=0.5):
+                if cached is not None:
+                    return {"active_input": cached} if request.verb == "get" else {
+                        "endpoint": getattr(switch, "endpoint", ""),
+                        "active_input": cached,
+                        "input_count": switch.input_count,
+                    }
+                raise SwitchError("switch busy")
+            try:
+                if request.verb == "status":
+                    return switch.read_status(include_network=request.include_network).to_dict()
+                return {"active_input": switch.get_active_input(retries=0)}
+            finally:
+                self.server.lock.release()
+        number = self._resolve(request)
+        config.require_enabled(number, self.server.env_file)
         with self.server.lock:
-            if request.verb == "status":
-                return switch.read_status(include_network=request.include_network).to_dict()
-            if request.verb == "get":
-                return {"active_input": switch.get_active_input()}
-            number = self._resolve(request)
-            config.require_enabled(number, self.server.env_file)
             return {"active_input": switch.set_input(number, verify=True), "requested": number}
 
     def _send(self, status: HTTPStatus, payload: dict, as_text: bool, text: str | None = None) -> None:
@@ -826,7 +956,14 @@ class WebServer(ThreadingHTTPServer):
             ),
         )
         # Armed by /peek/once or /peek/always. The next plain input change peeks.
-        self.peek_follow = PeekFollow(events=self.events)
+        self.peek_follow = PeekFollow(
+            events=self.events,
+            notify_peek_follow=lambda mode, seconds=None, source="command", **extra: (
+                self.callbacks.note_peek_follow(
+                    mode, seconds=seconds, source=source, **extra
+                )
+            ),
+        )
         # Listener-owned automatic cycle; kit/panel/CLI start and stop it.
         self.cycler = Cycler(
             switch,
@@ -846,6 +983,9 @@ class WebServer(ThreadingHTTPServer):
         # Instance name actually registered with mDNS, or None when not advertising.
         # Reconnecting clients compare this to the name they attached with.
         self.mdns_name: str | None = None
+        # Set by serve_http when ``--mesh`` / TESMART_HTTP_MESH is on.
+        self.mesh: object | None = None
+        self.mesh_sse_stop: threading.Event | None = None
 
     def handle_error(self, request: object, client_address: tuple[str, int] | str) -> None:
         """Log client disconnects as one line; keep a traceback only for real bugs."""
@@ -858,7 +998,7 @@ class WebServer(ThreadingHTTPServer):
 
 
 def serve_http(
-    switch: TesmartSwitch,
+    switch: TesmartSwitch | None,
     host: str,
     port: int,
     env_file: str | None = None,
@@ -866,20 +1006,107 @@ def serve_http(
     panel_enabled: bool = False,
     mdns: bool | None = None,
     mdns_name: str | None = None,
+    mesh: bool | None = None,
+    mesh_mdns_name: str | None = None,
+    open_switch: object | None = None,
 ) -> int:
     """Serve the routes above on ``host:port`` until Ctrl-C.
 
     ``mdns`` is True/False for ``--mdns`` / ``--no-mdns``, or None for the
     default (advertise when the bind is not loopback-only).
+
+    ``mesh`` enables mesh mode (or reads ``TESMART_HTTP_MESH``). When mesh is on
+    and this node becomes a client, ``open_switch`` is unused and the real
+    ``switch`` may be ``None``; pass a factory via ``open_switch`` so failover
+    to proxy can open TCP later.
+
+    ``mesh_mdns_name`` sets the shared failover DNS-SD name (default
+    ``{instance}-mesh``, persisted as ``TESMART_HTTP_MESH_MDNS_NAME``). Only the
+    elected proxy advertises that alias.
     """
     from . import mdns as mdns_mod
+    from .mesh import (
+        MeshController,
+        MeshError,
+        ProxySwitch,
+        mesh_enabled,
+        switch_id_from_env,
+        write_mesh_enabled,
+        write_mesh_mdns_name,
+    )
+
+    mesh_on = mesh_enabled(env_file, flag=mesh)
+    mesh_controller: MeshController | None = None
+    switch_id: str | None = None
+    started_at = 0
+    active_switch = switch
+
+    if mesh_on:
+        try:
+            switch_id = switch_id_from_env(env_file)
+        except MeshError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        write_mesh_enabled(True, env_file)
+        if mesh_mdns_name:
+            write_mesh_mdns_name(mesh_mdns_name, env_file)
+        started_at = int(__import__("time").time() * 1000)
+        settings = config.resolve(env_file)
+        # Elect before binding so a client never opens a second TCP session.
+        prelim = MeshController(
+            env_file=env_file,
+            switch_id=switch_id,
+            started_at=started_at,
+            mesh_mdns_name=mesh_mdns_name,
+        )
+        peers = prelim.discover()
+        from .mesh import elect_proxy
+
+        planned_name = (mdns_name or config.read_mdns_name(env_file) or mdns_mod.default_instance_name()).replace(".", "-")
+        planned_url = f"http://{host if host not in {'0.0.0.0', '::', ''} else '127.0.0.1'}:{port}"
+        winner = elect_proxy(
+            peers,
+            self_started=started_at,
+            self_name=planned_name,
+            self_url=planned_url,
+        )
+        if not winner.get("self"):
+            proxy_url = str(winner.get("url") or "").rstrip("/")
+            if not proxy_url:
+                print("error: mesh election found a peer without a URL", file=sys.stderr)
+                return 1
+            print(f"  mesh: joining proxy {proxy_url}", file=sys.stderr)
+            active_switch = ProxySwitch(
+                proxy_url,
+                input_count=settings.inputs,
+                endpoint=f"tcp://{settings.host}:{settings.port}",
+            )
+        elif active_switch is None and open_switch is not None:
+            active_switch = open_switch()  # type: ignore[operator]
+        elif active_switch is None:
+            print("error: mesh proxy needs an open switch connection", file=sys.stderr)
+            return 1
+
+    if active_switch is None:
+        print("error: no switch connection", file=sys.stderr)
+        return 1
 
     try:
-        server = WebServer((host, port), switch, env_file, panel_enabled=panel_enabled)
+        server = WebServer((host, port), active_switch, env_file, panel_enabled=panel_enabled)
     except OSError as exc:
         print(f"error: cannot listen on {host}:{port}: {exc}", file=sys.stderr)
         return 1
     bound_host, bound_port = server.server_address[:2]
+    base_url = f"http://{bound_host if bound_host not in {'0.0.0.0', '::'} else '127.0.0.1'}:{bound_port}"
+    # Prefer a LAN address for mesh peer registration when bound to all interfaces.
+    if host in {"0.0.0.0", "::", ""}:
+        try:
+            lan = mdns_mod.local_lan_ipv4s()
+            if lan:
+                base_url = f"http://{lan[0]}:{bound_port}"
+        except Exception:
+            pass
+
     print(
         f"HTTP listener on http://{bound_host}:{bound_port}/ (Ctrl-C to stop).",
         file=sys.stderr,
@@ -887,17 +1114,21 @@ def serve_http(
     from .debug import log_process
 
     log_process()
-    print(f"  HDMI switch:  {switch.endpoint}", file=sys.stderr)
-    if getattr(switch, "simulated", False):
+    print(f"  HDMI switch:  {active_switch.endpoint}", file=sys.stderr)
+    if getattr(active_switch, "simulated", False):
         print(
             "  Simulated switch: input changes, peek, and cycle stay on this computer "
             "and are not sent to an HDMI switch.",
             file=sys.stderr,
         )
+    if isinstance(active_switch, ProxySwitch):
+        print(f"  mesh client via {active_switch.proxy_url}", file=sys.stderr)
     print(f"  http://{bound_host}:{bound_port}/input        read", file=sys.stderr)
     print(f"  http://{bound_host}:{bound_port}/status       read input and LAN settings", file=sys.stderr)
     print(f"  http://{bound_host}:{bound_port}/version      {pkg_version.package_version()}", file=sys.stderr)
     print(f"  http://{bound_host}:{bound_port}/compat       client/server compatibility check", file=sys.stderr)
+    if mesh_on:
+        print(f"  http://{bound_host}:{bound_port}/mesh         mesh role and peers", file=sys.stderr)
     print(f"  http://{bound_host}:{bound_port}/names        local input names (GET / POST)", file=sys.stderr)
     print(f"  http://{bound_host}:{bound_port}/enable/N     allow input N", file=sys.stderr)
     print(f"  http://{bound_host}:{bound_port}/disable/N    ignore input N", file=sys.stderr)
@@ -921,6 +1152,155 @@ def serve_http(
         print(f"  callback POST timeout {timeout:g}s", file=sys.stderr)
 
     advertisement = None
+    mesh_role = "proxy"
+    if mesh_on and switch_id is not None:
+        mesh_controller = MeshController(
+            env_file=env_file,
+            switch_id=switch_id,
+            started_at=started_at,
+            mesh_mdns_name=mesh_mdns_name,
+            on_event=lambda payload: server.events.publish(payload),
+        )
+
+        def _rebind_local_owners(switch_obj: object) -> None:
+            """Peeker/cycler keep their own switch ref — update on mesh role change."""
+            for owner in (server.peeker, server.cycler):
+                rebind = getattr(owner, "rebind_switch", None)
+                if callable(rebind):
+                    try:
+                        rebind(switch_obj)
+                    except Exception as exc:  # noqa: BLE001
+                        print(f"warning: mesh rebind failed: {exc}", file=sys.stderr)
+
+        def _open_owned_switch() -> bool:
+            """Replace ProxySwitch with a real TCP session. False if still remote."""
+            nonlocal active_switch
+            if not isinstance(server.switch, ProxySwitch):
+                return True
+            if open_switch is None:
+                print(
+                    "warning: mesh promoted to proxy but no open_switch factory; "
+                    "switch commands and Hubitat events will not work",
+                    file=sys.stderr,
+                )
+                return False
+            try:
+                real = open_switch()  # type: ignore[operator]
+            except Exception as exc:  # noqa: BLE001
+                print(
+                    f"warning: mesh could not open switch for proxy role: {exc}",
+                    file=sys.stderr,
+                )
+                return False
+            server.switch = real
+            active_switch = real
+            print(f"  mesh: opened switch {real.endpoint}", file=sys.stderr)
+            _rebind_local_owners(real)
+            try:
+                server.callbacks.rebind_switch(real, outbound_http=True)
+            except Exception as exc:  # noqa: BLE001
+                print(f"warning: mesh callbacks rebind failed: {exc}", file=sys.stderr)
+            return True
+
+        def _promote_to_proxy() -> None:
+            nonlocal active_switch
+            # Stop bridging SSE from the old proxy — we own the switch now.
+            if server.mesh_sse_stop is not None:
+                try:
+                    server.mesh_sse_stop.set()
+                except Exception:
+                    pass
+                server.mesh_sse_stop = None
+            if isinstance(server.switch, ProxySwitch):
+                if not _open_owned_switch():
+                    # TESmart often keeps the dying proxy's TCP for a few seconds.
+                    # Keep retrying so /api/state is not stuck on ProxySwitch until
+                    # the operator restarts this listener.
+                    def _retry_open() -> None:
+                        delays = (1.0, 2.0, 3.0, 5.0, 5.0, 8.0, 8.0, 10.0)
+                        for delay in delays:
+                            if not isinstance(server.switch, ProxySwitch):
+                                return
+                            time.sleep(delay)
+                            if _open_owned_switch():
+                                _refresh_mesh_advertise(
+                                    advertisement, mesh_controller, panel_enabled, server
+                                )
+                                return
+                        print(
+                            "warning: mesh still has no TCP session after promote retries; "
+                            "restart this listener or power-cycle the switch",
+                            file=sys.stderr,
+                        )
+
+                    threading.Thread(
+                        target=_retry_open, name="tesmart-mesh-open", daemon=True
+                    ).start()
+            _refresh_mesh_advertise(advertisement, mesh_controller, panel_enabled, server)
+
+        def _demote_to_client(proxy_url: str) -> None:
+            settings = config.resolve(env_file)
+            remote = ProxySwitch(
+                proxy_url,
+                input_count=settings.inputs,
+                endpoint=f"tcp://{settings.host}:{settings.port}",
+            )
+            # Drop a real TCP session if we previously owned the switch.
+            old = server.switch
+            if old is not None and not isinstance(old, ProxySwitch):
+                try:
+                    owned = getattr(old, "_mesh_owned_transport", None)
+                    if owned is not None:
+                        owned.close()
+                    close = getattr(old, "close", None)
+                    if callable(close):
+                        close()
+                except Exception:
+                    pass
+            server.switch = remote
+            _rebind_local_owners(remote)
+            try:
+                server.callbacks.rebind_switch(remote, outbound_http=False)
+            except Exception as exc:  # noqa: BLE001
+                print(f"warning: mesh callbacks rebind failed: {exc}", file=sys.stderr)
+            _start_mesh_sse_bridge(server, proxy_url)
+            _refresh_mesh_advertise(advertisement, mesh_controller, panel_enabled, server)
+
+        mesh_controller._on_become_proxy = _promote_to_proxy
+        mesh_controller._on_become_client = _demote_to_client
+        mesh_controller.set_identity(mdns_name=None, base_url=base_url)
+        if isinstance(active_switch, ProxySwitch):
+            try:
+                mesh_controller._join(active_switch.proxy_url)
+            except MeshError as exc:
+                print(f"warning: mesh join failed ({exc}); becoming proxy", file=sys.stderr)
+                if open_switch is not None:
+                    try:
+                        real = open_switch()  # type: ignore[operator]
+                        server.switch = real
+                        active_switch = real
+                    except Exception as open_exc:  # noqa: BLE001
+                        print(f"error: {open_exc}", file=sys.stderr)
+                        server.server_close()
+                        return 1
+                mesh_controller._become_proxy(reason="join-failed")
+            else:
+                _start_mesh_sse_bridge(server, active_switch.proxy_url)
+        else:
+            mesh_controller._become_proxy(reason="elected")
+        mesh_role = mesh_controller.state.role
+        server.mesh = mesh_controller
+
+    mesh_alias = None
+    if mesh_controller is not None:
+        mesh_alias = mesh_controller.state.mesh_mdns_name
+    # Advertise switch identity even without mesh so discover can flag conflicts.
+    advertise_switch = switch_id
+    if advertise_switch is None:
+        try:
+            advertise_switch = switch_id_from_env(env_file)
+        except MeshError:
+            advertise_switch = None
     try:
         advertisement = mdns_mod.start_for_listener(
             bind_host=host,
@@ -929,13 +1309,38 @@ def serve_http(
             instance_name=mdns_name,
             version=pkg_version.package_version(),
             panel=panel_enabled,
-            input_count=switch.input_count,
+            input_count=active_switch.input_count,
+            mesh=mesh_on,
+            switch_id=advertise_switch,
+            started_at=started_at if mesh_on else None,
+            role=mesh_role if mesh_on else None,
+            mesh_name=mesh_alias if mesh_on else None,
         )
     except mdns_mod.MdnsError as exc:
         print(f"error: {exc}", file=sys.stderr)
         server.server_close()
         return 1
     server.mdns_name = advertisement.instance_name if advertisement is not None else None
+    if mesh_controller is not None:
+        mesh_controller.set_identity(mdns_name=server.mdns_name, base_url=base_url)
+        # Role was chosen before mDNS registered; push current TXT + mesh alias
+        # now that advertisement exists (promote/demote during setup no-oped).
+        _refresh_mesh_advertise(advertisement, mesh_controller, panel_enabled, server)
+        # Re-publish TXT when HDMI link flips (promote open / demote / failed TCP).
+        _last_link = [_switch_link_for_server(server)]
+        _orig_tick = mesh_controller.tick
+
+        def _tick_with_link() -> None:
+            _orig_tick()
+            link = _switch_link_for_server(server)
+            if link != _last_link[0]:
+                _last_link[0] = link
+                _refresh_mesh_advertise(
+                    advertisement, mesh_controller, panel_enabled, server
+                )
+
+        mesh_controller.tick = _tick_with_link  # type: ignore[method-assign]
+        mesh_controller.start_watcher()
 
     server.callbacks.start()
     try:
@@ -951,6 +1356,120 @@ def serve_http(
     return 0
 
 
+def _switch_link_for_server(server: "WebServer") -> str:
+    from .mesh import switch_link_state
+
+    return switch_link_state(getattr(server, "switch", None))
+
+
+def _refresh_mesh_advertise(
+    advertisement: object | None,
+    mesh_controller: object | None,
+    panel_enabled: bool,
+    server: "WebServer",
+) -> None:
+    """Update instance TXT and (when proxy) the shared mesh failover alias."""
+    if advertisement is None or mesh_controller is None:
+        return
+    from . import mdns as mdns_mod
+    from .mesh import ROLE_PROXY
+
+    ensure = getattr(mesh_controller, "ensure_mesh_mdns_name", None)
+    if callable(ensure):
+        ensure()
+    snap = mesh_controller.snapshot()  # type: ignore[attr-defined]
+    mesh_name = snap.get("mesh_mdns_name")
+    link = _switch_link_for_server(server)
+    set_link = getattr(mesh_controller, "set_switch_link", None)
+    if callable(set_link):
+        set_link(link)
+    props = mdns_mod.build_properties(
+        version=pkg_version.package_version(),
+        panel=panel_enabled,
+        input_count=server.switch.input_count,
+        mesh=True,
+        switch_id=snap.get("switch_id"),
+        started_at=snap.get("started_at"),
+        role=snap.get("role"),
+        mesh_name=mesh_name,
+        link=link,
+    )
+    update = getattr(advertisement, "update_properties", None)
+    if callable(update):
+        update(props)
+
+    set_alias = getattr(advertisement, "set_alias", None)
+    clear_alias = getattr(advertisement, "clear_alias", None)
+    if snap.get("role") == ROLE_PROXY and mesh_name and callable(set_alias):
+        alias_props = mdns_mod.build_properties(
+            version=pkg_version.package_version(),
+            panel=panel_enabled,
+            input_count=server.switch.input_count,
+            mesh=True,
+            switch_id=snap.get("switch_id"),
+            started_at=snap.get("started_at"),
+            role=ROLE_PROXY,
+            mesh_name=mesh_name,
+            kind="mesh",
+            link=link,
+        )
+        set_alias(str(mesh_name), alias_props)
+    elif callable(clear_alias):
+        clear_alias()
+
+
+def _start_mesh_sse_bridge(server: "WebServer", proxy_url: str) -> None:
+    """Forward proxy SSE events onto this mesh client's EventHub."""
+    if server.mesh_sse_stop is not None:
+        server.mesh_sse_stop.set()
+    stop = threading.Event()
+    server.mesh_sse_stop = stop
+
+    def loop() -> None:
+        import urllib.request
+
+        url = f"{proxy_url.rstrip('/')}/events"
+        while not stop.is_set():
+            try:
+                request = urllib.request.Request(url, headers={"Accept": "text/event-stream"})
+                with urllib.request.urlopen(request, timeout=60) as response:
+                    event_name = "message"
+                    data_lines: list[str] = []
+                    while not stop.is_set():
+                        raw = response.readline()
+                        if not raw:
+                            break
+                        line = raw.decode("utf-8", "replace").rstrip("\r\n")
+                        if line.startswith(":"):
+                            continue
+                        if line.startswith("event:"):
+                            event_name = line[6:].strip() or "message"
+                            continue
+                        if line.startswith("data:"):
+                            data_lines.append(line[5:].lstrip())
+                            continue
+                        if line == "" and data_lines:
+                            payload_text = "\n".join(data_lines)
+                            data_lines = []
+                            name = event_name
+                            event_name = "message"
+                            if name in {"hello", "mesh"}:
+                                continue
+                            try:
+                                payload = json.loads(payload_text) if payload_text else {}
+                            except json.JSONDecodeError:
+                                payload = {"raw": payload_text}
+                            if isinstance(payload, dict):
+                                payload.setdefault("event", name)
+                                payload.setdefault("mesh_relay", True)
+                                server.events.publish(payload)
+            except Exception:
+                if stop.wait(2.0):
+                    return
+
+    threading.Thread(target=loop, name="tesmart-mesh-sse", daemon=True).start()
+
+
 def _stop_http_listener(server: WebServer, advertisement: object | None) -> None:
     """Close mDNS, event streams, and the socket. Further Ctrl-C is ignored."""
     import signal
@@ -959,6 +1478,26 @@ def _stop_http_listener(server: WebServer, advertisement: object | None) -> None
         signal.signal(signal.SIGINT, signal.SIG_IGN)
     except (OSError, ValueError):
         pass
+    # Drop the mesh failover alias before resign/notify so a newly elected
+    # proxy can claim the same DNS-SD name without waiting out a conflict.
+    if advertisement is not None:
+        try:
+            clear_alias = getattr(advertisement, "clear_alias", None)
+            if callable(clear_alias):
+                clear_alias()
+        except BaseException:
+            pass
+    mesh = getattr(server, "mesh", None)
+    if mesh is not None:
+        try:
+            mesh.stop()
+        except BaseException:
+            pass
+    if server.mesh_sse_stop is not None:
+        try:
+            server.mesh_sse_stop.set()
+        except BaseException:
+            pass
     if advertisement is not None:
         try:
             close = getattr(advertisement, "close", None)
@@ -972,6 +1511,18 @@ def _stop_http_listener(server: WebServer, advertisement: object | None) -> None
         pass
     try:
         server.callbacks.stop()
+    except BaseException:
+        pass
+    try:
+        owned = getattr(server.switch, "_mesh_owned_transport", None)
+        if owned is not None:
+            try:
+                owned.close()
+            except BaseException:
+                pass
+        close_switch = getattr(server.switch, "close", None)
+        if callable(close_switch):
+            close_switch()
     except BaseException:
         pass
     try:

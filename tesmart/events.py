@@ -99,8 +99,10 @@ def stream_sse(handler: Any, hub: EventHub) -> None:
             "ok": True,
             "subscribers": hub.subscriber_count(),
             "at": time.time(),
-            "mdns_name": getattr(getattr(handler, "server", None), "mdns_name", None),
         }
+        from .mdns import attach_mdns_identity
+
+        attach_mdns_identity(hello, getattr(handler, "server", None))
         handler.wfile.write(format_sse(hello))
         handler.wfile.flush()
 

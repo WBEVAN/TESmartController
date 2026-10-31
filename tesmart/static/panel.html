@@ -251,6 +251,50 @@
       </div>
     </section>
 
+    <!-- Mesh -->
+    <section class="col-lg-4">
+      <div class="card h-100">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <span>Mesh</span>
+          <span class="badge rounded-pill text-bg-secondary" id="mesh-role">off</span>
+        </div>
+        <div class="card-body">
+          <p class="small text-body-secondary" id="mesh-summary">Mesh is off on this listener.</p>
+          <dl class="row small mb-2" id="mesh-facts">
+            <dt class="col-5">Switch</dt><dd class="col-7 font-monospace" id="mesh-switch">—</dd>
+            <dt class="col-5">Proxy</dt><dd class="col-7 font-monospace text-break" id="mesh-proxy">—</dd>
+            <dt class="col-5">Mesh mDNS</dt><dd class="col-7 font-monospace text-break" id="mesh-mdns">—</dd>
+            <dt class="col-5">Started</dt><dd class="col-7 font-monospace" id="mesh-started">—</dd>
+          </dl>
+          <div class="small fw-semibold mb-1">Peers</div>
+          <ul class="list-group list-group-flush small" id="mesh-peers" aria-label="Mesh peers"></ul>
+        </div>
+        <div class="card-footer small text-body-secondary">
+          With <code>--mesh</code>, the oldest listener for this TCP switch owns the connection. Others relay through it.
+        </div>
+      </div>
+    </section>
+
+    <!-- Backup / move listener config -->
+    <section class="col-lg-4">
+      <div class="card h-100">
+        <div class="card-header">Backup</div>
+        <div class="card-body d-flex flex-column gap-3">
+          <p class="small text-body-secondary mb-0">
+            Export this listener’s configuration (names, enablement, cycle, peek, messages, callbacks, listen settings, and kit prefs) so you can import it on another computer.
+          </p>
+          <div class="d-flex flex-wrap gap-2">
+            <button type="button" class="btn btn-outline-primary btn-sm" id="btn-config-export">Export…</button>
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="btn-config-import">Import…</button>
+            <input type="file" class="d-none" id="config-import-file" accept="application/json,.json">
+          </div>
+        </div>
+        <div class="card-footer small text-body-secondary">
+          Import replaces the env file on this listener. Adjust the switch address afterward if the new host uses a different IP.
+        </div>
+      </div>
+    </section>
+
   </div>
 </main>
 
@@ -320,6 +364,27 @@
   </div>
 </div>
 
+<!-- Config import confirmation (no browser dialogs) -->
+<div class="modal fade" id="config-import-modal" tabindex="-1" aria-labelledby="config-import-title" aria-hidden="true"
+     data-bs-backdrop="static" data-bs-keyboard="false">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h1 class="modal-title fs-5" id="config-import-title">Import listener configuration</h1>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-body-secondary small">This replaces the configuration on this listener, including message history.</p>
+        <pre class="small mb-0 config-import-summary" id="config-import-summary"></pre>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-warning" id="config-import-confirm">Import</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Connection samples -->
 <div class="modal fade" id="connect-modal" tabindex="-1" aria-labelledby="connect-modal-title" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
@@ -336,6 +401,8 @@
           <dd class="col-sm-9 font-monospace" id="connect-switch">—</dd>
           <dt class="col-sm-3">mDNS name</dt>
           <dd class="col-sm-9 font-monospace" id="connect-mdns">—</dd>
+          <dt class="col-sm-3">Mesh</dt>
+          <dd class="col-sm-9 font-monospace" id="connect-mesh">—</dd>
         </dl>
         <div class="d-flex justify-content-between align-items-center mb-1">
           <span class="fw-semibold">Samples</span>

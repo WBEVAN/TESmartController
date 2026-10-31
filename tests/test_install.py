@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 
 import pytest
@@ -94,6 +95,66 @@ def test_color_is_ansi_on_a_terminal_and_plain_otherwise(monkeypatch: pytest.Mon
 def test_install_is_a_command():
     args = build_parser().parse_args(["install"])
     assert args.command == "install"
+    args = build_parser().parse_args(["install", "--import", "office.json"])
+    assert args.import_file == "office.json"
+
+
+def test_install_import_seeds_then_can_decline_save(tmp_path, clean_env):
+    env = tmp_path / "env"
+    dump = tmp_path / "office.json"
+    dump.write_text(
+        json.dumps(
+            {
+                "format": "tesmartctl-config",
+                "version": 1,
+                "env": {
+                    "TESMART_HOST": "10.9.8.7",
+                    "TESMART_PORT": "5000",
+                    "TESMART_INPUTS": "8",
+                    "TESMART_NAME_2": "Office",
+                    "TESMART_BANNER_HISTORY": json.dumps(
+                        [{"id": 1, "text": "Door unlocked", "from": "Hubitat", "mode": "timed", "seconds": 8, "at": 1.0}]
+                    ),
+                    "TESMART_HTTP": "off",
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    prompter = ScriptedPrompter(
+        [
+            "y",  # apply import
+            "1",  # server
+            "",  # TCP
+            "",  # host from import
+            "",  # port
+            "n",  # skip test
+            "",  # confirm 8 inputs
+            "n",  # no mDNS
+            "n",  # no HTTP
+            "n",  # no startup.txt
+            "n",  # do not overwrite connection keys again
+        ]
+    )
+    code = run_install(
+        settings=_settings(env),
+        prompter=prompter,
+        directory=tmp_path,
+        nics=[],
+        import_file=str(dump),
+        probe=lambda **_kwargs: (_ for _ in ()).throw(AssertionError("probe should not run")),
+        ensure=_ensure_ok([]),
+    )
+    assert code == 0, prompter.text()
+    assert "Starting from" in prompter.text()
+    assert "messages:   1" in prompter.text()
+    values = config.read_env_file(env)
+    assert values["TESMART_HOST"] == "10.9.8.7"
+    assert values["TESMART_NAME_2"] == "Office"
+    history = config.read_banner_history(str(env))
+    assert history[0]["text"] == "Door unlocked"
+    assert history[0]["from"] == "Hubitat"
 
 
 def test_noninteractive_exits_without_reading_input(capsys, clean_env):
@@ -209,6 +270,7 @@ def test_server_install_saves_switch_and_startup(tmp_path, clean_env):
             "y",
             "9090",
             "",
+            "n",  # mesh off
             "2",
             "y",
             "y",
@@ -650,6 +712,7 @@ def test_install_reuses_the_saved_listener_address(tmp_path, clean_env):
             "",  # keep HTTP
             "",  # keep the listen port
             "",  # keep the browser UI
+            "n",  # mesh off
             "",  # keep the saved NIC address
             "n",  # do not write startup.txt
             "y",  # save

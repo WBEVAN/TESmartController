@@ -14,11 +14,20 @@ class ApiError extends Error {
   }
 }
 
-function mdnsNamesConflict(expected, reported) {
+function mdnsNamesConflict(expected, reported, alsoKnownAs) {
   const norm = (value) => String(value || "").trim().replace(/\./g, "-").toLowerCase();
   const want = norm(expected);
-  const got = norm(reported);
-  return Boolean(want && got && want !== got);
+  if (!want) return false;
+  const aliases = [];
+  const push = (value) => {
+    const got = norm(value);
+    if (got) aliases.push(got);
+  };
+  push(reported);
+  if (Array.isArray(alsoKnownAs)) alsoKnownAs.forEach(push);
+  else if (alsoKnownAs) push(alsoKnownAs);
+  if (!aliases.length) return false;
+  return !aliases.includes(want);
 }
 
 class Api {
@@ -51,17 +60,30 @@ class Api {
     };
   }
 
-  async #request(method, path, body) {
+  async #request(method, path, body, { timeoutMs = 8000 } = {}) {
     const init = { method, headers: {} };
     if (body !== undefined) {
       init.headers["Content-Type"] = "application/json";
       init.body = JSON.stringify(body);
     }
+    // Mesh promote used to wedge /api/state on HDMI TCP; without a budget the
+    // panel stays on "connecting…" / "talking" forever while /version is fine.
+    const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+    let timer = 0;
+    if (ctrl && timeoutMs > 0) {
+      init.signal = ctrl.signal;
+      timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    }
     let response;
     try {
       response = await fetch(path, init);
     } catch (error) {
+      if (ctrl && error && error.name === "AbortError") {
+        throw new ApiError("listener timed out (state/switch)", 0);
+      }
       throw new ApiError("listener not reachable", 0);
+    } finally {
+      if (timer) clearTimeout(timer);
     }
     let payload = {};
     try {
@@ -351,6 +373,14 @@ class Panel {
       event.preventDefault();
       this.askNetwork();
     });
+    const exportBtn = document.getElementById("btn-config-export");
+    const importBtn = document.getElementById("btn-config-import");
+    const importFile = document.getElementById("config-import-file");
+    if (exportBtn) exportBtn.addEventListener("click", () => this.exportConfig());
+    if (importBtn && importFile) {
+      importBtn.addEventListener("click", () => importFile.click());
+      importFile.addEventListener("change", () => this.prepareConfigImport(importFile));
+    }
 
     document.addEventListener("visibilitychange", () => {
       if (document.hidden) {
@@ -421,8 +451,8 @@ class Panel {
       return;
     }
     if (kind === "hello") {
-      if (this.#mdnsConflict(data.mdns_name)) {
-        this.#failForeignListener(data.mdns_name);
+      if (this.#mdnsConflict(data.mdns_name, data.mesh_mdns_name)) {
+        this.#failForeignListener(data.mdns_name || data.mesh_mdns_name);
         this.#setLink("down");
         this.#showForeignLabel();
         return;
@@ -539,8 +569,8 @@ class Panel {
     }
   }
 
-  #mdnsConflict(reported) {
-    return mdnsNamesConflict(this.expectedMdns, reported);
+  #mdnsConflict(reported, alsoKnownAs) {
+    return mdnsNamesConflict(this.expectedMdns, reported, alsoKnownAs);
   }
 
   #failForeignListener(name) {
@@ -567,8 +597,8 @@ class Panel {
   async refresh(includeNetwork) {
     const state = await this.#call(async () => {
       const body = await this.api.get(`/api/state?network=${includeNetwork ? 1 : 0}`);
-      if (this.#mdnsConflict(body && body.mdns_name)) {
-        this.#failForeignListener(body.mdns_name);
+      if (this.#mdnsConflict(body && body.mdns_name, body && body.mesh_mdns_name)) {
+        this.#failForeignListener((body && body.mdns_name) || (body && body.mesh_mdns_name));
         throw new ApiError(`Wrong mDNS name (${body.mdns_name})`, 0);
       }
       return body;
@@ -999,6 +1029,114 @@ class Panel {
     this.el.networkForm.reset();
   }
 
+  async exportConfig() {
+    const result = await this.#call(() => this.api.get("/api/config"), { local: true });
+    if (!result || !result.bundle) return;
+    const stamp = new Date().toISOString().slice(0, 10);
+    const name = `tesmartctl-config-${stamp}.json`;
+    const blob = new Blob([`${JSON.stringify(result.bundle, null, 2)}\n`], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = name;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    const summary = result.summary || {};
+    this.toaster.success(
+      `Exported ${summary.messages || 0} message(s), ${summary.names || 0} name(s).`,
+    );
+  }
+
+  prepareConfigImport(fileInput) {
+    const file = fileInput.files && fileInput.files[0];
+    fileInput.value = "";
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onerror = () => this.toaster.error("Could not read that file.");
+    reader.onload = () => {
+      let bundle;
+      try {
+        bundle = JSON.parse(String(reader.result || ""));
+      } catch {
+        this.toaster.error("That file is not valid JSON.");
+        return;
+      }
+      this.#openConfigImport(bundle);
+    };
+    reader.readAsText(file);
+  }
+
+  #openConfigImport(bundle) {
+    const modalEl = document.getElementById("config-import-modal");
+    const summaryEl = document.getElementById("config-import-summary");
+    const confirmBtn = document.getElementById("config-import-confirm");
+    if (!modalEl || !summaryEl || !confirmBtn) {
+      this.toaster.error("Import UI is missing from this page.");
+      return;
+    }
+    const env = bundle && bundle.env && typeof bundle.env === "object" ? bundle.env : {};
+    const historyRaw = String(env.TESMART_BANNER_HISTORY || "").trim();
+    let messages = 0;
+    if (historyRaw) {
+      try {
+        const parsed = JSON.parse(historyRaw);
+        if (Array.isArray(parsed)) messages = parsed.length;
+      } catch {
+        messages = 0;
+      }
+    }
+    const nameKeys = Object.keys(env).filter((key) => /^TESMART_NAME_\d+$/.test(key));
+    const lines = [
+      `format:    ${bundle.format || "(missing)"}`,
+      `version:   ${bundle.version ?? "(missing)"}`,
+      `host:      ${env.TESMART_HOST || "-"}:${env.TESMART_PORT || "-"}`,
+      `inputs:    ${env.TESMART_INPUTS || "-"}`,
+      `listen:    ${env.TESMART_HTTP || "-"}`,
+      `names:     ${nameKeys.length}`,
+      `messages:  ${messages}`,
+      `kit prefs: ${bundle.kit ? "yes" : "no"}`,
+      `exported:  ${bundle.exported_at || "-"}`,
+    ];
+    summaryEl.textContent = lines.join("\n");
+    this._pendingImport = bundle;
+    const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+    if (this._importConfirmHandler) {
+      confirmBtn.removeEventListener("click", this._importConfirmHandler);
+    }
+    this._importConfirmHandler = async () => {
+      await this.#confirmConfigImport();
+      modal.hide();
+    };
+    confirmBtn.addEventListener("click", this._importConfirmHandler, { once: true });
+    modal.show();
+  }
+
+  async #confirmConfigImport() {
+    const bundle = this._pendingImport;
+    this._pendingImport = null;
+    if (!bundle) return;
+    const result = await this.#call(
+      () => this.api.post("/api/config", { bundle }),
+      { local: true },
+    );
+    if (!result) return;
+    if (result.state) {
+      const network = (this.state && this.state.network) || result.state.network;
+      this.state = { ...result.state, network };
+      this.render();
+    } else {
+      await this.refresh(false);
+    }
+    const summary = result.summary || {};
+    this.toaster.success(
+      `Imported ${summary.messages || 0} message(s), ${summary.names || 0} name(s).`,
+    );
+  }
+
   // --- auto cycle (listener-owned) ----------------------------------------
 
   async #applyAutoCycle() {
@@ -1044,7 +1182,73 @@ class Panel {
     this.renderNames();
     this.renderCycle();
     this.renderNetwork();
+    this.renderMesh();
     this.#syncAutoCycleCheckbox();
+  }
+
+  renderMesh() {
+    const roleEl = document.getElementById("mesh-role");
+    const summaryEl = document.getElementById("mesh-summary");
+    const switchEl = document.getElementById("mesh-switch");
+    const proxyEl = document.getElementById("mesh-proxy");
+    const meshMdnsEl = document.getElementById("mesh-mdns");
+    const startedEl = document.getElementById("mesh-started");
+    const peersEl = document.getElementById("mesh-peers");
+    if (!roleEl || !summaryEl || !peersEl) return;
+    const mesh = this.state?.mesh || { enabled: false, role: "off", peers: [] };
+    const role = mesh.enabled ? mesh.role || "off" : "off";
+    roleEl.textContent = role;
+    roleEl.className = "badge rounded-pill " + (
+      role === "proxy" ? "text-bg-success"
+        : role === "client" ? "text-bg-primary"
+          : "text-bg-secondary"
+    );
+    if (!mesh.enabled) {
+      summaryEl.textContent = "Mesh is off on this listener.";
+      if (switchEl) switchEl.textContent = "—";
+      if (proxyEl) proxyEl.textContent = "—";
+      if (meshMdnsEl) meshMdnsEl.textContent = "—";
+      if (startedEl) startedEl.textContent = "—";
+      peersEl.innerHTML = "";
+      return;
+    }
+    summaryEl.textContent = role === "proxy"
+      ? "This listener owns the switch connection for the mesh."
+      : "This listener relays switch work through the mesh proxy.";
+    if (switchEl) switchEl.textContent = mesh.switch_id || "—";
+    if (proxyEl) proxyEl.textContent = mesh.proxy || (role === "proxy" ? "(this node)" : "—");
+    if (meshMdnsEl) {
+      meshMdnsEl.textContent = mesh.mesh_mdns_name
+        ? `${mesh.mesh_mdns_name}${role === "proxy" ? " (advertised here)" : " (follow for failover)"}`
+        : "—";
+    }
+    if (startedEl) {
+      const at = Number(mesh.started_at);
+      startedEl.textContent = Number.isFinite(at) && at > 0
+        ? new Date(at).toISOString().replace("T", " ").replace("Z", " UTC")
+        : "—";
+    }
+    const peers = Array.isArray(mesh.peers) ? mesh.peers : [];
+    peersEl.innerHTML = "";
+    if (!peers.length) {
+      const empty = document.createElement("li");
+      empty.className = "list-group-item px-0 text-body-secondary";
+      empty.textContent = "No other peers yet.";
+      peersEl.appendChild(empty);
+      return;
+    }
+    for (const peer of peers) {
+      const item = document.createElement("li");
+      item.className = "list-group-item px-0";
+      const name = peer.mdns_name || peer.url || "peer";
+      const peerRole = peer.role || "?";
+      const selfMark = peer.self ? " (this node)" : "";
+      item.textContent = `${name} · ${peerRole}${selfMark}`;
+      if (peer.url && !peer.self) {
+        item.title = peer.url;
+      }
+      peersEl.appendChild(item);
+    }
   }
 
   #syncAutoCycleCheckbox() {
@@ -1850,6 +2054,17 @@ class ConnectGuide {
     document.getElementById("connect-listener").textContent = origin;
     document.getElementById("connect-switch").textContent = endpoint || "waiting for the switch";
     document.getElementById("connect-mdns").textContent = mdns || "not advertising";
+    const meshEl = document.getElementById("connect-mesh");
+    if (meshEl) {
+      const mesh = state.mesh || {};
+      if (!mesh.enabled) {
+        meshEl.textContent = "off";
+      } else if (mesh.role === "proxy") {
+        meshEl.textContent = `proxy · ${mesh.switch_id || "switch"} · ${(mesh.peers || []).length} peer(s)`;
+      } else {
+        meshEl.textContent = `client via ${mesh.proxy || "?"} · ${mesh.switch_id || ""}`.trim();
+      }
+    }
     const lines = [
       `curl ${origin}/status`,
       `curl ${origin}/input`,

@@ -18,6 +18,7 @@ import urllib.request
 from typing import Any
 
 from . import config, notices
+from .config_bundle import BundleError
 from .version import package_version
 from .banner import DEFAULT_FROM as BANNER_DEFAULT_FROM
 from .banner import DEFAULT_SECONDS as BANNER_DEFAULT_SECONDS
@@ -272,7 +273,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     p_cfg = _add(sub, "config", "show or persist CLI defaults (no connection needed)")
-    cfg_sub = p_cfg.add_subparsers(dest="config_command", required=True, metavar="<show|set|unset|path>")
+    cfg_sub = p_cfg.add_subparsers(
+        dest="config_command",
+        required=True,
+        metavar="<show|set|unset|path|export|import>",
+    )
     cfg_sub.add_parser("show", help="print effective settings and where each came from")
     cfg_sub.add_parser("path", help="print the env file location")
     p_cfg_set = cfg_sub.add_parser(
@@ -283,6 +288,40 @@ def build_parser() -> argparse.ArgumentParser:
     p_cfg_set.add_argument("value")
     cfg_sub.add_parser("unset", help="remove a persisted default").add_argument(
         "name", choices=sorted(config.SETTINGS)
+    )
+    p_cfg_export = cfg_sub.add_parser(
+        "export",
+        help="write a portable JSON dump of this listener (env file, messages, kit prefs)",
+        epilog=epilog_for("config export"),
+        formatter_class=_RAW,
+    )
+    p_cfg_export.add_argument(
+        "file",
+        nargs="?",
+        default="-",
+        help="output path (default: write JSON to stdout)",
+    )
+    p_cfg_export.add_argument(
+        "--no-kit",
+        action="store_true",
+        help="omit kit.json look/feel prefs from the dump",
+    )
+    p_cfg_import = cfg_sub.add_parser(
+        "import",
+        help="replace this computer's env file (and kit prefs) from a portable JSON dump",
+        epilog=epilog_for("config import"),
+        formatter_class=_RAW,
+    )
+    p_cfg_import.add_argument("file", help="path to a tesmartctl-config JSON file")
+    p_cfg_import.add_argument(
+        "--merge",
+        action="store_true",
+        help="keep existing env keys that the dump does not set (default: replace the env file)",
+    )
+    p_cfg_import.add_argument(
+        "--no-kit",
+        action="store_true",
+        help="do not write kit.json even if the dump includes kit prefs",
     )
 
     p_name = _add(sub, "name", "label an input locally (stored in the env file, not on the switch)")
@@ -368,10 +407,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     _add(sub, "examples", "print worked examples for every command (no connection needed)")
 
-    _add(
+    p_install = _add(
         sub,
         "install",
         "ask the questions that set up a server or a client (writes the env file only after you confirm)",
+    )
+    p_install.add_argument(
+        "--import",
+        dest="import_file",
+        metavar="FILE",
+        help="start from a portable config JSON (from `config export`); confirm, then adjust",
     )
     p_quick = _add(
         sub,
@@ -422,6 +467,29 @@ def build_parser() -> argparse.ArgumentParser:
         help="simulate input changes, peek, and cycle on this computer and do not talk to an HDMI switch",
     )
     p_listen.add_argument(
+        "--mesh",
+        action="store_true",
+        help="with --http: join a mesh for this TCP switch (oldest peer owns the switch connection)",
+    )
+    p_quick.add_argument(
+        "--mesh",
+        action="store_true",
+        help="enable mesh for this quickstart (or use TESMART_HTTP_MESH=1 from install)",
+    )
+    p_listen.add_argument(
+        "--mesh-mdns-name",
+        default=None,
+        metavar="NAME",
+        help="with --mesh: shared failover mDNS name advertised only by the proxy "
+             "(default: {instance}-mesh; env TESMART_HTTP_MESH_MDNS_NAME)",
+    )
+    p_quick.add_argument(
+        "--mesh-mdns-name",
+        default=None,
+        metavar="NAME",
+        help="shared mesh failover mDNS name (default: {instance}-mesh)",
+    )
+    p_listen.add_argument(
         "--mdns-name",
         default=None,
         metavar="NAME",
@@ -450,6 +518,19 @@ def build_parser() -> argparse.ArgumentParser:
         "--save",
         action="store_true",
         help="remember the chosen base URL (and --mdns-name) in the env file",
+    )
+
+    p_mesh = _add(
+        sub,
+        "mesh",
+        "show mesh status for this switch (mDNS browse and optional live /mesh)",
+    )
+    mesh_sub = p_mesh.add_subparsers(dest="mesh_command", required=True, metavar="<status>")
+    mesh_sub.add_parser(
+        "status",
+        help="browse mesh peers for this TCP switch; query a live listener when --via is set",
+        epilog=epilog_for("mesh status"),
+        formatter_class=_RAW,
     )
 
     p_kit = _add(
@@ -905,6 +986,7 @@ def cmd_quickstart(args: argparse.Namespace) -> int:
     When that listener is not saved, ask to run ``install`` and then start.
     """
     from .install import run_install
+    from .mesh import mesh_enabled
     from .quickstart import Quickstart, run_quickstart
 
     def configure() -> int:
@@ -912,6 +994,17 @@ def cmd_quickstart(args: argparse.Namespace) -> int:
 
     def serve(ready: Quickstart) -> int:
         settings = resolve_settings(args)
+        mesh_flag = True if getattr(args, "mesh", False) else None
+        use_mesh = mesh_enabled(args.env_file, flag=mesh_flag)
+
+        def open_live():
+            transport = open_transport(settings)
+            # Keep the transport open for the life of the listener; serve_http
+            # owns the switch until exit. Store on the switch for close later.
+            switch = TesmartSwitch(transport, input_count=settings.inputs, reply_timeout=args.timeout)
+            switch._mesh_owned_transport = transport  # type: ignore[attr-defined]
+            return switch
+
         if getattr(args, "simulate", False):
             from .simulate import SimulatedSwitch
 
@@ -925,9 +1018,25 @@ def cmd_quickstart(args: argparse.Namespace) -> int:
                     panel_enabled=ready.panel,
                     mdns=ready.mdns,
                     mdns_name=ready.mdns_name,
+                    mesh=mesh_flag if use_mesh or mesh_flag else False,
+                    mesh_mdns_name=getattr(args, "mesh_mdns_name", None),
+                    open_switch=lambda: SimulatedSwitch(input_count=settings.inputs),
                 )
             finally:
                 switch.close()
+        if use_mesh:
+            return serve_http(
+                None,
+                ready.host,
+                ready.port,
+                args.env_file,
+                panel_enabled=ready.panel,
+                mdns=ready.mdns,
+                mdns_name=ready.mdns_name,
+                mesh=True,
+                mesh_mdns_name=getattr(args, "mesh_mdns_name", None),
+                open_switch=open_live,
+            )
         with open_transport(settings) as transport:
             switch = TesmartSwitch(transport, input_count=settings.inputs, reply_timeout=args.timeout)
             return serve_http(
@@ -938,12 +1047,14 @@ def cmd_quickstart(args: argparse.Namespace) -> int:
                 panel_enabled=ready.panel,
                 mdns=ready.mdns,
                 mdns_name=ready.mdns_name,
+                mesh=False,
+                mesh_mdns_name=getattr(args, "mesh_mdns_name", None),
             )
 
     return run_quickstart(args.env_file, configure=configure, serve=serve)
 
 
-def cmd_listen(switch: TesmartSwitch, args: argparse.Namespace) -> int:
+def cmd_listen(switch: TesmartSwitch | None, args: argparse.Namespace) -> int:
     if args.http is not None:
         host, port = args.http
         if args.mdns:
@@ -952,6 +1063,7 @@ def cmd_listen(switch: TesmartSwitch, args: argparse.Namespace) -> int:
             mdns = False
         else:
             mdns = None
+        mesh_flag = True if getattr(args, "mesh", False) else None
         return serve_http(
             switch,
             host,
@@ -960,6 +1072,9 @@ def cmd_listen(switch: TesmartSwitch, args: argparse.Namespace) -> int:
             panel_enabled=args.panel,
             mdns=mdns,
             mdns_name=args.mdns_name,
+            mesh=mesh_flag,
+            mesh_mdns_name=getattr(args, "mesh_mdns_name", None),
+            open_switch=getattr(args, "_open_switch", None),
         )
     if getattr(switch, "simulated", False):
         print(
@@ -975,6 +1090,127 @@ def cmd_listen(switch: TesmartSwitch, args: argparse.Namespace) -> int:
         return serve_stdio(switch, as_json=args.json, env_file=args.env_file)
     host, port = args.bind
     return serve_tcp(switch, host, port, as_json=args.json, env_file=args.env_file)
+
+
+def cmd_mesh(args: argparse.Namespace) -> int:
+    """Mesh membership for this computer's switch (no switch TCP required)."""
+    from . import via_client
+    from .mdns import DEFAULT_BROWSE_TIMEOUT, MdnsError, browse
+    from .mesh import (
+        MeshError,
+        format_mesh_status_text,
+        mesh_enabled,
+        peer_from_listener,
+        same_switch,
+        same_switch_standalones,
+        switch_id_from_env,
+    )
+
+    if args.mesh_command != "status":
+        print(f"error: unknown mesh command {args.mesh_command!r}", file=sys.stderr)
+        return 2
+
+    try:
+        switch_id = switch_id_from_env(args.env_file)
+    except MeshError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    local_enabled = mesh_enabled(args.env_file)
+    timeout = float(args.timeout) if args.timeout is not None else DEFAULT_BROWSE_TIMEOUT
+    peers: list[dict] = []
+    services: list = []
+    browse_error: str | None = None
+    try:
+        services = browse(timeout=timeout)
+        for service in services:
+            peer = peer_from_listener(service)
+            if peer is None:
+                continue
+            if same_switch(peer["switch_id"], switch_id):
+                peers.append(peer)
+    except MdnsError as exc:
+        browse_error = str(exc)
+
+    conflicts = same_switch_standalones(services, switch_id=switch_id)
+
+    live: dict | None = None
+    live_url: str | None = None
+    live_error: str | None = None
+    via = getattr(args, "via", None)
+    if via:
+        try:
+            live_url = via_client.resolve_base_url(
+                via=via,
+                mdns_name=args.mdns_name,
+                env_file=args.env_file,
+                timeout=max(timeout, 2.0),
+                remember=False,
+            )
+            live = via_client.request_json(live_url, "/mesh", timeout=8.0)
+        except Exception as exc:  # noqa: BLE001 - surface as status text
+            live_error = str(exc)
+    elif peers:
+        # Prefer an advertised proxy, else the first peer.
+        preferred = next((p for p in peers if p.get("role") == "proxy"), peers[0])
+        live_url = str(preferred.get("url") or "").rstrip("/") or None
+        if live_url:
+            try:
+                live = via_client.request_json(live_url, "/mesh", timeout=8.0)
+            except Exception as exc:  # noqa: BLE001
+                live_error = str(exc)
+
+    live_peers = list((live or {}).get("peers") or [])
+    # Unique mesh members: prefer the live snapshot; fall back to mDNS browse.
+    member_count = len(live_peers) if live_peers else len(peers)
+    only_member = member_count == 1
+    mesh_mdns = str((live or {}).get("mesh_mdns_name") or "").strip() or None
+    if not mesh_mdns:
+        for peer in peers:
+            name = str(peer.get("mesh_mdns_name") or "").strip()
+            if name:
+                mesh_mdns = name
+                break
+    payload = {
+        "switch_id": switch_id,
+        "local_mesh_enabled": local_enabled,
+        "mesh_mdns_name": mesh_mdns,
+        "peers": peers,
+        "peer_count": len(peers),
+        "member_count": member_count,
+        "only_member": only_member,
+        "live": live,
+        "live_url": live_url,
+        "conflicts": [
+            {
+                "instance_name": item.instance_name,
+                "base_url": item.base_url,
+                "switch_id": switch_id,
+            }
+            for item in conflicts
+        ],
+    }
+    if browse_error:
+        payload["browse_error"] = browse_error
+    if live_error:
+        payload["live_error"] = live_error
+
+    if args.json:
+        emit(args, payload, "")
+        return 0 if live_error is None or live is not None else 1
+
+    text = format_mesh_status_text(
+        switch_id=switch_id,
+        local_enabled=local_enabled,
+        services=services,
+        peers=peers,
+        live=live,
+        live_url=live_url,
+        browse_error=browse_error,
+        live_error=live_error,
+    )
+    emit(args, payload, text)
+    return 0 if (live is not None or peers or local_enabled) and live_error is None else (0 if not live_error else 1)
 
 
 def cmd_discover(args: argparse.Namespace) -> int:
@@ -1011,24 +1247,55 @@ def cmd_discover(args: argparse.Namespace) -> int:
             mdns_name=chosen.instance_name,
         )
         payload["saved"] = {"via": chosen.base_url, "mdns_name": chosen.instance_name, "env_file": str(path)}
+    from .mdns import (
+        describe_listener,
+        discover_switch_conflicts,
+        format_discover_text,
+        group_discover_listeners,
+    )
+
+    grouped = group_discover_listeners(services)
+    conflicts = discover_switch_conflicts(grouped)
+    payload["mesh"] = [
+        {
+            "mesh_name": group.get("mesh_name"),
+            "switch_id": group.get("switch_id"),
+            "alias": group["alias"].to_dict() if group.get("alias") is not None else None,
+            "members": [item.to_dict() for item in group.get("members") or []],
+        }
+        for group in grouped.get("mesh") or []
+    ]
+    payload["standalone"] = []
+    for item in grouped.get("standalone") or []:
+        entry = item.to_dict()
+        hit = conflicts.get(item.instance_name)
+        if hit:
+            entry["conflict"] = hit
+        payload["standalone"].append(entry)
+    if conflicts:
+        payload["switch_conflicts"] = [
+            {
+                "instance_name": name,
+                "switch_id": info["switch_id"],
+                "mesh_name": info["mesh_name"],
+            }
+            for name, info in sorted(conflicts.items())
+        ]
+
     if args.json:
         emit(args, payload, "")
         return 0
-    from .debug import log
-    from .mdns import describe_listener
 
-    lines = []
+    from .debug import log
+
     for item in services:
         log(f"browse {describe_listener(item)}")
-        props = item.properties
-        meta = " ".join(f"{key}={value}" for key, value in props.items()) if props else ""
-        host = item.hostname or (item.addresses[0] if item.addresses else "?")
-        lines.append(f"{item.instance_name:<20} {item.base_url:<28} {host}:{item.port}")
-        if meta:
-            lines.append(f"  {meta}")
+    lines = [format_discover_text(services)]
     if args.save and payload.get("saved"):
         saved = payload["saved"]
-        lines.append(f"Saved via={saved['via']} mdns_name={saved['mdns_name']} in {saved['env_file']}")
+        lines.append(
+            f"Saved via={saved['via']} mdns_name={saved['mdns_name']} in {saved['env_file']}"
+        )
     emit(args, payload, "\n".join(lines))
     return 0
 
@@ -1073,7 +1340,8 @@ def cmd_kit(args: argparse.Namespace) -> int:
     # The kit URL has to carry it so a later reconnect can reject a different one.
     if not mdns_name and (getattr(args, "via", None) or "").strip().lower() == "auto":
         mdns_name = (config.read_client_mdns_name(getattr(args, "env_file", None)) or "").strip()
-    if args.ports is not None or fresh or mdns_name:
+    kit_debug = bool(getattr(args, "debug", False) or getattr(args, "netdebug", False))
+    if args.ports is not None or fresh or mdns_name or kit_debug:
         parts = urlsplit(url)
         query = dict(parse_qsl(parts.query, keep_blank_values=True))
         if args.ports is not None:
@@ -1082,6 +1350,9 @@ def cmd_kit(args: argparse.Namespace) -> int:
             query["fresh"] = "1"
         if mdns_name:
             query["mdns"] = mdns_name
+        if kit_debug:
+            # Level 2 dumps full /api/state JSON on every poll (see kit.js).
+            query["debug"] = "2"
         url = urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
     width = args.width if args.width is not None else kit_window.DEFAULT_WIDTH
     height = args.height if args.height is not None else kit_window.DEFAULT_HEIGHT
@@ -1090,7 +1361,7 @@ def cmd_kit(args: argparse.Namespace) -> int:
         from .debug import log
 
         log(f"kit url {url} discover={discover}")
-        if getattr(args, "debug", False) or getattr(args, "netdebug", False):
+        if kit_debug:
             kit_window._probe_live(url, timeout=max(float(args.timeout), 2.0))
         result = kit_window.open_kit_window(
             url,
@@ -1099,7 +1370,7 @@ def cmd_kit(args: argparse.Namespace) -> int:
             prefer=args.prefer,
             block=True,
             fresh=fresh,
-            debug=bool(getattr(args, "debug", False) or getattr(args, "netdebug", False)),
+            debug=kit_debug,
             netdebug=bool(getattr(args, "netdebug", False)),
         )
     except kit_window.KitWindowError as exc:
@@ -1147,14 +1418,23 @@ def _kit_listener_base(args: argparse.Namespace) -> tuple[str | None, bool]:
         from .debug import log
 
         saved = (config.read_client_via_url(args.env_file) or "").strip().rstrip("/") or None
-        where = f" ({saved})" if saved else ""
-        log(f"browse failed: {exc}; fallback {saved or 'none'}")
+        # Never hand a dead sticky via to the boot deck — it sits on
+        # "Connection refused" for that host forever. Discover with no target.
+        if saved:
+            from .kit_window import _probe_live
+
+            ok, _detail = _probe_live(f"{saved}/kit", timeout=0.8)
+            if ok:
+                log(f"browse failed: {exc}; using reachable saved via {saved}")
+                return saved, True
+            log(f"browse failed: {exc}; ignoring dead saved via {saved}")
+        else:
+            log(f"browse failed: {exc}; waiting for advertise")
         print(
-            "listener not advertising; the kit will stay open and attach when it appears"
-            + where,
+            "listener not advertising; the kit will stay open and attach when it appears",
             file=sys.stderr,
         )
-        return saved, True
+        return None, True
     return base, True
 
 
@@ -1370,6 +1650,42 @@ def cmd_config(args: argparse.Namespace) -> int:
         path = config.unset_default(args.name, args.env_file)
         emit(args, {"removed": args.name, "env_file": str(path)}, f"Removed {args.name} from {path}")
         return 0
+    if args.config_command == "export":
+        from .config_bundle import dump_bundle, export_bundle, summarize_bundle, write_bundle
+
+        bundle = export_bundle(args.env_file, include_kit=not args.no_kit)
+        summary = summarize_bundle(bundle)
+        if args.file in {None, "", "-"}:
+            sys.stdout.write(dump_bundle(bundle))
+            return 0
+        path = write_bundle(args.file, bundle)
+        emit(
+            args,
+            {"exported": str(path), "summary": summary, "bundle": bundle},
+            f"Exported listener configuration to {path}",
+        )
+        return 0
+    if args.config_command == "import":
+        from .config_bundle import apply_bundle, load_bundle
+
+        bundle = load_bundle(args.file)
+        result = apply_bundle(
+            bundle,
+            args.env_file,
+            include_kit=not args.no_kit,
+            replace=not args.merge,
+        )
+        summary = result["summary"]
+        lines = [
+            f"Imported listener configuration into {result['env_file']}",
+            f"  keys:       {result['keys']}",
+            f"  messages:   {summary.get('messages', 0)}",
+            f"  names:      {summary.get('names', 0)}",
+            f"  callbacks:  {summary.get('callbacks', 0)}",
+            f"  kit prefs:  {'written' if result['kit_written'] else 'unchanged'}",
+        ]
+        emit(args, result, "\n".join(lines))
+        return 0
     settings = resolve_settings(args)
     data = settings.to_dict()
     width = max(
@@ -1457,6 +1773,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_set_enabled(args, enabled=args.command == "enable")
         if args.command == "discover":
             return cmd_discover(args)
+        if args.command == "mesh":
+            return cmd_mesh(args)
         if args.command == "banner":
             return cmd_banner(args)
         if args.command == "kit":
@@ -1469,7 +1787,11 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "install":
             from .install import run_install
 
-            return run_install(env_file=args.env_file, settings=resolve_settings(args))
+            return run_install(
+                env_file=args.env_file,
+                settings=resolve_settings(args),
+                import_file=getattr(args, "import_file", None),
+            )
         if args.command == "quickstart":
             return cmd_quickstart(args)
         if args.command == "listen" and getattr(args, "simulate", False):
@@ -1481,6 +1803,23 @@ def main(argv: list[str] | None = None) -> int:
                 return cmd_listen(switch, args)
             finally:
                 switch.close()
+
+        if args.command == "listen" and args.http is not None:
+            from .mesh import mesh_enabled
+
+            if mesh_enabled(args.env_file, flag=True if getattr(args, "mesh", False) else None):
+                settings = resolve_settings(args)
+
+                def open_live():
+                    transport = open_transport(settings)
+                    switch = TesmartSwitch(
+                        transport, input_count=settings.inputs, reply_timeout=args.timeout
+                    )
+                    switch._mesh_owned_transport = transport  # type: ignore[attr-defined]
+                    return switch
+
+                args._open_switch = open_live
+                return cmd_listen(None, args)
 
         if args.via:
             from . import via_client
@@ -1517,7 +1856,7 @@ def main(argv: list[str] | None = None) -> int:
         with open_transport(settings) as transport:
             switch = TesmartSwitch(transport, input_count=settings.inputs, reply_timeout=args.timeout)
             return HANDLERS[args.command](switch, args)
-    except (TransportError, SwitchError, config.ConfigError, ValueError) as exc:
+    except (TransportError, SwitchError, config.ConfigError, BundleError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 

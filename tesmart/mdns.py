@@ -290,9 +290,16 @@ def build_properties(
     panel: bool,
     input_count: int,
     path: str = "/",
+    mesh: bool = False,
+    switch_id: str | None = None,
+    started_at: int | None = None,
+    role: str | None = None,
+    mesh_name: str | None = None,
+    kind: str | None = None,
+    link: str | None = None,
 ) -> dict[str, str]:
     """TXT records advertised with the service."""
-    return {
+    props = {
         "path": path,
         "version": version,
         "panel": "1" if panel else "0",
@@ -300,24 +307,152 @@ def build_properties(
         "proto": "http",
         "domain": MDNS_DOMAIN,
     }
+    # Publish switch identity whenever known so discover can flag a standalone
+    # listener that targets the same HDMI switch as a mesh group.
+    if switch_id:
+        props["switch"] = str(switch_id)
+    if mesh and switch_id:
+        props["mesh"] = "1"
+        if started_at is not None:
+            props["started"] = str(int(started_at))
+        if role:
+            props["role"] = str(role)
+        if mesh_name:
+            props["mesh_name"] = str(mesh_name)
+        # Proxy TCP session to the HDMI switch (``up`` / ``down``). Clients are
+        # ``down`` locally — discover reads this on the proxy / alias row.
+        if link:
+            props["link"] = str(link).strip().lower()
+    if kind:
+        props["kind"] = str(kind)
+    return props
+
+
+def is_mesh_alias(service: "DiscoveredListener | dict[str, str]") -> bool:
+    """True when this DNS-SD instance is the shared mesh failover name (not a peer)."""
+    props = service.properties if isinstance(service, DiscoveredListener) else service
+    return str((props or {}).get("kind") or "").strip().lower() == "mesh"
 
 
 @dataclass
 class MdnsAdvertisement:
-    """Active registration; call :meth:`close` on listener shutdown."""
+    """Active registration; call :meth:`close` on listener shutdown.
+
+    When this node is the mesh proxy it may also register a second DNS-SD
+    instance (the mesh alias) on the same Zeroconf object so sticky clients can
+    keep using ``--mdns-name OfficeHDMI1-mesh`` across failover.
+    """
 
     zeroconf: Any
     info: Any
     instance_name: str
     service_type: str = SERVICE_TYPE
+    alias_info: Any | None = None
+    alias_name: str | None = None
+    _addresses: list[bytes] = field(default_factory=list)
+    _port: int = 0
+    _server: str = ""
 
     @property
     def service_name(self) -> str:
         return f"{self.instance_name}.{self.service_type}"
 
+    def update_properties(self, properties: dict[str, str]) -> None:
+        """Replace TXT records on the instance advertisement.
+
+        ``ServiceInfo.properties`` is read-only in python-zeroconf; updates go
+        through ``_set_properties`` then ``Zeroconf.update_service``.
+        """
+        self._apply_properties(self.info, properties)
+
+    def _apply_properties(self, info: Any, properties: dict[str, str]) -> None:
+        try:
+            set_props = getattr(info, "_set_properties", None)
+            if not callable(set_props):
+                raise RuntimeError("zeroconf ServiceInfo has no _set_properties")
+            set_props(properties)
+            update = getattr(self.zeroconf, "update_service", None)
+            if callable(update):
+                update(info)
+        except Exception as exc:
+            print(f"warning: mDNS TXT update failed: {exc}", file=sys.stderr)
+
+    def set_alias(self, name: str, properties: dict[str, str]) -> None:
+        """Register or refresh the mesh failover DNS-SD name (proxy only)."""
+        wanted = _normalize_instance(name)
+        if not wanted:
+            self.clear_alias()
+            return
+        if (
+            self.alias_info is not None
+            and self.alias_name
+            and self.alias_name.casefold() == wanted.casefold()
+        ):
+            self._apply_properties(self.alias_info, properties)
+            return
+        self.clear_alias()
+        try:
+            from zeroconf import ServiceInfo
+        except ImportError as exc:
+            print(f"warning: mDNS mesh alias not registered: {exc}", file=sys.stderr)
+            return
+        info = ServiceInfo(
+            self.service_type,
+            f"{wanted}.{self.service_type}",
+            addresses=list(self._addresses),
+            port=int(self._port),
+            properties=properties,
+            server=self._server or None,
+        )
+        registered = False
+        last_exc: Exception | None = None
+        # Hard-killed previous proxies leave the alias in LAN caches for a bit;
+        # retry with backoff so failover clients can resolve the shared name again.
+        for attempt, delay in enumerate((0.0, 1.0, 2.0, 4.0)):
+            if delay:
+                time.sleep(delay)
+            try:
+                self.zeroconf.register_service(info)
+                registered = True
+                break
+            except Exception as exc:
+                last_exc = exc
+                if attempt == 0:
+                    print(
+                        f"warning: mDNS mesh alias {wanted!r} conflict ({exc}); retrying",
+                        file=sys.stderr,
+                    )
+        if not registered:
+            print(
+                f"warning: mDNS mesh alias {wanted!r} not registered: {last_exc}",
+                file=sys.stderr,
+            )
+            return
+        self.alias_info = info
+        self.alias_name = wanted
+        print(f"  mDNS mesh alias: {wanted}.{self.service_type}", file=sys.stderr)
+
+    def clear_alias(self) -> None:
+        """Drop the mesh failover name (on demote / shutdown)."""
+        if self.alias_info is None:
+            self.alias_name = None
+            return
+        try:
+            self.zeroconf.unregister_service(self.alias_info)
+        except BaseException:
+            pass
+        if self.alias_name:
+            print(f"  mDNS mesh alias cleared: {self.alias_name}", file=sys.stderr)
+        self.alias_info = None
+        self.alias_name = None
+
     def close(self) -> None:
         # KeyboardInterrupt is a BaseException, so a second Ctrl-C during
         # zeroconf's thread join must not escape as a traceback.
+        try:
+            self.clear_alias()
+        except BaseException:
+            pass
         try:
             self.zeroconf.unregister_service(self.info)
         except BaseException:
@@ -336,6 +471,11 @@ def advertise(
     version: str,
     panel: bool,
     input_count: int,
+    mesh: bool = False,
+    switch_id: str | None = None,
+    started_at: int | None = None,
+    role: str | None = None,
+    mesh_name: str | None = None,
 ) -> MdnsAdvertisement:
     """Register ``_wbevan-tesmart._tcp`` on the LAN. Raises :class:`MdnsError` on failure."""
     try:
@@ -360,6 +500,11 @@ def advertise(
         version=version,
         panel=panel,
         input_count=input_count,
+        mesh=mesh,
+        switch_id=switch_id,
+        started_at=started_at,
+        role=role,
+        mesh_name=mesh_name,
     )
     info = ServiceInfo(
         SERVICE_TYPE,
@@ -375,7 +520,14 @@ def advertise(
     except Exception as exc:
         raise MdnsError(f"mDNS registration failed: {exc}") from exc
 
-    return MdnsAdvertisement(zeroconf=zc, info=info, instance_name=name)
+    return MdnsAdvertisement(
+        zeroconf=zc,
+        info=info,
+        instance_name=name,
+        _addresses=list(addresses),
+        _port=int(port),
+        _server=server,
+    )
 
 
 def start_for_listener(
@@ -387,6 +539,11 @@ def start_for_listener(
     version: str,
     panel: bool,
     input_count: int,
+    mesh: bool = False,
+    switch_id: str | None = None,
+    started_at: int | None = None,
+    role: str | None = None,
+    mesh_name: str | None = None,
     file=sys.stderr,
 ) -> MdnsAdvertisement | None:
     """Start advertisement when policy says so; print status lines to ``file``.
@@ -413,6 +570,11 @@ def start_for_listener(
             version=version,
             panel=panel,
             input_count=input_count,
+            mesh=mesh,
+            switch_id=switch_id,
+            started_at=started_at,
+            role=role,
+            mesh_name=mesh_name,
         )
     except MdnsError as exc:
         if force is True:
@@ -420,7 +582,16 @@ def start_for_listener(
         print(f"warning: mDNS not advertised: {exc}", file=file)
         return None
 
-    props = build_properties(version=version, panel=panel, input_count=input_count)
+    props = build_properties(
+        version=version,
+        panel=panel,
+        input_count=input_count,
+        mesh=mesh,
+        switch_id=switch_id,
+        started_at=started_at,
+        role=role,
+        mesh_name=mesh_name,
+    )
     txt = " ".join(f"{key}={value}" for key, value in props.items())
     try:
         published = [socket.inet_ntoa(addr) for addr in (adv.info.addresses or [])]
@@ -437,6 +608,280 @@ def start_for_listener(
         file=file,
     )
     return adv
+
+
+def _mesh_member_sort_key(service: DiscoveredListener) -> tuple:
+    """Proxy first, then clients, then by instance name."""
+    role = str((service.properties or {}).get("role") or "").strip().lower()
+    rank = 0 if role == "proxy" else 1 if role == "client" else 2
+    return (rank, service.instance_name.casefold())
+
+
+def group_discover_listeners(
+    services: list[DiscoveredListener],
+) -> dict[str, Any]:
+    """Split browse hits into mesh groups and standalone listeners.
+
+    Returns::
+
+        {
+          "mesh": [
+            {
+              "mesh_name": "OfficeHDMI1-mesh",
+              "switch_id": "tcp:…",
+              "alias": DiscoveredListener | None,   # failover DNS-SD name
+              "members": [proxy, …clients],         # instance peers only
+            },
+            …
+          ],
+          "standalone": [DiscoveredListener, …],
+        }
+    """
+    aliases: dict[str, DiscoveredListener] = {}
+    members_by_key: dict[str, list[DiscoveredListener]] = {}
+    key_meta: dict[str, dict[str, str | None]] = {}
+    standalone: list[DiscoveredListener] = []
+
+    for service in services:
+        props = service.properties or {}
+        if is_mesh_alias(service):
+            key = service.instance_name.casefold()
+            aliases[key] = service
+            meta = key_meta.setdefault(key, {"mesh_name": service.instance_name, "switch_id": None})
+            meta["mesh_name"] = service.instance_name
+            switch = str(props.get("switch") or "").strip() or None
+            if switch:
+                meta["switch_id"] = switch
+            continue
+
+        if str(props.get("mesh") or "").strip() == "1":
+            mesh_name = str(props.get("mesh_name") or "").strip()
+            switch = str(props.get("switch") or "").strip()
+            if mesh_name:
+                key = mesh_name.casefold()
+                label = mesh_name
+            elif switch:
+                key = f"switch:{switch.casefold()}"
+                label = switch
+            else:
+                key = f"instance:{service.instance_name.casefold()}"
+                label = service.instance_name
+            members_by_key.setdefault(key, []).append(service)
+            meta = key_meta.setdefault(key, {"mesh_name": label, "switch_id": switch or None})
+            if mesh_name:
+                meta["mesh_name"] = mesh_name
+            if switch and not meta.get("switch_id"):
+                meta["switch_id"] = switch
+            continue
+
+        standalone.append(service)
+
+    mesh_groups: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    for key in sorted(
+        set(aliases) | set(members_by_key),
+        key=lambda item: str((key_meta.get(item) or {}).get("mesh_name") or item).casefold(),
+    ):
+        if key in seen:
+            continue
+        seen.add(key)
+        meta = key_meta.get(key) or {}
+        alias = aliases.get(key)
+        members = sorted(members_by_key.get(key, []), key=_mesh_member_sort_key)
+        mesh_groups.append(
+            {
+                "mesh_name": meta.get("mesh_name") or (alias.instance_name if alias else key),
+                "switch_id": meta.get("switch_id"),
+                "alias": alias,
+                "members": members,
+            }
+        )
+
+    return {
+        "mesh": mesh_groups,
+        "standalone": sorted(standalone, key=lambda item: item.instance_name.casefold()),
+    }
+
+
+def discover_switch_conflicts(
+    grouped: dict[str, Any],
+) -> dict[str, dict[str, str]]:
+    """Map standalone instance name → mesh that already owns the same switch.
+
+    Keys are instance names; values have ``switch_id`` and ``mesh_name``.
+    """
+    mesh_by_switch: dict[str, str] = {}
+    for group in grouped.get("mesh") or []:
+        switch = str(group.get("switch_id") or "").strip()
+        if not switch:
+            continue
+        mesh_by_switch[switch.casefold()] = str(
+            group.get("mesh_name") or switch
+        )
+
+    conflicts: dict[str, dict[str, str]] = {}
+    for item in grouped.get("standalone") or []:
+        switch = str((item.properties or {}).get("switch") or "").strip()
+        if not switch:
+            continue
+        mesh_name = mesh_by_switch.get(switch.casefold())
+        if mesh_name:
+            conflicts[item.instance_name] = {
+                "switch_id": switch,
+                "mesh_name": mesh_name,
+            }
+    return conflicts
+
+
+def format_discover_text(
+    services: list[DiscoveredListener],
+    *,
+    color: bool | None = None,
+) -> str:
+    """Human discover listing with MESH / Standalone sections.
+
+    When ``color`` is None, ANSI is used only if stdout looks like a color
+    terminal (respects ``NO_COLOR`` / ``FORCE_COLOR``).
+    """
+    from .ansi import ansi_supported, paint
+
+    enabled = ansi_supported() if color is None else bool(color)
+    grouped = group_discover_listeners(services)
+    conflicts = discover_switch_conflicts(grouped)
+    lines: list[str] = []
+
+    def _host_port(item: DiscoveredListener) -> str:
+        host = item.hostname or (item.addresses[0] if item.addresses else "?")
+        return f"{host}:{item.port}"
+
+    def _short_meta(item: DiscoveredListener) -> str:
+        props = item.properties or {}
+        bits: list[str] = []
+        version = props.get("version")
+        if version:
+            bits.append(f"version={version}")
+        panel = props.get("panel")
+        if panel is not None:
+            bits.append(f"panel={panel}")
+        inputs = props.get("inputs")
+        if inputs:
+            bits.append(f"inputs={inputs}")
+        return " ".join(bits)
+
+    def _c(text: str, style: str | None) -> str:
+        return paint(text, style, enabled=enabled)
+
+    mesh_groups = list(grouped.get("mesh") or [])
+    standalone = list(grouped.get("standalone") or [])
+
+    if mesh_groups:
+        lines.append(_c("MESH", "mesh"))
+        for group in mesh_groups:
+            mesh_name = group.get("mesh_name") or "(unnamed mesh)"
+            switch_id = group.get("switch_id")
+            alias = group.get("alias")
+            members = list(group.get("members") or [])
+            header = f"  {_c(str(mesh_name), 'heading')}"
+            if switch_id:
+                header += f"  ·  {_c(str(switch_id), 'dim')}"
+            lines.append(header)
+            if alias is not None:
+                alias_link = str((alias.properties or {}).get("link") or "").strip().lower()
+                alias_link_bit = ""
+                if alias_link == "up":
+                    alias_link_bit = f"  {_c('switch up', 'proxy')}"
+                elif alias_link == "down":
+                    alias_link_bit = f"  {_c('switch down', 'standalone')}"
+                lines.append(
+                    f"    {_c('failover →', 'dim')} {alias.base_url:<28} "
+                    f"{_host_port(alias)}{alias_link_bit}"
+                )
+            elif mesh_name:
+                lines.append(
+                    f"    {_c('failover → (alias not advertised yet)', 'dim')}"
+                )
+            if not members:
+                lines.append(f"    {_c('(no instance peers visible yet)', 'dim')}")
+            member_roles = [
+                str((item.properties or {}).get("role") or "").strip().lower()
+                for item in members
+            ]
+            if members and not any(role == "proxy" for role in member_roles):
+                lines.append(
+                    f"    {_c('⚠ no proxy — nobody owns the switch; restart mesh listeners', 'standalone')}"
+                )
+            proxy_link_down = False
+            for item in members:
+                props = item.properties or {}
+                role = str(props.get("role") or "?").strip().lower() or "?"
+                if role == "proxy":
+                    label = _c("proxy", "proxy")
+                elif role == "client":
+                    label = _c("client", "client")
+                else:
+                    label = role
+                # Pad visible role label to 7 cols (ANSI codes don't count).
+                pad = max(0, 7 - len(role if role in {"proxy", "client"} else label))
+                link = str(props.get("link") or "").strip().lower()
+                link_bit = ""
+                if role == "proxy" and link in {"up", "down"}:
+                    if link == "up":
+                        link_bit = f"  {_c('switch up', 'proxy')}"
+                    else:
+                        link_bit = f"  {_c('switch down', 'standalone')}"
+                        proxy_link_down = True
+                elif role == "client" and link == "down":
+                    link_bit = f"  {_c('via proxy', 'dim')}"
+                lines.append(
+                    f"    {label}{' ' * pad} {item.instance_name:<18} "
+                    f"{item.base_url:<28} {_host_port(item)}{link_bit}"
+                )
+            if proxy_link_down:
+                lines.append(
+                    f"    {_c('⚠ proxy has no TCP to the HDMI switch — kit stays offline', 'standalone')}"
+                )
+            # Alias TXT can show link even when instance peers lagged.
+            if alias is not None and not proxy_link_down:
+                alias_link = str((alias.properties or {}).get("link") or "").strip().lower()
+                if alias_link == "down":
+                    lines.append(
+                        f"    {_c('⚠ mesh alias reports switch down', 'standalone')}"
+                    )
+
+    if standalone:
+        if lines:
+            lines.append("")
+        lines.append(_c("STANDALONE", "standalone"))
+        for item in standalone:
+            extra = _short_meta(item)
+            line = (
+                f"  {item.instance_name:<20} {item.base_url:<28} {_host_port(item)}"
+            )
+            if extra:
+                line = f"{line}  {_c(extra, 'dim')}"
+            hit = conflicts.get(item.instance_name)
+            if hit:
+                warn = (
+                    f"WARNING: same switch as mesh {hit['mesh_name']} "
+                    f"({hit['switch_id']}) — prefer mesh or stop this listener"
+                )
+                line = f"{line}  {_c(warn, 'warn')}"
+            lines.append(line)
+
+    if conflicts:
+        lines.append("")
+        lines.append(
+            _c(
+                "Note: standalone listeners above share a switch with a mesh group "
+                "and can fight over the HDMI connection.",
+                "warn",
+            )
+        )
+
+    if not lines:
+        return "(no listeners)"
+    return "\n".join(lines)
 
 
 # --- client browse / resolve -------------------------------------------------
@@ -494,18 +939,66 @@ def _normalize_instance(name: str | None) -> str | None:
     return text.replace(".", "-")
 
 
-def mdns_identity_conflict(expected: str | None, reported: str | None) -> bool:
-    """True when a client bound to ``expected`` must not attach to ``reported``.
+def attach_mdns_identity(payload: dict[str, Any], server: object) -> None:
+    """Set ``mdns_name`` / ``mesh_mdns_name`` on an API payload from the listener."""
+    payload["mdns_name"] = getattr(server, "mdns_name", None)
+    mesh = getattr(server, "mesh", None)
+    if mesh is None:
+        payload.pop("mesh_mdns_name", None)
+        return
+    name = None
+    try:
+        snap = mesh.snapshot()  # type: ignore[attr-defined]
+        if isinstance(snap, dict):
+            name = snap.get("mesh_mdns_name")
+    except Exception:
+        state = getattr(mesh, "state", None)
+        name = getattr(state, "mesh_mdns_name", None) if state is not None else None
+    text = str(name or "").strip() or None
+    if text:
+        payload["mesh_mdns_name"] = text
+    else:
+        payload.pop("mesh_mdns_name", None)
+
+
+def mdns_identity_conflict(
+    expected: str | None,
+    reported: str | None,
+    *,
+    also_known_as: str | list[str] | tuple[str, ...] | None = None,
+) -> bool:
+    """True when a client bound to ``expected`` must not attach to this listener.
 
     A client with no mDNS name accepts whatever answers. A listener that is
     not advertising (no reported name) does not contradict a bound client.
-    A different advertised instance name on the same address does.
+
+    ``also_known_as`` lists extra DNS-SD names this listener answers for — the
+    shared mesh failover alias (``OfficeHDMI1-mesh``) when the process is (or
+    knows) the mesh group name. Clients that resolved via that alias must not
+    be rejected just because ``/version`` reports the instance name.
     """
     want = _normalize_instance(expected)
-    got = _normalize_instance(reported)
-    if not want or not got:
+    if not want:
         return False
-    return want.casefold() != got.casefold()
+    aliases: list[str] = []
+    for raw in (reported,):
+        got = _normalize_instance(raw)
+        if got:
+            aliases.append(got.casefold())
+    extra: list[str]
+    if also_known_as is None:
+        extra = []
+    elif isinstance(also_known_as, (list, tuple)):
+        extra = [str(item) for item in also_known_as]
+    else:
+        extra = [str(also_known_as)]
+    for raw in extra:
+        got = _normalize_instance(raw)
+        if got:
+            aliases.append(got.casefold())
+    if not aliases:
+        return False
+    return want.casefold() not in aliases
 
 
 def _properties_from_info(info: Any) -> dict[str, str]:
@@ -584,6 +1077,54 @@ def browse(*, timeout: float = DEFAULT_BROWSE_TIMEOUT) -> list[DiscoveredListene
         return sorted(found.values(), key=lambda item: item.instance_name.lower())
 
 
+def listeners_for_name(
+    services: list[DiscoveredListener],
+    name: str,
+) -> list[DiscoveredListener]:
+    """Candidates for a DNS-SD name, including mesh failover aliases.
+
+    Order: instance peers with ``mesh_name=NAME`` and ``role=proxy`` first (live
+    owner), then exact instance / ``kind=mesh`` alias matches, then other peers
+    with that ``mesh_name``. Live proxies win over a stale alias still pointing
+    at a hard-killed previous proxy.
+    """
+    wanted = _normalize_instance(name)
+    if not wanted:
+        return []
+    want = wanted.casefold()
+    exact: list[DiscoveredListener] = []
+    proxies: list[DiscoveredListener] = []
+    others: list[DiscoveredListener] = []
+    seen: set[str] = set()
+
+    def _add(bucket: list[DiscoveredListener], service: DiscoveredListener) -> None:
+        key = f"{service.instance_name.casefold()}|{service.base_url.rstrip('/')}"
+        if key in seen:
+            return
+        seen.add(key)
+        bucket.append(service)
+
+    for service in services:
+        if service.instance_name.casefold() == want:
+            _add(exact, service)
+
+    for service in services:
+        props = service.properties or {}
+        mesh_name = _normalize_instance(str(props.get("mesh_name") or ""))
+        if not mesh_name or mesh_name.casefold() != want:
+            continue
+        if is_mesh_alias(service):
+            _add(exact, service)
+            continue
+        role = str(props.get("role") or "").strip().lower()
+        if role == "proxy":
+            _add(proxies, service)
+        else:
+            _add(others, service)
+
+    return proxies + exact + others
+
+
 def pick_listener(
     services: list[DiscoveredListener],
     *,
@@ -599,12 +1140,31 @@ def pick_listener(
 
     wanted = _normalize_instance(name)
     if wanted:
-        matches = [item for item in services if item.instance_name.lower() == wanted.lower()]
+        matches = listeners_for_name(services, wanted)
+        # Sticky instance name after mesh failover (env still has OfficeHDMI2,
+        # LAN only has OfficeHDMI2-mesh / OfficeHDMI2-2): try the mesh alias.
+        if not matches and not wanted.casefold().endswith("-mesh"):
+            matches = listeners_for_name(services, f"{wanted}-mesh")
+        if not matches:
+            # Last resort on a single-mesh LAN: the sole advertising proxy.
+            proxies = [
+                item
+                for item in services
+                if str((item.properties or {}).get("mesh") or "").strip() == "1"
+                and str((item.properties or {}).get("role") or "").strip().lower()
+                == "proxy"
+                and str((item.properties or {}).get("kind") or "").strip().lower()
+                != "mesh"
+            ]
+            if len(proxies) == 1:
+                matches = proxies
         if not matches:
             available = ", ".join(item.instance_name for item in services)
             raise MdnsError(
                 f"no listener named {wanted!r}; found: {available}"
             )
+        # Named lookup ignores prefer_url: a cached via often points at the
+        # previous proxy after mesh failover and would pin the dead endpoint.
         return matches[0]
 
     if prefer_url:

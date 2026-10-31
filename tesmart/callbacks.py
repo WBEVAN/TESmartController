@@ -412,6 +412,47 @@ def build_banner_event(
     return payload
 
 
+def build_peek_follow_event(
+    mode: str,
+    *,
+    switch: TesmartSwitch,
+    seconds: int | float | None = None,
+    source: str = "command",
+    **extra: Any,
+) -> dict[str, Any]:
+    """Payload when peek-follow mode changes (kit/panel + Hubitat callbacks).
+
+    Includes both top-level ``peek_follow`` / ``mode`` and ``peek.follow`` so
+    existing Hubitat ``applyPeekFollow`` picks it up without a driver change.
+    """
+    text = str(mode or "off")
+    peek: dict[str, Any] = {"follow": text}
+    if seconds is not None:
+        try:
+            peek["seconds"] = int(seconds)
+        except (TypeError, ValueError):
+            pass
+    payload: dict[str, Any] = {
+        "event": "peek_follow",
+        "mode": text,
+        "peek_follow": text,
+        "peek": peek,
+        "source": source,
+        "endpoint": switch.endpoint,
+        "input_count": switch.input_count,
+        "at": _stamp(),
+    }
+    if seconds is not None:
+        try:
+            payload["seconds"] = int(seconds)
+        except (TypeError, ValueError):
+            pass
+    for key, value in extra.items():
+        if value is not None and key not in payload:
+            payload[key] = value
+    return payload
+
+
 def _post_one(url: str, body: bytes, *, timeout: float, event: str | None) -> dict[str, Any]:
     started = time.monotonic()
     try:
@@ -547,11 +588,16 @@ class CallbackHub:
         env_file: str | None = None,
         *,
         events: EventHub | None = None,
+        outbound_http: bool | None = None,
     ):
         self.switch = switch
         self.lock = lock
         self.env_file = env_file
         self.events = events
+        # Mesh clients use ProxySwitch: no local TCP pump, and Hubitat POSTs stay on the proxy.
+        remote = bool(getattr(switch, "mesh_remote", False) or getattr(switch, "proxy_url", None))
+        self.outbound_http = (not remote) if outbound_http is None else bool(outbound_http)
+        self._watch_switch = not remote
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._last_active: int | None = None
@@ -564,14 +610,90 @@ class CallbackHub:
         except Exception as exc:  # noqa: BLE001 - startup must not fail the HTTP server
             print(f"callbacks: could not read initial input ({exc})", file=sys.stderr)
             self._last_active = None
-        self.note_online()
-        self._thread = threading.Thread(target=self._run, name="tesmartctl-callbacks", daemon=True)
-        self._thread.start()
+        if self.outbound_http:
+            self.note_online()
+        elif self.events is not None:
+            # Local SSE only — do not double-notify Hubitat from a mesh client.
+            with self._state_lock:
+                active = self._last_active
+            self.events.publish(build_online_event(switch=self.switch, env_file=self.env_file, active=active))
+            print(
+                "callbacks: mesh client — Hubitat-style POSTs stay on the proxy; local SSE only",
+                file=sys.stderr,
+            )
+        if self._watch_switch:
+            self._thread = threading.Thread(target=self._run, name="tesmartctl-callbacks", daemon=True)
+            self._thread.start()
 
     def stop(self) -> None:
         self._stop.set()
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=2.0)
+        self._thread = None
+
+    def rebind_switch(self, switch: TesmartSwitch, *, outbound_http: bool | None = None) -> None:
+        """Point at a new switch object (mesh failover proxy ↔ client)."""
+        # Always stop any prior watcher and reset the stop latch — mesh clients
+        # start with no watch thread, so promote must still get a fresh Event.
+        if self._thread is not None:
+            self.stop()
+        self._stop = threading.Event()
+        self.switch = switch
+        remote = bool(getattr(switch, "mesh_remote", False) or getattr(switch, "proxy_url", None))
+        self.outbound_http = (not remote) if outbound_http is None else bool(outbound_http)
+        self._watch_switch = not remote
+        # Keep the last known input across mesh role changes — HDMI did not
+        # move. Wiping to None made the kit show "INPUT null" until a probe
+        # succeeded (and note_online raced the probe with active=None).
+        if self._watch_switch:
+            self._thread = threading.Thread(target=self._run, name="tesmartctl-callbacks", daemon=True)
+            self._thread.start()
+            threading.Thread(
+                target=self._probe_active_once,
+                name="tesmartctl-callbacks-probe",
+                daemon=True,
+            ).start()
+            print(
+                "callbacks: watching switch for unsolicited input reports"
+                + (" (Hubitat POSTs enabled)" if self.outbound_http else ""),
+                file=sys.stderr,
+            )
+            if self.outbound_http:
+                self.note_online()
+        elif self.outbound_http is False and self.events is not None:
+            print(
+                "callbacks: mesh client — Hubitat-style POSTs stay on the proxy; local SSE only",
+                file=sys.stderr,
+            )
+
+    def _probe_active_once(self) -> None:
+        """Background QUERY_INPUT so /api/state has a cached active without blocking HTTP.
+
+        Retries a few times — right after mesh promote the TESmart TCP session
+        is often still settling, and a single failed read left active=None.
+        """
+        delays = (0.0, 0.4, 1.0, 2.0)
+        for attempt, delay in enumerate(delays):
+            if delay:
+                if self._stop.wait(delay):
+                    return
+            if not self.lock.acquire(timeout=2.0):
+                continue
+            try:
+                active = self.switch.get_active_input(retries=0)
+            except Exception as exc:  # noqa: BLE001 — keep trying
+                if attempt == len(delays) - 1:
+                    print(f"callbacks: could not probe active input ({exc})", file=sys.stderr)
+                active = None
+            finally:
+                self.lock.release()
+            if active is None:
+                continue
+            with self._state_lock:
+                previous = self._last_active
+            if previous != int(active):
+                self.note_active(int(active), previous=previous, source="probe")
+            return
 
     def note_online(self) -> None:
         """Tell registered clients this listener is accepting commands again."""
@@ -647,10 +769,31 @@ class CallbackHub:
         )
         self._fanout(payload)
 
+    def note_peek_follow(
+        self,
+        mode: str,
+        *,
+        seconds: int | float | None = None,
+        source: str = "command",
+        **extra: Any,
+    ) -> None:
+        """SSE + Hubitat callback when peek-follow mode changes (proxy only for POSTs)."""
+        self._fanout(
+            build_peek_follow_event(
+                mode,
+                switch=self.switch,
+                seconds=seconds,
+                source=source,
+                **extra,
+            )
+        )
+
     def _fanout(self, payload: dict[str, Any]) -> None:
         """Push to browser SSE first, then Hubitat-style callback URLs if any."""
         if self.events is not None:
             self.events.publish(payload)
+        if not self.outbound_http:
+            return
         urls = read_callback_urls(self.env_file)
         if not urls:
             return
@@ -666,11 +809,23 @@ class CallbackHub:
 
     def _run(self) -> None:
         while not self._stop.wait(0.05):
+            numbers: list[int] = []
             try:
-                with self.lock:
-                    frames = self.switch._pump(0.2)  # noqa: SLF001 - shared receive path
+                pump = getattr(self.switch, "_pump", None)
+                if not callable(pump):
+                    # Mesh ProxySwitch / stubs: nothing to watch locally.
+                    self._stop.wait(1.0)
+                    continue
+                # Timed acquire so a stuck /api/state or command cannot starve
+                # the watcher — and so the watcher cannot starve those paths.
+                if not self.lock.acquire(timeout=0.5):
+                    continue
+                try:
+                    frames = pump(0.2)
                     numbers = [frame.input_number for frame in frames if frame.is_input_report]
                     numbers.extend(self.switch.drain_unsolicited())
+                finally:
+                    self.lock.release()
             except Exception as exc:  # noqa: BLE001 - keep watching
                 print(f"callbacks watcher: {exc}", file=sys.stderr)
                 self._stop.wait(1.0)

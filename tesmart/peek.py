@@ -56,13 +56,20 @@ class PeekFollow:
     in this process only; it is not written to the env file.
     """
 
-    def __init__(self, events: EventHub | None = None) -> None:
+    def __init__(
+        self,
+        events: EventHub | None = None,
+        *,
+        notify_peek_follow: Callable[..., None] | None = None,
+    ) -> None:
         self._lock = threading.Lock()
         self._mode = "off"
         self._seconds: int | None = None
         # Set on the HTTP listener so a claimed peek can tell other SSE clients
         # which input is temporary. The line listener leaves this unset.
         self.events = events
+        # Optional CallbackHub.note_peek_follow (SSE + Hubitat on the mesh proxy).
+        self.notify_peek_follow = notify_peek_follow
 
     def status(self) -> dict:
         with self._lock:
@@ -138,7 +145,7 @@ def _real_input(value: object) -> int | None:
 
 
 def _publish_claimed_peek(follow: PeekFollow, followed: str, started: dict, seconds: float) -> None:
-    """SSE ``peek_follow`` for a peek that just moved the switch.
+    """SSE (+ Hubitat callback on the mesh proxy) when a follow peek moves the switch.
 
     ``mode`` is the mode after the claim (``off`` for Once, ``always`` when
     Always stays armed). ``followed`` is the mode this peek consumed.
@@ -146,14 +153,23 @@ def _publish_claimed_peek(follow: PeekFollow, followed: str, started: dict, seco
     input showing now. Presses of Off use a shorter event and do not come
     through here.
     """
-    hub = follow.events
-    if hub is None:
-        return
     previous = _real_input(started.get("previous"))
     active = _real_input(started.get("peeked"))
     if previous is None or active is None:
         return
     mode = str(follow.status()["mode"])
+    extra = {
+        "followed": followed,
+        "previous": previous,
+        "active_input": active,
+    }
+    notify = follow.notify_peek_follow
+    if callable(notify):
+        notify(mode, seconds=seconds, source="command", **extra)
+        return
+    hub = follow.events
+    if hub is None:
+        return
     hub.publish(
         {
             "event": "peek_follow",
@@ -189,6 +205,20 @@ class Peeker:
         self._state: dict | None = None
         self._cancel = False
         self.last: PeekResult | None = None
+
+    def rebind_switch(self, switch: TesmartSwitch) -> None:
+        """Point at a new switch (mesh failover). Cancels an in-flight peek."""
+        try:
+            self.cancel()
+        except Exception:
+            pass
+        thread = self._thread
+        if thread is not None and thread.is_alive():
+            try:
+                thread.join(timeout=2.0)
+            except Exception:
+                pass
+        self._switch = switch
 
     # --- public ------------------------------------------------------------
 

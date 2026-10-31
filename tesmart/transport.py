@@ -58,13 +58,18 @@ class TcpTransport(Transport):
         self._sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
     def write(self, data: bytes) -> None:
+        # Connect timeout is not always left on the socket; a wedged TESmart
+        # TCP session can block sendall forever and pin the listener lock.
         try:
+            self._sock.settimeout(3.0)
             self._sock.sendall(data)
+        except socket.timeout as exc:
+            raise TransportError(f"write timed out: {exc}") from exc
         except OSError as exc:
             raise TransportError(f"write failed: {exc}") from exc
 
     def read(self, timeout: float) -> bytes:
-        self._sock.settimeout(timeout)
+        self._sock.settimeout(max(0.05, float(timeout)))
         try:
             chunk = self._sock.recv(256)
         except socket.timeout:

@@ -3,7 +3,10 @@
 ``tesmartctl install`` asks for the switch (or the listener), checks optional
 dependencies, and writes the same env file as ``tesmartctl config``. The
 listener command itself is printed and can be saved as ``startup.txt`` in the
-current directory. Nothing is written until the last confirmation.
+current directory. Connection settings are written only after the last
+confirmation. ``--import FILE`` can apply a portable dump (names, messages,
+callbacks, kit prefs, and the rest) first, then continue so you confirm or
+adjust this computer.
 """
 
 from __future__ import annotations
@@ -21,6 +24,7 @@ from pathlib import Path
 from typing import Callable, Protocol
 
 from . import config
+from .ansi import ansi_supported, paint
 from .mdns import default_instance_name
 from .listener import parse_bind
 from .transport import DEFAULT_BAUD_RATE, DEFAULT_TCP_PORT
@@ -29,6 +33,7 @@ from .version import package_version
 # Printed at the start and the end, and copied into startup.txt.
 DOC_LINKS: tuple[tuple[str, str], ...] = (
     ("Guided setup", "https://github.com/WBEVAN/TESmartController/blob/main/Docs/install.md"),
+    ("Config backup", "https://github.com/WBEVAN/TESmartController/blob/main/Docs/config-backup.md"),
     ("Setup", "https://github.com/WBEVAN/TESmartController/wiki/Setup"),
     ("Quick start", "https://github.com/WBEVAN/TESmartController/wiki/Quickstart"),
     ("Client install", "https://github.com/WBEVAN/TESmartController/wiki/Client-Install"),
@@ -85,61 +90,6 @@ class StdioPrompter:
             return input(f"{prompt} ")
         except EOFError as exc:
             raise InstallCancelled("input closed") from exc
-
-
-# ANSI styles. Windows 10 consoles need virtual-terminal mode; macOS and Linux
-# terminals already understand these codes. ``NO_COLOR`` or a non-terminal
-# stdout leaves the text plain. ``startup.txt`` is never colored.
-_STYLES = {
-    "title": "1;36",
-    "heading": "1;36",
-    "ok": "1;32",
-    "warn": "33",
-    "dim": "2",
-    "command": "1",
-    "url": "4",
-}
-
-
-def ansi_supported(stream: object | None = None) -> bool:
-    """True when ``stream`` can show ANSI color on Windows, macOS, or Linux."""
-    if os.environ.get("NO_COLOR") is not None:
-        return False
-    if os.environ.get("TERM", "") == "dumb":
-        return False
-    target = sys.stdout if stream is None else stream
-    if not hasattr(target, "isatty") or not target.isatty():  # type: ignore[union-attr]
-        return False
-    if sys.platform == "win32":
-        return _enable_windows_vt(target)
-    return True
-
-
-def _enable_windows_vt(stream: object) -> bool:
-    """Turn on ANSI processing for a Windows console. False on older hosts."""
-    try:
-        import ctypes
-
-        kernel = ctypes.windll.kernel32  # type: ignore[attr-defined]
-        handle_id = -12 if stream is sys.stderr else -11
-        handle = kernel.GetStdHandle(handle_id)
-        mode = ctypes.c_uint()
-        if kernel.GetConsoleMode(handle, ctypes.byref(mode)) == 0:
-            return False
-        enable = 0x0004  # ENABLE_VIRTUAL_TERMINAL_PROCESSING
-        return kernel.SetConsoleMode(handle, mode.value | enable) != 0
-    except (AttributeError, OSError):
-        return False
-
-
-def paint(text: str, style: str | None, *, enabled: bool) -> str:
-    """Wrap ``text`` in an ANSI style, or return it unchanged."""
-    if not enabled or not style or not text:
-        return text
-    code = _STYLES.get(style)
-    if not code:
-        return text
-    return f"\033[{code}m{text}\033[0m"
 
 
 def _color_on(prompter: Prompter) -> bool:
@@ -202,6 +152,7 @@ class ServerPlan:
     mdns: bool
     mdns_name: str | None
     bind: str
+    mesh: bool = False
 
 
 @dataclass
@@ -298,6 +249,8 @@ def listen_command(plan: ServerPlan) -> str | None:
             argv.extend(["--mdns-name", plan.mdns_name])
     else:
         argv.append("--no-mdns")
+    if plan.mesh and not plan.serial:
+        argv.append("--mesh")
     return format_command(argv)
 
 
@@ -960,6 +913,8 @@ def _after_failed_check(prompter: Prompter, message: str) -> str:
 
 
 def _save_server(plan: ServerPlan, env_file: str | None) -> Path:
+    from .mesh import write_mesh_enabled
+
     config.set_default("host", plan.host, env_file)
     config.set_default("port", str(plan.port), env_file)
     config.set_default("inputs", str(plan.inputs), env_file)
@@ -968,6 +923,7 @@ def _save_server(plan: ServerPlan, env_file: str | None) -> Path:
     else:
         config.unset_default("serial", env_file)
     config.write_mdns_name(plan.mdns_name if plan.mdns else None, env_file)
+    write_mesh_enabled(bool(plan.http and plan.mesh and not plan.serial), env_file)
     if plan.http:
         return config.write_http_listener(
             http_bind_spec(plan),
@@ -1273,6 +1229,17 @@ def _gather_server(
                 say(prompter, "The panel and kit pages will still be served.", style="warn")
                 say(prompter, "tesmartctl kit will use Chrome or Edge until pywebview is installed.", style="warn")
 
+    mesh = False
+    if http and serial is None:
+        from .mesh import mesh_enabled
+
+        mesh = _ask_yes(
+            prompter,
+            "Enable mesh so several listeners for this switch elect one TCP owner "
+            "(oldest wins; others relay)?",
+            default=mesh_enabled(str(settings.env_file)),
+        )
+
     bind = "127.0.0.1"
     if http:
         heading(prompter, "Listener address")
@@ -1327,6 +1294,7 @@ def _gather_server(
         mdns=mdns,
         mdns_name=mdns_name,
         bind=bind,
+        mesh=mesh,
     )
 
 
@@ -1462,6 +1430,7 @@ def run_install(
     probe_name: Callable[[str | None], tuple[bool, str, str | None]] | None = None,
     scan: Callable[[], list] | None = None,
     ensure: Callable[[str, Prompter], bool] | None = None,
+    import_file: str | None = None,
 ) -> int:
     """Run the questionnaire. Returns a process status code."""
     if prompter is None:
@@ -1488,12 +1457,43 @@ def run_install(
     try:
         say(prompter, f"Running TESmartController Install ({package_version()})", style="title")
         say(prompter)
+        if import_file:
+            from .config_bundle import (
+                BundleError,
+                apply_bundle,
+                load_bundle,
+                summarize_bundle,
+                summary_lines,
+            )
+
+            try:
+                bundle = load_bundle(import_file)
+            except BundleError as exc:
+                say(prompter, f"Could not read the import file: {exc}", style="warn")
+                return 2
+            heading(prompter, "Import")
+            say(prompter, f"Starting from {import_file}:")
+            for line in summary_lines(summarize_bundle(bundle)):
+                say(prompter, line)
+            say(prompter)
+            say(
+                prompter,
+                "This writes names, messages, callbacks, and the rest of the dump now, "
+                "then continues so you can confirm or adjust this computer.",
+            )
+            if not _ask_yes(prompter, "Apply this imported configuration as the starting point?", default=True):
+                say(prompter, "Install cancelled. The configuration file was not changed.", style="warn")
+                return 1
+            result = apply_bundle(bundle, str(resolved.env_file), replace=True)
+            say(prompter, f"Imported into {result['env_file']}.", style="ok")
+            say(prompter)
+            resolved = config.resolve(env_file)
         say(prompter, describe_configuration(str(resolved.env_file)))
         write_documentation(prompter)
         say(prompter)
         say(
             prompter,
-            "Nothing is written until you confirm at the end. "
+            "Connection settings are written only when you confirm at the end. "
             "Press Enter to accept the value shown in brackets.",
         )
         heading(prompter, "This computer")

@@ -730,8 +730,14 @@ def _fetch_inputs() -> tuple[list[dict], int | None, str] | None:
     from .mdns import mdns_identity_conflict
 
     # Same IP and port, different advertised name: this is not our controller.
+    # Mesh failover alias (mesh_mdns_name) is an accepted identity for the proxy.
     reported = payload.get("mdns_name")
-    if mdns_identity_conflict(_EXPECTED_MDNS, reported if isinstance(reported, str) else None):
+    mesh_alias = payload.get("mesh_mdns_name")
+    if mdns_identity_conflict(
+        _EXPECTED_MDNS,
+        reported if isinstance(reported, str) else None,
+        also_known_as=mesh_alias if isinstance(mesh_alias, str) else None,
+    ):
         _CONTROLLER_ONLINE = False
         return None
 

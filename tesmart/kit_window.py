@@ -608,7 +608,13 @@ def _kit_static_dir() -> Path:
     return Path(__file__).resolve().parent / "static" / "kit"
 
 
-def _boot_page_url(live_url: str, *, transparent: bool = True, discover: bool = False) -> str:
+def _boot_page_url(
+    live_url: str,
+    *,
+    transparent: bool = True,
+    discover: bool = False,
+    debug: bool = False,
+) -> str:
     """``file://`` boot deck that paints without a network, then hands off to ``live_url``."""
     from urllib.parse import urlencode
 
@@ -622,6 +628,8 @@ def _boot_page_url(live_url: str, *, transparent: bool = True, discover: bool = 
         params["transparent"] = "1"
     if discover:
         params["discover"] = "1"
+    if debug:
+        params["debug"] = "1"
     return f"{boot.as_uri()}?{urlencode(params)}"
 
 
@@ -643,7 +651,13 @@ def _origin(url: str) -> str:
     return f"{parts.scheme}://{parts.netloc}".lower()
 
 
-def _kit_page_url(base: str, *, template: str = "", discover: bool = False) -> str:
+def _kit_page_url(
+    base: str,
+    *,
+    template: str = "",
+    discover: bool = False,
+    mdns_name: str | None = None,
+) -> str:
     """Build the live ``/kit`` URL for a listener base, keeping launch flags."""
     from urllib.parse import parse_qsl, urlencode, urlsplit
 
@@ -654,36 +668,113 @@ def _kit_page_url(base: str, *, template: str = "", discover: bool = False) -> s
     query = {"app": "1", "transparent": "1"}
     if discover or "discover" in keep:
         query["discover"] = "1"
-    for key in ("ports", "inputs", "fresh", "mdns"):
+    for key in ("ports", "inputs", "fresh", "mdns", "debug"):
         if keep.get(key):
             query[key] = keep[key]
+    # Launch / failover name wins over whatever was on the previous page.
+    if mdns_name and str(mdns_name).strip():
+        query["mdns"] = str(mdns_name).strip()
     return f"{root}/kit?{urlencode(query)}"
 
 
-def _discover_listener_base(name: str | None = None) -> str | None:
-    """Browse mDNS for a listener base URL. ``None`` when nothing matches.
+def _discover_listener_base(
+    name: str | None = None,
+    *,
+    skip_url: str | None = None,
+) -> tuple[str | None, str | None]:
+    """Browse mDNS for a reachable listener.
 
-    ``name`` is the instance from this launch (``--mdns-name``). It wins over
-    the saved name. A set name never falls through to a different listener.
+    Returns ``(base_url, mdns_name_to_keep)`` or ``(None, None)``.
+
+    ``name`` is the instance / mesh failover name from this launch
+    (``--mdns-name``). When that sticky instance is gone, ``{name}-mesh`` and
+    a sole mesh proxy are tried so kit failover survives a dead first proxy.
+
+    ``skip_url`` is the dead endpoint we are leaving (cached via / current kit
+    URL). Candidates that still point there are tried last.
     """
     try:
         from . import config
-        from .mdns import MdnsError, resolve_listener
+        from .mdns import MdnsError, browse, listeners_for_name, pick_listener
     except ImportError:
-        return None
+        return None, None
+    from .debug import log
+
     chosen = (name or "").strip() or (config.read_client_mdns_name() or "").strip() or None
     try:
-        service = resolve_listener(
-            name=chosen,
-            prefer_url=config.read_client_via_url(),
-            timeout=1.2,
-        )
+        services = browse(timeout=1.5)
     except MdnsError:
-        return None
-    return service.base_url.rstrip("/")
+        return None, None
+    if not services:
+        return None, None
+
+    skip = (skip_url or "").rstrip("/")
+    saved = (config.read_client_via_url() or "").rstrip("/")
+    resolved_name = chosen
+
+    if chosen:
+        candidates = listeners_for_name(services, chosen)
+        if not candidates and not chosen.casefold().endswith("-mesh"):
+            mesh_alias = f"{chosen}-mesh"
+            candidates = listeners_for_name(services, mesh_alias)
+            if candidates:
+                log(f"failover: no {chosen!r}; trying mesh alias {mesh_alias!r}")
+                resolved_name = mesh_alias
+        if not candidates:
+            proxies = [
+                item
+                for item in services
+                if str((item.properties or {}).get("mesh") or "").strip() == "1"
+                and str((item.properties or {}).get("role") or "").strip().lower() == "proxy"
+                and str((item.properties or {}).get("kind") or "").strip().lower() != "mesh"
+            ]
+            if len(proxies) == 1:
+                log(f"failover: no {chosen!r}; using sole mesh proxy {proxies[0].instance_name}")
+                candidates = proxies
+                props0 = proxies[0].properties or {}
+                resolved_name = (
+                    str(props0.get("mesh_name") or "").strip()
+                    or proxies[0].instance_name
+                )
+    else:
+        try:
+            candidates = [pick_listener(services, prefer_url=saved or None)]
+        except MdnsError:
+            return None, None
+
+    if not candidates:
+        return None, None
+
+    def _rank(service: object) -> tuple:
+        url = service.base_url.rstrip("/")  # type: ignore[attr-defined]
+        props = getattr(service, "properties", None) or {}
+        role = str(props.get("role") or "").strip().lower()
+        return (
+            0 if role == "proxy" else 1,
+            1 if skip and url == skip else 0,
+            1 if saved and url == saved else 0,
+            str(getattr(service, "instance_name", "") or "").casefold(),
+        )
+
+    ordered = sorted(candidates, key=_rank)
+    for service in ordered:
+        base = service.base_url.rstrip("/")
+        props = service.properties or {}
+        mesh_alias = str(props.get("mesh_name") or "").strip() or None
+        keep_name = mesh_alias or resolved_name or service.instance_name
+        probe_url = f"{base}/kit"
+        if keep_name:
+            from urllib.parse import urlencode
+
+            probe_url = f"{base}/kit?{urlencode({'mdns': keep_name})}"
+        ok, detail = _probe_live(probe_url, timeout=1.0)
+        log(f"failover probe {probe_url} -> {ok} ({detail})")
+        if ok:
+            return base, keep_name
+    return None, None
 
 
-def _remember_via(base: str) -> None:
+def _remember_via(base: str, *, mdns_name: str | None = None) -> None:
     """Store a listener we actually attached to, so the next launch prefers it."""
     new = (base or "").rstrip("/")
     if not new:
@@ -692,8 +783,9 @@ def _remember_via(base: str) -> None:
         from . import config
 
         current = (config.read_client_via_url() or "").rstrip("/")
-        if new != current:
-            config.remember_client_listener(new)
+        name = (mdns_name or "").strip() or None
+        if new != current or name:
+            config.remember_client_listener(new, mdns_name=name)
     except Exception:
         return
 
@@ -706,8 +798,8 @@ def _expected_mdns_name(url: str) -> str:
     return ((query.get("mdns") or [""])[0] or "").strip()
 
 
-def _reported_mdns_name(url: str, *, timeout: float) -> str | None:
-    """Advertised instance name from ``GET /version``, or None when not reported."""
+def _reported_mdns_identity(url: str, *, timeout: float) -> tuple[str | None, str | None]:
+    """Instance + mesh failover names from ``GET /version``."""
     import json
     from urllib.request import Request
 
@@ -715,20 +807,30 @@ def _reported_mdns_name(url: str, *, timeout: float) -> str | None:
 
     origin = _origin(url)
     if not origin:
-        return None
+        return None, None
     try:
         req = Request(f"{origin}/version", headers={"Accept": "application/json"})
         with open_url(req, timeout=timeout) as res:
             payload = json.loads(res.read().decode("utf-8"))
     except Exception:
-        return None
+        return None, None
     if not isinstance(payload, dict):
-        return None
-    reported = payload.get("mdns_name")
-    if not isinstance(reported, str):
-        return None
-    text = reported.strip()
-    return text or None
+        return None, None
+
+    def _one(key: str) -> str | None:
+        value = payload.get(key)
+        if not isinstance(value, str):
+            return None
+        text = value.strip()
+        return text or None
+
+    return _one("mdns_name"), _one("mesh_mdns_name")
+
+
+def _reported_mdns_name(url: str, *, timeout: float) -> str | None:
+    """Advertised instance name from ``GET /version``, or None when not reported."""
+    reported, _alias = _reported_mdns_identity(url, timeout=timeout)
+    return reported
 
 
 def probe_failure_detail(url: str, message: str) -> str:
@@ -765,9 +867,11 @@ def _probe_live(url: str, *, timeout: float = 1.5) -> tuple[bool, str]:
                 if expected:
                     from .mdns import mdns_identity_conflict
 
-                    reported = _reported_mdns_name(url, timeout=timeout)
-                    if mdns_identity_conflict(expected, reported):
-                        detail = probe_failure_detail(url, f"Wrong mDNS name ({reported})")
+                    reported, mesh_alias = _reported_mdns_identity(url, timeout=timeout)
+                    if mdns_identity_conflict(expected, reported, also_known_as=mesh_alias):
+                        detail = probe_failure_detail(
+                            url, f"Wrong mDNS name ({reported or mesh_alias})"
+                        )
                         log(f"probe fail {detail}")
                         return False, detail
                 log("probe ok")
@@ -883,6 +987,21 @@ def run_webview(
             "pywebview is not installed; pip install 'tesmartctl[kit]'"
         ) from exc
 
+    # pywebview always evaluate_js's the js_api return callback. Navigation
+    # during kit_debug / load_url tears that callback down → noisy
+    # JavascriptException on a daemon thread. Harmless; swallow only that race.
+    _prev_excepthook = threading.excepthook
+
+    def _quiet_webview_return_races(args: threading.ExceptHookArgs) -> None:
+        exc = args.exc_value
+        name = type(exc).__name__ if exc is not None else ""
+        text = str(exc or "")
+        if name == "JavascriptException" and "returnValuesCallbacks" in text:
+            return
+        _prev_excepthook(args)
+
+    threading.excepthook = _quiet_webview_return_races
+
     _use_supported_webview_transparency()
     if fresh:
         # Bypass disk cache for this launch; the URL also carries fresh=1 so
@@ -908,6 +1027,7 @@ def run_webview(
 
     launch_query = parse_qs(urlsplit(url).query)
     discover = "discover" in launch_query
+    page_debug = "debug" in launch_query
     # ``--mdns-name`` for this launch. Empty means "use the saved name".
     wanted_name = ((launch_query.get("mdns") or [""])[0] or "").strip()
     live = {"url": "" if _is_discover_placeholder(live_url) else live_url}
@@ -924,7 +1044,7 @@ def run_webview(
     if live["url"]:
         ready, _ = _probe_live(live["url"], timeout=0.4)
     entry_url = live["url"] if ready and live["url"] else _boot_page_url(
-        live["url"], transparent=True, discover=discover
+        live["url"], transparent=True, discover=discover, debug=page_debug
     )
     adopt_lock = threading.Lock()
 
@@ -938,6 +1058,7 @@ def run_webview(
         offline until the named listener answers. Returns the kit page URL,
         or empty when nothing new was adopted.
         """
+        nonlocal wanted_name
         if not discover or not adopt_lock.acquire(blocking=False):
             return ""
         try:
@@ -949,17 +1070,30 @@ def run_webview(
             )
             if reachable:
                 return "" if navigate else current
-            base = _discover_listener_base(wanted_name)
+            # Drop the dead endpoint from candidate preference so we do not
+            # stick to a cached TESMART_CLIENT_VIA / prior proxy URL.
+            base, keep_name = _discover_listener_base(
+                wanted_name,
+                skip_url=_origin(current) if current else None,
+            )
             if not base:
                 return ""
-            page = _kit_page_url(base, template=current, discover=True)
+            bind_name = keep_name or wanted_name or None
+            page = _kit_page_url(
+                base,
+                template=current,
+                discover=True,
+                mdns_name=bind_name,
+            )
             if not _probe_live(page, timeout=1.2)[0]:
                 return ""
             moved = _origin(page) != _origin(current)
             if navigate and not moved:
                 return ""
             live["url"] = page
-            _remember_via(base)
+            if bind_name:
+                wanted_name = bind_name
+            _remember_via(base, mdns_name=bind_name)
             if sys.platform == "darwin":
                 try:
                     from . import kit_macos
@@ -996,6 +1130,22 @@ def run_webview(
             data["fresh"] = prefs.fresh
             return data
 
+        def kit_debug(self, message: str) -> None:
+            """JS → stderr when ``tesmartctl --debug kit``.
+
+            Returns ``None`` and never raises — page navigation during a dump
+            used to throw ``JavascriptException`` on the pywebview return callback.
+            """
+            try:
+                from .debug import log
+
+                text = str(message or "").rstrip()
+                if text:
+                    log(f"kit-ui {text}")
+            except Exception:
+                return None
+            return None
+
         def set_prefs(self, values: dict) -> dict:
             allowed = {
                 "view", "peek_follow", "peek_seconds", "body", "lcd", "lcd_brightness",
@@ -1027,30 +1177,35 @@ def run_webview(
             return {"ok": True, "detail": "Listener found", "url": found}
 
         def rediscover_listener(self) -> dict:
-            """Live kit: while offline, browse again and follow a moved listener.
+            """Deprecated no-op: the background watcher owns failover navigation.
 
-            Same host and port is left alone when it is still this client's
-            mDNS name — the page poll already retries it. A different name
-            on that address fails the probe, so the named listener is sought
-            again and the kit stays offline until it appears.
+            Kept so older kit.js that still awaits this bridge method does not
+            throw. Do not browse or ``load_url`` here — that races the watcher
+            and raises ``JavascriptException`` on the destroyed return callback.
             """
-            if not discover:
-                return {"ok": False, "moved": False, "url": live["url"]}
-            found = _adopt_moved_listener(navigate=True)
-            return {"ok": bool(found), "moved": bool(found), "url": live["url"]}
+            return {"ok": True, "pending": False, "deprecated": True, "url": live["url"]}
 
         def load_live(self) -> bool:
-            """Swap the boot shell for the live listener /kit page."""
+            """Swap the boot shell for the live listener /kit page.
+
+            Schedule the navigation so the js_api return can finish first —
+            same pywebview pitfall as :meth:`rediscover_listener`.
+            """
             target = live["url"]
             if not target:
                 return False
-            for window in webview.windows:
-                try:
-                    window.load_url(target)
-                    return True
-                except Exception:
-                    continue
-            return False
+
+            def _go() -> None:
+                time.sleep(0.05)
+                for window in list(webview.windows):
+                    try:
+                        window.load_url(target)
+                        break
+                    except Exception:
+                        continue
+
+            threading.Thread(target=_go, name="tesmartctl-kit-load", daemon=True).start()
+            return True
 
         def close(self) -> None:
             memory.save_now()

@@ -116,6 +116,24 @@ def test_peek_pauses_stepping(tmp_path) -> None:
     cycler.stop()
 
 
+def test_rebind_does_not_deadlock_when_switch_read_fails(tmp_path) -> None:
+    """Mesh promote rebinds the cycler. A failed HDMI read must not pin /api/state."""
+    env = tmp_path / "env"
+    env.write_text("TESMART_CYCLE_MODE=manual\n", encoding="utf-8")
+
+    class _Dead:
+        input_count = 8
+
+        def get_active_input(self) -> int:
+            raise OSError("switch read failed")
+
+    cycler = Cycler(_Dead(), env_file=str(env))
+    started = time.monotonic()
+    cycler.rebind_switch(_Dead())
+    assert cycler.status() is None
+    assert time.monotonic() - started < 1.0
+
+
 def test_manual_mode_rejects_start(tmp_path) -> None:
     env = tmp_path / "env"
     env.write_text("TESMART_CYCLE_MODE=manual\n", encoding="utf-8")

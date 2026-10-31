@@ -447,6 +447,28 @@ main {
   gap: 0.75rem;
 }
 
+/* One featured card centered under the main documentation grid. */
+.card-list-solo {
+  margin-top: 0.75rem;
+  justify-content: center;
+  grid-template-columns: minmax(240px, 20rem);
+}
+
+.card-list .badge-exp {
+  display: inline-block;
+  margin-left: 0.35rem;
+  padding: 0.08rem 0.4rem;
+  border-radius: 0.25rem;
+  border: 1px solid rgba(232, 184, 74, 0.55);
+  color: var(--amber);
+  font-family: var(--font-body);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
 .card-list a,
 .card-list .card-soon {
   display: block;

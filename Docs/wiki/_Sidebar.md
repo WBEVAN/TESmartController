@@ -11,6 +11,7 @@
 **Reference**
 * [Listener & HTTP](Listener-and-HTTP)
 * [mDNS](mDNS)
+* [Mesh (experimental)](Mesh)
 * [CLI reference](CLI-Reference)
 * [Troubleshooting](Troubleshooting)
 
@@ -20,4 +21,5 @@
 * [install.md](https://github.com/WBEVAN/TESmartController/blob/main/Docs/install.md)
 * [listener.md](https://github.com/WBEVAN/TESmartController/blob/main/Docs/listener.md)
 * [mdns.md](https://github.com/WBEVAN/TESmartController/blob/main/Docs/mdns.md)
+* [mesh.md](https://github.com/WBEVAN/TESmartController/blob/main/Docs/mesh.md)
 * [hubitat.md](https://github.com/WBEVAN/TESmartController/blob/main/Docs/hubitat.md)

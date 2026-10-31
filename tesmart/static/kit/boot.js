@@ -211,28 +211,51 @@
     if (target) location.replace(target);
   }
 
+  function labelFor(url) {
+    const raw = (url || "").trim();
+    if (!raw) return discover ? "mesh / listener" : "listener";
+    try {
+      return new URL(raw).host;
+    } catch {
+      return raw;
+    }
+  }
+
   async function probeLoop(api) {
-    const where = hostLabel();
     let attempts = 0;
+    let where = labelFor(target);
     for (;;) {
       attempts += 1;
-      setStatus(
-        attempts === 1 ? `Connecting to ${where}…` : `Waiting for ${where}…`,
-        target || where,
-        attempts > 2 ? "error" : "busy"
-      );
+      const phase = discover && attempts > 1
+        ? `Looking for listener…`
+        : attempts === 1
+          ? `Connecting to ${where}…`
+          : `Waiting for ${where}…`;
+      setStatus(phase, target || where, attempts > 2 ? "error" : "busy");
       try {
         const result = api && typeof api.probe_listener === "function"
           ? await api.probe_listener()
           : { ok: false, detail: "Native bridge unavailable" };
         if (result && result.ok) {
+          if (result.url) where = labelFor(result.url);
           await openLive(api);
           return;
         }
         const detail = (result && result.detail) || "No response";
-        setStatus(`Waiting for ${where}…`, detail, "error");
+        // Prefer the rediscovery detail over a sticky dead target host.
+        const next = (result && result.url) || "";
+        if (next) where = labelFor(next);
+        setStatus(
+          discover ? "Looking for listener…" : `Waiting for ${where}…`,
+          detail,
+          "error"
+        );
       } catch (err) {
-        setStatus(`Waiting for ${where}…`, err.message || String(err), "error");
+        setStatus(
+          discover ? "Looking for listener…" : `Waiting for ${where}…`,
+          err.message || String(err),
+          "error"
+        );
       }
       await new Promise((r) => setTimeout(r, 1500));
     }
@@ -240,8 +263,8 @@
 
   paintGrid();
   setStatus(
-    target ? `Connecting to ${hostLabel()}…` : "No listener URL",
-    target || "Pass target= in the boot URL",
+    target ? `Connecting to ${labelFor(target)}…` : (discover ? "Looking for listener…" : "No listener URL"),
+    target || (discover ? "Browsing mDNS…" : "Pass target= in the boot URL"),
     "busy"
   );
 

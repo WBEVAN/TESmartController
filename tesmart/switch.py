@@ -368,7 +368,9 @@ class TesmartSwitch:
     def read_status(self, include_network: bool = True) -> SwitchStatus:
         active: int | None
         try:
-            active = self.get_active_input()
+            # Panel/kit poll this under a shared lock — one try keeps a quiet or
+            # wedged switch from pinning every HTTP worker for seconds.
+            active = self.get_active_input(retries=0)
         except (SwitchError, TransportError):
             active = None
         network = self.get_network_config() if include_network else None

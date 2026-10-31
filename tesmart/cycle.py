@@ -48,6 +48,19 @@ class Cycler:
         self._state: dict | None = None
         self._stop = False
 
+    def rebind_switch(self, switch: TesmartSwitch) -> None:
+        """Point at a new switch (mesh failover). Stops an in-flight cycle.
+
+        Does not query the HDMI switch. Promote used to call ``stop()`` which
+        held ``_guard`` and then ``get_active_input()``; a failed read tried
+        to take ``_guard`` again and deadlocked every ``/api/state`` poll.
+        """
+        try:
+            self.stop()
+        except Exception:
+            pass
+        self._switch = switch
+
     # --- public ------------------------------------------------------------
 
     def start(self) -> dict:
@@ -87,32 +100,51 @@ class Cycler:
             return snap
 
     def stop(self) -> dict:
-        """Stop the runner. Returns an ended snapshot (``active`` is null)."""
+        """Stop the runner. Returns an ended snapshot (``active`` is null).
+
+        Never touches the HDMI switch, and never calls back into a method that
+        takes ``_guard`` while this method already holds it.
+        """
         with self._guard:
             running = self._state is not None
             seconds = int(self._state["seconds"]) if self._state else 2
             thread = self._thread
+            current = self._state.get("active_input") if self._state else None
             if running:
                 self._stop = True
                 self._wake.set()
         if thread is not None and thread.is_alive():
             thread.join(timeout=max(2.0, seconds + 1.0))
+        announce = False
         with self._guard:
-            # Thread normally clears state and publishes the end frame. If join
-            # timed out, force-clear so status does not lie that a cycle is live.
+            # The runner normally clears state and publishes the end frame. If
+            # join timed out, force-clear so status does not claim a live cycle.
             if self._state is not None:
+                current = self._state.get("active_input", current)
                 self._state = None
                 self._stop = False
-                current = self._current_input()
-                self._announce_ended(current)
-            else:
-                current = self._current_input()
-        return {"active": None, "active_input": current, "stopped": running, "source": "command"}
+                announce = True
+        if announce:
+            self._announce_ended(current if isinstance(current, int) else None)
+        return {
+            "active": None,
+            "active_input": current if isinstance(current, int) else None,
+            "stopped": running,
+            "source": "command",
+        }
 
     def status(self) -> dict | None:
-        """``None`` when idle, otherwise cycle list, seconds, current, next, remaining."""
-        with self._guard:
+        """``None`` when idle, otherwise cycle list, seconds, current, next, remaining.
+
+        Gives up immediately if the cycle lock is held (a stuck runner must not
+        pin ``/api/state`` and pile HTTP threads).
+        """
+        if not self._guard.acquire(blocking=False):
+            return None
+        try:
             return self._snapshot()
+        finally:
+            self._guard.release()
 
     def wait(self) -> None:
         """Block until the cycle started by :meth:`start` has stopped."""
@@ -151,9 +183,14 @@ class Cycler:
             with self._device:
                 return self._switch.get_active_input()
         except Exception:  # noqa: BLE001 - status helpers must not raise
-            with self._guard:
-                if self._state is not None:
-                    return int(self._state["active_input"])
+            # Do not take ``_guard`` here. Callers that already hold it (and a
+            # failed HDMI read) used to deadlock the listener on mesh promote.
+            state = self._state
+            if state is not None:
+                try:
+                    return int(state["active_input"])
+                except (TypeError, ValueError, KeyError):
+                    return None
             return None
 
     def _snapshot(self) -> dict | None:

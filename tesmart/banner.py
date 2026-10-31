@@ -246,6 +246,30 @@ class BannerBoard:
         with self._lock:
             return [dict(item) for item in self._history]
 
+    def replace_history(self, history: list[dict[str, Any]] | None) -> dict[str, Any]:
+        """Replace in-memory history from an import (not auto-showing).
+
+        Persists when a persist callback is configured. Returns the same envelope
+        as ``payload``.
+        """
+        with self._lock:
+            self._text = ""
+            self._from = DEFAULT_FROM
+            self._mode = MODE_TIMED
+            self._seconds = 0
+            self._until = 0.0
+            self._at = 0.0
+            self._showing = False
+            self._id = 0
+            self._history = deque(maxlen=HISTORY_MAX)
+            if history:
+                self._restore(list(history))
+            self._save_locked()
+            return {
+                "banner": self._snapshot_locked(time.time()),
+                "banner_history": [dict(item) for item in self._history],
+            }
+
     def payload(self) -> dict[str, Any]:
         """Banner envelope plus history for ``/api/state`` and ``/api/banner``."""
         with self._lock:

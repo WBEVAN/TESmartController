@@ -6,11 +6,14 @@ Short everyday list. On the server, run `tesmartctl install` first, then `tesmar
 
 ```bash
 tesmartctl install          # server, or a client on another computer
+tesmartctl install --import office.json   # seed from a portable dump, then confirm
 tesmartctl quickstart       # server: start the listener saved by install
 tesmartctl --via auto kit   # client: floating kit, after a client install
 tesmartctl status
 tesmartctl config set --host 192.168.1.50 --port 5000
 tesmartctl config path
+tesmartctl config export office.json   # names, messages, callbacks, kit prefs
+tesmartctl config import office.json
 tesmartctl --serial /dev/tty.usbserial-xxx status
 tesmartctl --inputs 16 status
 ```
@@ -49,12 +52,23 @@ tesmartctl rotate …
 ```bash
 tesmartctl quickstart
 tesmartctl quickstart --simulate   # no HDMI switch; input, peek, and cycle stay local
+tesmartctl quickstart --mesh       # elect one TCP owner among mesh peers for this switch
 tesmartctl listen --http --panel
+tesmartctl listen --http 8080 --panel --mesh --mdns-name OfficeHDMI1
+# proxy also advertises OfficeHDMI1-mesh (override with --mesh-mdns-name)
 tesmartctl listen --simulate --http 8080 --panel
 tesmartctl kit
 tesmartctl kit --fresh
 tesmartctl panel
 ```
+
+```bash
+tesmartctl mesh status
+tesmartctl --via auto mesh status
+tesmartctl --via auto --mdns-name OfficeHDMI1-mesh status   # follow failover alias
+```
+
+Mesh: see [Docs/mesh.md](https://github.com/WBEVAN/TESmartController/blob/main/Docs/mesh.md). Panel shows a Mesh card when enabled. Sticky clients use the instance mDNS name; failover clients use the mesh alias.
 
 ## Banners (needs `listen --http`)
 

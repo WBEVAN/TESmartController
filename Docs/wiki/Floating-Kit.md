@@ -18,7 +18,10 @@ Then open the kit in a browser at `http://127.0.0.1:<port>/kit`, or as a framele
 ```bash
 tesmartctl kit
 tesmartctl kit --fresh    # ignore saved window prefs once
+tesmartctl --debug kit --via auto --mdns-name OfficeHDMI2-mesh --fresh
 ```
+
+With ``--debug``, the kit URL gets ``?debug=2`` and each poll dumps the full ``GET /api/state`` JSON to the kit terminal as ``debug: kit-ui …`` (plus the UI snapshot the page applied). Use ``?debug=1`` for shorter lines only.
 
 `<port>` is `TESMART_HTTP_PORT` from that install (the wizard default is `8080`).
 

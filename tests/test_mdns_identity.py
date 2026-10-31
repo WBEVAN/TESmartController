@@ -59,6 +59,39 @@ def test_auto_kit_still_discovers_when_the_first_browse_is_empty(monkeypatch) ->
         "tesmart.config.read_client_via_url",
         lambda _env_file=None: "http://192.0.2.10:8080",
     )
+    # Dead sticky via must not become the boot target.
+    monkeypatch.setattr(
+        "tesmart.kit_window._probe_live",
+        lambda *_a, **_k: (False, "Connection refused"),
+    )
+    args = SimpleNamespace(
+        via="auto",
+        mdns_name="OfficeHDMI",
+        env_file=None,
+        timeout=1,
+        listen=8080,
+        url=None,
+    )
+    base, discover = cli._kit_listener_base(args)
+    assert base is None
+    assert discover is True
+
+
+def test_auto_kit_uses_saved_via_only_when_reachable(monkeypatch) -> None:
+    from tesmart import cli
+
+    def resolve(**_kwargs: object) -> str:
+        raise MdnsError("none")
+
+    monkeypatch.setattr("tesmart.via_client.resolve_base_url", resolve)
+    monkeypatch.setattr(
+        "tesmart.config.read_client_via_url",
+        lambda _env_file=None: "http://192.0.2.10:8080",
+    )
+    monkeypatch.setattr(
+        "tesmart.kit_window._probe_live",
+        lambda *_a, **_k: (True, "Listener ready"),
+    )
     args = SimpleNamespace(
         via="auto",
         mdns_name="OfficeHDMI",
@@ -81,6 +114,34 @@ def test_identity_conflict_only_when_both_names_differ() -> None:
     assert mdns_identity_conflict("officehdmi", "OfficeHDMI") is False
     assert mdns_identity_conflict("Office.HDMI", "Office-HDMI") is False
     assert mdns_identity_conflict("OfficeHDMI", "DenHDMI") is True
+
+
+def test_identity_accepts_mesh_failover_alias() -> None:
+    """Clients that resolved via OfficeHDMI1-mesh must attach to OfficeHDMI1."""
+    assert (
+        mdns_identity_conflict(
+            "OfficeHDMI1-mesh",
+            "OfficeHDMI1",
+            also_known_as="OfficeHDMI1-mesh",
+        )
+        is False
+    )
+    assert (
+        mdns_identity_conflict(
+            "OfficeHDMI1",
+            "OfficeHDMI1",
+            also_known_as="OfficeHDMI1-mesh",
+        )
+        is False
+    )
+    assert (
+        mdns_identity_conflict(
+            "Other-mesh",
+            "OfficeHDMI1",
+            also_known_as="OfficeHDMI1-mesh",
+        )
+        is True
+    )
 
 
 class _Handler(BaseHTTPRequestHandler):

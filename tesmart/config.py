@@ -511,16 +511,18 @@ def read_banner_history(env_file: str | None = None) -> list[dict[str, Any]]:
             at = float(item.get("at") or 0)
         except (TypeError, ValueError):
             at = 0.0
-        out.append(
-            {
-                "id": entry_id,
-                "text": text[:160],
-                "at": at,
-                "at_iso": item.get("at_iso"),
-                "mode": mode,
-                "seconds": seconds_i if mode == "timed" else None,
-            }
-        )
+        entry: dict[str, Any] = {
+            "id": entry_id,
+            "text": text[:160],
+            "at": at,
+            "at_iso": item.get("at_iso"),
+            "mode": mode,
+            "seconds": seconds_i if mode == "timed" else None,
+        }
+        from_label = str(item.get("from") or "").strip()
+        if from_label:
+            entry["from"] = from_label[:32]
+        out.append(entry)
     return out
 
 
@@ -535,16 +537,18 @@ def write_banner_history(history: list[dict[str, Any]], env_file: str | None = N
         text = str(item.get("text") or "").strip()
         if not text:
             continue
-        cleaned.append(
-            {
-                "id": int(item.get("id") or 0),
-                "text": text[:160],
-                "at": float(item.get("at") or 0),
-                "at_iso": item.get("at_iso"),
-                "mode": "sticky" if item.get("mode") == "sticky" else "timed",
-                "seconds": item.get("seconds"),
-            }
-        )
+        entry: dict[str, Any] = {
+            "id": int(item.get("id") or 0),
+            "text": text[:160],
+            "at": float(item.get("at") or 0),
+            "at_iso": item.get("at_iso"),
+            "mode": "sticky" if item.get("mode") == "sticky" else "timed",
+            "seconds": item.get("seconds"),
+        }
+        from_label = str(item.get("from") or "").strip()
+        if from_label:
+            entry["from"] = from_label[:32]
+        cleaned.append(entry)
     if cleaned:
         values[BANNER_HISTORY_KEY] = json.dumps(cleaned)
     else:
