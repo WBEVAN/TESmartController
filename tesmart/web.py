@@ -1059,33 +1059,45 @@ def serve_http(
             started_at=started_at,
             mesh_mdns_name=mesh_mdns_name,
         )
-        peers = prelim.discover()
-        from .mesh import elect_proxy
-
+        # Alias / live proxy first — never open TCP or claim …-mesh until we
+        # know nobody else already owns this switch on the LAN.
         planned_name = (mdns_name or config.read_mdns_name(env_file) or mdns_mod.default_instance_name()).replace(".", "-")
         planned_url = f"http://{host if host not in {'0.0.0.0', '::', ''} else '127.0.0.1'}:{port}"
-        winner = elect_proxy(
-            peers,
-            self_started=started_at,
-            self_name=planned_name,
-            self_url=planned_url,
-        )
-        if not winner.get("self"):
-            proxy_url = str(winner.get("url") or "").rstrip("/")
-            if not proxy_url:
-                print("error: mesh election found a peer without a URL", file=sys.stderr)
-                return 1
-            print(f"  mesh: joining proxy {proxy_url}", file=sys.stderr)
+        prelim.set_identity(mdns_name=planned_name, base_url=planned_url)
+        existing_proxy = prelim.find_live_proxy_url()
+        if existing_proxy:
+            print(f"  mesh: joining proxy {existing_proxy}", file=sys.stderr)
             active_switch = ProxySwitch(
-                proxy_url,
+                existing_proxy,
                 input_count=settings.inputs,
                 endpoint=f"tcp://{settings.host}:{settings.port}",
             )
-        elif active_switch is None and open_switch is not None:
-            active_switch = open_switch()  # type: ignore[operator]
-        elif active_switch is None:
-            print("error: mesh proxy needs an open switch connection", file=sys.stderr)
-            return 1
+        else:
+            from .mesh import elect_proxy
+
+            peers = prelim.discover()
+            winner = elect_proxy(
+                peers,
+                self_started=started_at,
+                self_name=planned_name,
+                self_url=planned_url,
+            )
+            if not winner.get("self"):
+                proxy_url = str(winner.get("url") or "").rstrip("/")
+                if not proxy_url:
+                    print("error: mesh election found a peer without a URL", file=sys.stderr)
+                    return 1
+                print(f"  mesh: joining proxy {proxy_url}", file=sys.stderr)
+                active_switch = ProxySwitch(
+                    proxy_url,
+                    input_count=settings.inputs,
+                    endpoint=f"tcp://{settings.host}:{settings.port}",
+                )
+            elif active_switch is None and open_switch is not None:
+                active_switch = open_switch()  # type: ignore[operator]
+            elif active_switch is None:
+                print("error: mesh proxy needs an open switch connection", file=sys.stderr)
+                return 1
 
     if active_switch is None:
         print("error: no switch connection", file=sys.stderr)
@@ -1273,21 +1285,32 @@ def serve_http(
             try:
                 mesh_controller._join(active_switch.proxy_url)
             except MeshError as exc:
-                print(f"warning: mesh join failed ({exc}); becoming proxy", file=sys.stderr)
-                if open_switch is not None:
-                    try:
-                        real = open_switch()  # type: ignore[operator]
-                        server.switch = real
-                        active_switch = real
-                    except Exception as open_exc:  # noqa: BLE001
-                        print(f"error: {open_exc}", file=sys.stderr)
-                        server.server_close()
-                        return 1
-                mesh_controller._become_proxy(reason="join-failed")
-            else:
-                _start_mesh_sse_bridge(server, active_switch.proxy_url)
+                print(f"warning: mesh join failed ({exc})", file=sys.stderr)
+                if mesh_controller.try_join_alias_owner():
+                    pass
+                else:
+                    print(
+                        "  mesh: no live alias owner; becoming proxy",
+                        file=sys.stderr,
+                    )
+                    if open_switch is not None:
+                        try:
+                            real = open_switch()  # type: ignore[operator]
+                            server.switch = real
+                            active_switch = real
+                        except Exception as open_exc:  # noqa: BLE001
+                            print(f"error: {open_exc}", file=sys.stderr)
+                            server.server_close()
+                            return 1
+                    mesh_controller._become_proxy(reason="join-failed")
+            if mesh_controller.state.role == "client" and mesh_controller.state.proxy_url:
+                _start_mesh_sse_bridge(server, mesh_controller.state.proxy_url)
         else:
-            mesh_controller._become_proxy(reason="elected")
+            # Alias already held → join that proxy instead of opening a second TCP.
+            if not mesh_controller.try_join_alias_owner():
+                mesh_controller._become_proxy(reason="elected")
+            elif mesh_controller.state.proxy_url:
+                _start_mesh_sse_bridge(server, mesh_controller.state.proxy_url)
         mesh_role = mesh_controller.state.role
         server.mesh = mesh_controller
 
@@ -1327,14 +1350,26 @@ def serve_http(
         # now that advertisement exists (promote/demote during setup no-oped).
         _refresh_mesh_advertise(advertisement, mesh_controller, panel_enabled, server)
         # Re-publish TXT when HDMI link flips (promote open / demote / failed TCP).
+        # Also retry the mesh alias if a promote could not claim it yet (stale cache).
         _last_link = [_switch_link_for_server(server)]
+        _last_alias_retry = [0.0]
         _orig_tick = mesh_controller.tick
 
         def _tick_with_link() -> None:
             _orig_tick()
             link = _switch_link_for_server(server)
-            if link != _last_link[0]:
+            now = time.monotonic()
+            snap = mesh_controller.snapshot()
+            need_alias = (
+                snap.get("role") == "proxy"
+                and bool(snap.get("mesh_mdns_name"))
+                and getattr(advertisement, "alias_info", None) is None
+                and now - _last_alias_retry[0] >= 15.0
+            )
+            if link != _last_link[0] or need_alias:
                 _last_link[0] = link
+                if need_alias:
+                    _last_alias_retry[0] = now
                 _refresh_mesh_advertise(
                     advertisement, mesh_controller, panel_enabled, server
                 )
@@ -1413,7 +1448,13 @@ def _refresh_mesh_advertise(
             kind="mesh",
             link=link,
         )
-        set_alias(str(mesh_name), alias_props)
+        claimed = set_alias(str(mesh_name), alias_props)
+        if claimed is False:
+            # Alias already on the LAN → another live proxy. Join it; do not
+            # stay as a second proxy with no failover name.
+            handle = getattr(mesh_controller, "handle_alias_claim_failed", None)
+            if callable(handle):
+                handle()
     elif callable(clear_alias):
         clear_alias()
 

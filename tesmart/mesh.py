@@ -30,6 +30,22 @@ HTTP_MESH_MDNS_NAME_KEY = "TESMART_HTTP_MESH_MDNS_NAME"
 ROLE_PROXY = "proxy"
 ROLE_CLIENT = "client"
 
+# Env keys that stay on each host. Mesh config pull adopts shared switch /
+# panel state from the proxy, but must not rewrite this process's instance
+# mDNS name, HTTP bind, or client-via prefs. Only ``TESMART_HTTP_MESH_MDNS_NAME``
+# (the shared failover alias) is mesh identity that should converge.
+MESH_LOCAL_ENV_KEYS = frozenset(
+    {
+        config.MDNS_NAME_KEY,
+        config.HTTP_KEY,
+        config.HTTP_MDNS_KEY,
+        HTTP_MESH_PROXY_KEY,
+        config.VIA_KEY,
+        config.CLIENT_VIA_KEY,
+        config.CLIENT_MDNS_NAME_KEY,
+    }
+)
+
 # mDNS / discover: does this process own a live TCP session to the HDMI switch?
 LINK_UP = "up"
 LINK_DOWN = "down"
@@ -79,6 +95,37 @@ def read_mesh_mdns_name(env_file: str | None = None) -> str | None:
     raw = config.read_env_file(config.env_file_path(env_file)).get(HTTP_MESH_MDNS_NAME_KEY, "")
     text = str(raw or "").strip().replace(".", "-")
     return text or None
+
+
+def apply_mesh_shared_config(bundle: dict[str, Any], env_file: str | None = None) -> dict[str, Any]:
+    """Apply a proxy config bundle without overwriting this host's instance identity.
+
+    Shared: switch host/port, names, banners, callbacks, cycle, peek, mesh flag,
+    and the failover alias ``TESMART_HTTP_MESH_MDNS_NAME``.
+
+    Local (preserved): ``TESMART_MDNS_NAME``, HTTP bind / mDNS enable, via prefs,
+    and ``TESMART_HTTP_MESH_PROXY``.
+    """
+    parsed = parse_bundle(bundle)
+    path = config.env_file_path(env_file)
+    local = config.read_env_file(path)
+    incoming = dict(parsed["env"])
+    for key in MESH_LOCAL_ENV_KEYS:
+        incoming.pop(key, None)
+        if key in local:
+            incoming[key] = local[key]
+    # Mesh peers stay meshed; alias comes from join / ensure_mesh_mdns_name.
+    incoming[HTTP_MESH_KEY] = local.get(HTTP_MESH_KEY) or incoming.get(HTTP_MESH_KEY) or "1"
+    alias = (local.get(HTTP_MESH_MDNS_NAME_KEY) or incoming.get(HTTP_MESH_MDNS_NAME_KEY) or "").strip()
+    if alias:
+        incoming[HTTP_MESH_MDNS_NAME_KEY] = alias
+    wrapped = {
+        "format": parsed["format"],
+        "version": parsed["version"],
+        "env": incoming,
+        "kit": None,
+    }
+    return apply_bundle(wrapped, env_file, include_kit=False, replace=True)
 
 
 def write_mesh_mdns_name(name: str | None, env_file: str | None = None) -> None:
@@ -202,8 +249,82 @@ def peer_from_listener(service: DiscoveredListener) -> dict[str, Any] | None:
     }
 
 
+def find_mesh_alias_owner(
+    services: list[DiscoveredListener],
+    *,
+    mesh_name: str | None,
+    switch_id: str | None = None,
+) -> dict[str, Any] | None:
+    """Return the peer dict for whoever currently advertises the mesh failover alias.
+
+    Used when this process fails to claim ``…-mesh``: the alias already on the
+    LAN is the live proxy, even if a stale instance peer mis-advertises
+    ``role=proxy``.
+    """
+    from .mdns import is_mesh_alias
+
+    want = (mesh_name or "").strip()
+    if not want:
+        return None
+    for service in services:
+        if not is_mesh_alias(service):
+            continue
+        if service.instance_name.casefold() != want.casefold():
+            continue
+        props = service.properties or {}
+        switch = str(props.get("switch") or "").strip()
+        if switch_id and switch and not same_switch(switch, switch_id):
+            continue
+        try:
+            started = int(float(props.get("started") or 0))
+        except (TypeError, ValueError):
+            started = 0
+        return {
+            "mdns_name": service.instance_name,
+            "url": service.base_url.rstrip("/"),
+            "switch_id": switch or None,
+            "started_at": started,
+            "role": ROLE_PROXY,
+            "mesh_mdns_name": want,
+            "alias": True,
+        }
+    return None
+
+
 def same_switch(left: str, right: str) -> bool:
     return (left or "").strip().casefold() == (right or "").strip().casefold()
+
+
+def peer_rank(item: dict[str, Any]) -> tuple:
+    """Sort key for proxy election: oldest ``started_at`` wins.
+
+    Missing ``started_at`` (0) sorts as *newest*, not oldest — a stale TXT
+    without ``started`` must not beat a live proxy. Ties break on mDNS name,
+    then base URL.
+    """
+    started = int(item.get("started_at") or 0)
+    order = started if started > 0 else (1 << 62)
+    return (
+        order,
+        str(item.get("mdns_name") or "").casefold(),
+        str(item.get("url") or "").casefold(),
+    )
+
+
+def should_yield_to_proxy(
+    *,
+    self_started: int,
+    self_name: str,
+    self_url: str,
+    other: dict[str, Any],
+) -> bool:
+    """True when another advertised proxy outranks this process by start time."""
+    self_peer = {
+        "mdns_name": self_name,
+        "url": (self_url or "").rstrip("/"),
+        "started_at": self_started,
+    }
+    return peer_rank(other) < peer_rank(self_peer)
 
 
 def elect_proxy(peers: list[dict[str, Any]], *, self_started: int, self_name: str, self_url: str) -> dict[str, Any]:
@@ -213,9 +334,6 @@ def elect_proxy(peers: list[dict[str, Any]], *, self_started: int, self_name: st
     proxy wins ties). That is what lets a restarted listener rejoin instead of
     stealing the role. Otherwise fall back to oldest ``started_at`` including
     self (first node / orphan recovery).
-
-    Missing ``started_at`` (0) sorts as *newest*, not oldest — a stale TXT
-    without ``started`` must not beat a live proxy.
     """
     self_peer = {
         "mdns_name": self_name,
@@ -225,25 +343,15 @@ def elect_proxy(peers: list[dict[str, Any]], *, self_started: int, self_name: st
         "self": True,
     }
 
-    def key(item: dict[str, Any]) -> tuple:
-        started = int(item.get("started_at") or 0)
-        # 0 / missing → treat as youngest so incomplete TXT cannot win.
-        order = started if started > 0 else (1 << 62)
-        return (
-            order,
-            str(item.get("mdns_name") or "").casefold(),
-            str(item.get("url") or "").casefold(),
-        )
-
     lan_proxies = [
         peer
         for peer in peers
         if str(peer.get("role") or "").strip().lower() == ROLE_PROXY
     ]
     if lan_proxies:
-        return min(lan_proxies, key=key)
+        return min(lan_proxies, key=peer_rank)
 
-    return min([*peers, self_peer], key=key)
+    return min([*peers, self_peer], key=peer_rank)
 
 
 def warn_non_mesh_same_switch(
@@ -286,6 +394,88 @@ def same_switch_standalones(
             continue
         hits.append(service)
     return sorted(hits, key=lambda item: item.instance_name.casefold())
+
+
+def live_url_is_local(live_url: str | None, peers: list[dict[str, Any]] | None = None) -> bool:
+    """True when ``live_url`` points at a listener on this computer."""
+    from urllib.parse import urlparse
+
+    from .mdns import local_lan_ipv4s
+
+    text = (live_url or "").strip().rstrip("/")
+    if not text:
+        return False
+    try:
+        parsed = urlparse(text)
+    except Exception:
+        return False
+    host = (parsed.hostname or "").strip().lower()
+    if not host:
+        return False
+    if host in {"127.0.0.1", "localhost", "::1"}:
+        return True
+    local_ips = {ip.casefold() for ip in local_lan_ipv4s()}
+    if host.casefold() in local_ips:
+        return True
+    # Hostname match against browsed peers that themselves use a local IP.
+    for peer in peers or []:
+        url = str(peer.get("url") or "").rstrip("/")
+        if not url:
+            continue
+        try:
+            peer_host = (urlparse(url).hostname or "").strip().lower()
+        except Exception:
+            continue
+        if peer_host.casefold() not in local_ips and peer_host not in {
+            "127.0.0.1",
+            "localhost",
+            "::1",
+        }:
+            continue
+        name = str(peer.get("mdns_name") or "").strip().casefold()
+        if name and (host == name or host.startswith(f"{name}.")):
+            return True
+    return False
+
+
+def prefer_live_peer_url(peers: list[dict[str, Any]]) -> str | None:
+    """Pick which peer's ``/mesh`` to show for ``mesh status``.
+
+    Prefer a listener on this computer (so LIVE matches where the CLI runs),
+    then the advertised proxy, then any peer.
+    """
+    from urllib.parse import urlparse
+
+    from .mdns import local_lan_ipv4s
+
+    local_ips = {ip.casefold() for ip in local_lan_ipv4s()}
+
+    def _host(url: str) -> str:
+        try:
+            return (urlparse(url).hostname or "").strip().lower()
+        except Exception:
+            return ""
+
+    local_peers = []
+    for peer in peers:
+        url = str(peer.get("url") or "").rstrip("/")
+        if not url:
+            continue
+        host = _host(url)
+        if host in {"127.0.0.1", "localhost", "::1"} or host.casefold() in local_ips:
+            local_peers.append(peer)
+    if local_peers:
+        # Prefer a local client/proxy that is not only the alias; any local works.
+        preferred = next(
+            (p for p in local_peers if str(p.get("role") or "") == ROLE_PROXY),
+            local_peers[0],
+        )
+        return str(preferred.get("url") or "").rstrip("/") or None
+
+    preferred = next((p for p in peers if p.get("role") == ROLE_PROXY), peers[0] if peers else None)
+    if preferred is None:
+        return None
+    return str(preferred.get("url") or "").rstrip("/") or None
 
 
 def format_mesh_status_text(
@@ -364,14 +554,26 @@ def format_mesh_status_text(
         )
     elif live and live.get("role") == "proxy":
         others = max(0, member_count - 1)
-        verdict = "Mesh: proxy is up" + (
-            f" with {others} other mesh machine(s)." if others else "."
-        )
+        if live_url_is_local(live_url, peers):
+            verdict = "Mesh: this computer is the proxy" + (
+                f" with {others} other mesh machine(s)." if others else "."
+            )
+        else:
+            name = live.get("mdns_name") or live_url or "another host"
+            verdict = f"Mesh: proxy is {name}" + (
+                f" with {others} other mesh machine(s)." if others else "."
+            )
     elif live and live.get("role") == "client":
-        verdict = (
-            f"Mesh: viewing a mesh client; switch traffic goes through "
-            f"{live.get('proxy') or 'the proxy'}."
-        )
+        if live_url_is_local(live_url, peers):
+            verdict = (
+                "Mesh: this computer is a mesh client; switch traffic goes through "
+                f"{live.get('proxy') or 'the proxy'}."
+            )
+        else:
+            verdict = (
+                f"Mesh: viewing a mesh client ({live.get('mdns_name') or live_url}); "
+                f"switch traffic goes through {live.get('proxy') or 'the proxy'}."
+            )
     elif peers and only_member:
         name = peers[0].get("mdns_name") or peers[0].get("url") or "one listener"
         verdict = (
@@ -508,7 +710,9 @@ def format_mesh_status_text(
         lines.append(f"{_c('LIVE', 'warn')}: could not reach the listener — {live_error}")
     elif live:
         lines.append("")
-        lines.append(f"{_c('LIVE', 'ok')}  from {live_url}")
+        local_live = live_url_is_local(live_url, peers)
+        where = "this computer" if local_live else "remote listener"
+        lines.append(f"{_c('LIVE', 'ok')}  {where} · {live_url}")
         role = str(live.get("role") or "").strip().lower()
         if role == "proxy":
             role_text = _c("proxy", "proxy") + " (owns the switch connection)"
@@ -524,7 +728,12 @@ def format_mesh_status_text(
             )
         link = str(live.get("link") or "").strip().lower()
         if link == LINK_UP:
-            lines.append(f"  Switch TCP:   {_c('up', 'proxy')}  (this node owns the session)")
+            owner_note = (
+                "this computer owns the session"
+                if local_live
+                else "answering listener owns the session"
+            )
+            lines.append(f"  Switch TCP:   {_c('up', 'proxy')}  ({owner_note})")
         elif link == LINK_DOWN:
             if role == "proxy":
                 lines.append(
@@ -558,7 +767,13 @@ def format_mesh_status_text(
                     role_bit = peer_role
                     raw = peer_role
                 pad = max(0, 7 - len(raw))
-                self_note = f"  {_c('(this node)', 'dim')}" if peer.get("self") else ""
+                self_note = ""
+                if peer.get("self"):
+                    self_note = (
+                        f"  {_c('(this computer)', 'dim')}"
+                        if local_live
+                        else f"  {_c('(answering listener)', 'dim')}"
+                    )
                 lines.append(f"    {role_bit}{' ' * pad} {who}{self_note}")
 
     return "\n".join(lines)
@@ -650,10 +865,45 @@ class MeshController:
             }
 
     def _peer_list_locked(self) -> list[dict[str, Any]]:
-        peers = list(self._clients.values())
+        """Joined clients + self, enriched with mDNS ``started_at`` / role from browse."""
+        by_url: dict[str, dict[str, Any]] = {}
+
+        def _put(entry: dict[str, Any]) -> None:
+            url = str(entry.get("url") or "").rstrip("/")
+            if not url:
+                # Keep self / incomplete rows that only have a name.
+                key = f"name:{(entry.get('mdns_name') or entry.get('node_id') or id(entry))}"
+                by_url[key] = dict(entry)
+                return
+            existing = by_url.get(url)
+            if existing is None:
+                by_url[url] = dict(entry)
+                return
+            merged = dict(existing)
+            for key, value in entry.items():
+                if value is None or value == "":
+                    continue
+                if key == "started_at":
+                    try:
+                        incoming = int(value)
+                    except (TypeError, ValueError):
+                        continue
+                    if incoming > 0:
+                        merged["started_at"] = incoming
+                    continue
+                if key == "self":
+                    merged["self"] = bool(existing.get("self")) or bool(value)
+                    continue
+                merged[key] = value
+            by_url[url] = merged
+
+        for peer in self.state.peers:
+            _put({**peer, "self": False})
+        for peer in self._clients.values():
+            _put({**peer, "role": peer.get("role") or ROLE_CLIENT, "self": False})
+
         if self.state.role == ROLE_PROXY and self.state.base_url:
-            peers.insert(
-                0,
+            _put(
                 {
                     "mdns_name": self.state.mdns_name,
                     "url": self.state.base_url,
@@ -661,19 +911,19 @@ class MeshController:
                     "started_at": self.state.started_at,
                     "node_id": self.state.node_id,
                     "self": True,
-                },
+                }
             )
-        elif self.state.role == ROLE_CLIENT and self.state.proxy_url:
-            peers.insert(
-                0,
-                {
-                    "url": self.state.proxy_url,
-                    "role": ROLE_PROXY,
-                    "self": False,
-                },
-            )
+        elif self.state.role == ROLE_CLIENT:
+            if self.state.proxy_url:
+                _put(
+                    {
+                        "url": self.state.proxy_url,
+                        "role": ROLE_PROXY,
+                        "self": False,
+                    }
+                )
             if self.state.base_url:
-                peers.append(
+                _put(
                     {
                         "mdns_name": self.state.mdns_name,
                         "url": self.state.base_url,
@@ -683,6 +933,15 @@ class MeshController:
                         "self": True,
                     }
                 )
+
+        peers = list(by_url.values())
+        peers.sort(
+            key=lambda item: (
+                0 if item.get("self") else 1,
+                0 if str(item.get("role") or "") == ROLE_PROXY else 1,
+                str(item.get("mdns_name") or item.get("url") or "").casefold(),
+            )
+        )
         return peers
 
     def publish_event(self, kind: str, **extra: Any) -> None:
@@ -755,8 +1014,138 @@ class MeshController:
         write_mesh_mdns_name(existing, self.env_file)
         return existing
 
+    def _alias_url_is_self(self, url: str) -> bool:
+        """True when the mesh alias resolves to this process (URL or node_id)."""
+        want = (url or "").rstrip("/")
+        if not want:
+            return False
+        with self._lock:
+            self_url = (self.state.base_url or "").rstrip("/")
+            node_id = self.state.node_id
+        if self_url and want == self_url:
+            return True
+        try:
+            payload = self._http(want, "/mesh")
+        except MeshError:
+            return False
+        return bool(node_id) and str(payload.get("node_id") or "") == node_id
+
+    def find_live_proxy_url(self) -> str | None:
+        """Return a live proxy URL if one already owns this switch on the LAN.
+
+        Prefers the shared ``…-mesh`` failover alias (authoritative), then any
+        instance peer advertising ``role=proxy``. Used at startup **before**
+        opening TCP or claiming the alias.
+        """
+        with self._lock:
+            mesh_name = (self.state.mesh_mdns_name or "").strip() or None
+            self_url = (self.state.base_url or "").rstrip("/")
+        if not mesh_name:
+            mesh_name = read_mesh_mdns_name(self.env_file)
+        try:
+            services = self._browse()
+        except MdnsError as exc:
+            print(f"warning: mesh browse failed: {exc}", file=self._file)
+            services = []
+
+        if mesh_name:
+            owner = find_mesh_alias_owner(
+                services, mesh_name=mesh_name, switch_id=self.switch_id
+            )
+            if owner is not None:
+                url = str(owner.get("url") or "").rstrip("/")
+                if url and not self._alias_url_is_self(url):
+                    if self._proxy_alive(url):
+                        return url
+                    print(
+                        f"  mesh: failover alias {mesh_name} points at unreachable "
+                        f"{url}; ignoring stale alias",
+                        file=self._file,
+                    )
+
+        peers = []
+        for service in services:
+            peer = peer_from_listener(service)
+            if peer is None:
+                continue
+            if not same_switch(peer["switch_id"], self.switch_id):
+                continue
+            if self_url and peer["url"].rstrip("/") == self_url:
+                continue
+            if self.state.mdns_name and peer["mdns_name"].casefold() == self.state.mdns_name.casefold():
+                continue
+            peers.append(peer)
+        with self._lock:
+            self.state.peers = peers
+
+        lan_proxies = [
+            peer
+            for peer in peers
+            if str(peer.get("role") or "").strip().lower() == ROLE_PROXY
+            and str(peer.get("url") or "").rstrip("/")
+        ]
+        if not lan_proxies:
+            return None
+        best = min(lan_proxies, key=peer_rank)
+        url = str(best.get("url") or "").rstrip("/")
+        if not url or (self_url and url == self_url):
+            return None
+        if not self._proxy_alive(url):
+            return None
+        return url
+
+    def try_join_alias_owner(self) -> bool:
+        """If the shared ``…-mesh`` alias is held by another live host, join it.
+
+        Returns ``True`` after demoting to client. A stale alias pointing at a
+        dead host returns ``False`` so this node can keep (or take) proxy.
+        """
+        url = self.find_live_proxy_url()
+        if not url:
+            return False
+        # find_live_proxy_url may have returned a role=proxy peer; prefer logging
+        # the alias path when that is what we will join.
+        with self._lock:
+            mesh_name = (self.state.mesh_mdns_name or "").strip() or None
+        if not mesh_name:
+            mesh_name = read_mesh_mdns_name(self.env_file)
+        print(
+            f"  mesh: live proxy already on LAN at {url}"
+            + (f" (alias {mesh_name})" if mesh_name else "")
+            + "; joining",
+            file=self._file,
+        )
+        try:
+            self._join(url)
+            return True
+        except MeshError as exc:
+            print(
+                f"  mesh: join live proxy {url} failed ({exc})",
+                file=self._file,
+            )
+            return False
+
+    def handle_alias_claim_failed(self) -> bool:
+        """Proxy could not register the mesh alias — join whoever already holds it.
+
+        Returns ``True`` when this node demoted to client.
+        """
+        with self._lock:
+            if self.state.role != ROLE_PROXY:
+                return False
+        if self.try_join_alias_owner():
+            return True
+        print(
+            "  mesh: mesh alias not registered yet; staying proxy and will retry",
+            file=self._file,
+        )
+        return False
+
     def bootstrap(self) -> str:
         """Elect role. Returns ``proxy`` or ``client``."""
+        # Prefer the live failover alias over a stale role=proxy instance peer.
+        if self.try_join_alias_owner():
+            return ROLE_CLIENT
         peers = self.discover()
         winner = elect_proxy(
             peers,
@@ -775,7 +1164,10 @@ class MeshController:
             self._join(proxy_url)
             return ROLE_CLIENT
         except MeshError as exc:
-            print(f"warning: mesh join failed ({exc}); becoming proxy", file=self._file)
+            print(f"warning: mesh join failed ({exc})", file=self._file)
+            if self.try_join_alias_owner():
+                return ROLE_CLIENT
+            print("  mesh: no live alias owner; becoming proxy", file=self._file)
             self._become_proxy(reason="join-failed")
             return ROLE_PROXY
 
@@ -849,12 +1241,12 @@ class MeshController:
         )
         if learned:
             self.ensure_mesh_mdns_name(learned)
-        # Pull portable config (messages included); skip kit prefs.
+        # Pull shared switch/panel config; keep this host's instance identity.
         try:
             config_payload = self._http(proxy_url, "/api/config")
             bundle = config_payload.get("bundle") or config_payload
             parsed = parse_bundle(bundle)
-            apply_bundle(parsed, self.env_file, include_kit=False, replace=True)
+            apply_mesh_shared_config(parsed, self.env_file)
         except Exception as exc:
             print(f"warning: mesh config pull failed: {exc}", file=self._file)
         self._become_client(proxy_url, reason="joined")
@@ -1073,8 +1465,45 @@ class MeshController:
                             file=self._file,
                         )
             return
-        # Proxy: refresh peer list from mDNS for the panel.
+        # Proxy: if the shared …-mesh alias is already held by another live host,
+        # we lost the claim — join that owner (avoids dual proxies after a bad promote).
+        if self.try_join_alias_owner():
+            return
         peers = self.discover()
+        # Fallback: another instance still advertises role=proxy; older started_at wins.
+        other_proxies = [
+            peer
+            for peer in peers
+            if str(peer.get("role") or "").strip().lower() == ROLE_PROXY
+            and str(peer.get("url") or "").rstrip("/")
+        ]
+        if other_proxies:
+            best = min(other_proxies, key=peer_rank)
+            with self._lock:
+                self_name = self.state.mdns_name or self.state.node_id
+                self_url = self.state.base_url or f"node:{self.state.node_id}"
+                self_started = self.state.started_at
+            if should_yield_to_proxy(
+                self_started=self_started,
+                self_name=self_name,
+                self_url=self_url,
+                other=best,
+            ):
+                other_url = str(best.get("url") or "").rstrip("/")
+                other_name = best.get("mdns_name") or other_url
+                print(
+                    f"  mesh: another proxy {other_name} started earlier "
+                    f"(started_at={best.get('started_at')}); yielding",
+                    file=self._file,
+                )
+                try:
+                    self._join(other_url)
+                    return
+                except MeshError as exc:
+                    print(
+                        f"  mesh: yield to {other_url} failed ({exc}); staying proxy",
+                        file=self._file,
+                    )
         with self._lock:
             # Drop stale joined clients (no heartbeat for 60s) if they also vanished from mDNS.
             now = now_ms()

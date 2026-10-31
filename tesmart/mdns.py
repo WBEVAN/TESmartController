@@ -377,25 +377,31 @@ class MdnsAdvertisement:
         except Exception as exc:
             print(f"warning: mDNS TXT update failed: {exc}", file=sys.stderr)
 
-    def set_alias(self, name: str, properties: dict[str, str]) -> None:
-        """Register or refresh the mesh failover DNS-SD name (proxy only)."""
+    def set_alias(self, name: str, properties: dict[str, str]) -> bool:
+        """Register or refresh the mesh failover DNS-SD name (proxy only).
+
+        Returns ``True`` when this process holds the alias. ``False`` means
+        registration failed (usually another live proxy already owns
+        ``OfficeHDMI…-mesh``) — callers should join that owner instead of
+        staying a second proxy.
+        """
         wanted = _normalize_instance(name)
         if not wanted:
             self.clear_alias()
-            return
+            return False
         if (
             self.alias_info is not None
             and self.alias_name
             and self.alias_name.casefold() == wanted.casefold()
         ):
             self._apply_properties(self.alias_info, properties)
-            return
+            return True
         self.clear_alias()
         try:
             from zeroconf import ServiceInfo
         except ImportError as exc:
             print(f"warning: mDNS mesh alias not registered: {exc}", file=sys.stderr)
-            return
+            return False
         info = ServiceInfo(
             self.service_type,
             f"{wanted}.{self.service_type}",
@@ -406,8 +412,9 @@ class MdnsAdvertisement:
         )
         registered = False
         last_exc: Exception | None = None
-        # Hard-killed previous proxies leave the alias in LAN caches for a bit;
-        # retry with backoff so failover clients can resolve the shared name again.
+        # Hard-killed previous proxies leave a stale alias in LAN caches briefly;
+        # retry with backoff. A live name conflict (NonUniqueNameException) means
+        # another proxy already holds …-mesh — fail fast so mesh can join them.
         for attempt, delay in enumerate((0.0, 1.0, 2.0, 4.0)):
             if delay:
                 time.sleep(delay)
@@ -417,20 +424,35 @@ class MdnsAdvertisement:
                 break
             except Exception as exc:
                 last_exc = exc
+                detail = str(exc).strip() or type(exc).__name__
+                unique = type(exc).__name__ == "NonUniqueNameException"
+                if unique:
+                    print(
+                        f"warning: mDNS mesh alias {wanted!r} already claimed "
+                        f"({detail}); not stealing",
+                        file=sys.stderr,
+                    )
+                    return False
                 if attempt == 0:
                     print(
-                        f"warning: mDNS mesh alias {wanted!r} conflict ({exc}); retrying",
+                        f"warning: mDNS mesh alias {wanted!r} conflict ({detail}); retrying",
                         file=sys.stderr,
                     )
         if not registered:
+            detail = (
+                str(last_exc).strip()
+                if last_exc is not None
+                else "unknown error"
+            ) or (type(last_exc).__name__ if last_exc is not None else "unknown error")
             print(
-                f"warning: mDNS mesh alias {wanted!r} not registered: {last_exc}",
+                f"warning: mDNS mesh alias {wanted!r} not registered: {detail}",
                 file=sys.stderr,
             )
-            return
+            return False
         self.alias_info = info
         self.alias_name = wanted
         print(f"  mDNS mesh alias: {wanted}.{self.service_type}", file=sys.stderr)
+        return True
 
     def clear_alias(self) -> None:
         """Drop the mesh failover name (on demote / shutdown)."""
@@ -463,6 +485,17 @@ class MdnsAdvertisement:
             pass
 
 
+def _instance_label_from_service_name(service_name: str) -> str:
+    """Strip ``._wbevan-tesmart._tcp.local.`` from a full DNS-SD service name."""
+    text = (service_name or "").strip()
+    suffix = f".{SERVICE_TYPE}"
+    if text.endswith(suffix):
+        return text[: -len(suffix)]
+    if text.endswith(SERVICE_TYPE):
+        return text[: -len(SERVICE_TYPE)].rstrip(".")
+    return text
+
+
 def advertise(
     *,
     port: int,
@@ -476,6 +509,7 @@ def advertise(
     started_at: int | None = None,
     role: str | None = None,
     mesh_name: str | None = None,
+    file=sys.stderr,
 ) -> MdnsAdvertisement:
     """Register ``_wbevan-tesmart._tcp`` on the LAN. Raises :class:`MdnsError` on failure."""
     try:
@@ -488,6 +522,19 @@ def advertise(
     name = (instance_name or default_instance_name()).strip() or default_instance_name()
     # DNS-SD instance labels must not contain dots in the instance portion.
     name = name.replace(".", "-")
+    alias = (mesh_name or "").strip().replace(".", "-") or None
+    # The proxy already owns the shared failover label. Using it as this
+    # process's instance name always raises NonUniqueNameException and used to
+    # abort startup with an empty error string.
+    if alias and name.casefold() == alias.casefold():
+        fallback = default_instance_name().replace(".", "-")
+        if fallback.casefold() == name.casefold():
+            fallback = f"{name}-node"
+        print(
+            f"warning: mDNS instance {name!r} is the mesh alias; advertising as {fallback!r}",
+            file=file,
+        )
+        name = fallback
 
     preferred = None if bind_host in {"0.0.0.0", "::", ""} else bind_host
     addresses = _ipv4_addresses(preferred)
@@ -516,9 +563,22 @@ def advertise(
     )
     try:
         zc = Zeroconf()
-        zc.register_service(info)
+        # Rename Name → Name-2 when another host (or a stale cache) holds the
+        # label. Mesh alias registration must NOT use this — see set_alias.
+        zc.register_service(info, allow_name_change=True)
     except Exception as exc:
-        raise MdnsError(f"mDNS registration failed: {exc}") from exc
+        detail = str(exc).strip() or type(exc).__name__
+        raise MdnsError(
+            f"mDNS registration failed for {name!r}: {detail}"
+        ) from exc
+
+    actual = _instance_label_from_service_name(getattr(info, "name", "") or name)
+    if actual and actual.casefold() != name.casefold():
+        print(
+            f"warning: mDNS instance {name!r} was taken; advertising as {actual!r}",
+            file=file,
+        )
+        name = actual
 
     return MdnsAdvertisement(
         zeroconf=zc,
@@ -575,6 +635,7 @@ def start_for_listener(
             started_at=started_at,
             role=role,
             mesh_name=mesh_name,
+            file=file,
         )
     except MdnsError as exc:
         if force is True:
@@ -807,11 +868,32 @@ def format_discover_text(
                 str((item.properties or {}).get("role") or "").strip().lower()
                 for item in members
             ]
-            if members and not any(role == "proxy" for role in member_roles):
+            proxy_count = sum(1 for role in member_roles if role == "proxy")
+            if members and proxy_count == 0:
                 lines.append(
                     f"    {_c('⚠ no proxy — nobody owns the switch; restart mesh listeners', 'standalone')}"
                 )
+            elif proxy_count > 1:
+                lines.append(
+                    f"    {_c('⚠ dual proxy — node that cannot claim the mesh alias should join the alias owner', 'standalone')}"
+                )
             proxy_link_down = False
+
+            def _started_bit(props: dict) -> str:
+                raw = props.get("started")
+                try:
+                    ms = int(float(raw)) if raw is not None else 0
+                except (TypeError, ValueError):
+                    return ""
+                if ms <= 0:
+                    return ""
+                from datetime import datetime, timezone
+
+                stamp = datetime.fromtimestamp(ms / 1000.0, tz=timezone.utc).strftime(
+                    "%H:%M:%S UTC"
+                )
+                return f"  {_c(f'started {stamp}', 'dim')}"
+
             for item in members:
                 props = item.properties or {}
                 role = str(props.get("role") or "?").strip().lower() or "?"
@@ -836,6 +918,7 @@ def format_discover_text(
                 lines.append(
                     f"    {label}{' ' * pad} {item.instance_name:<18} "
                     f"{item.base_url:<28} {_host_port(item)}{link_bit}"
+                    f"{_started_bit(props)}"
                 )
             if proxy_link_down:
                 lines.append(

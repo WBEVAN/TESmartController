@@ -1243,7 +1243,11 @@ class Panel {
       const name = peer.mdns_name || peer.url || "peer";
       const peerRole = peer.role || "?";
       const selfMark = peer.self ? " (this node)" : "";
-      item.textContent = `${name} · ${peerRole}${selfMark}`;
+      const startedAt = Number(peer.started_at);
+      const startedMark = Number.isFinite(startedAt) && startedAt > 0
+        ? ` · started ${new Date(startedAt).toISOString().slice(11, 19)} UTC`
+        : "";
+      item.textContent = `${name} · ${peerRole}${selfMark}${startedMark}`;
       if (peer.url && !peer.self) {
         item.title = peer.url;
       }

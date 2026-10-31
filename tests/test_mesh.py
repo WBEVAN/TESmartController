@@ -13,6 +13,7 @@ from tesmart.mesh import (
     MeshError,
     default_mesh_mdns_name,
     elect_proxy,
+    find_mesh_alias_owner,
     format_mesh_status_text,
     mesh_enabled,
     peer_from_listener,
@@ -461,6 +462,30 @@ def test_format_mesh_status_text() -> None:
     assert "Failover mDNS: OfficeHDMI1-mesh" in text
     assert "OldListener" in text
     assert "\033[" not in text
+    # Remote LIVE must not claim "(this computer)" for the answering proxy.
+    remote = format_mesh_status_text(
+        switch_id="tcp:172.16.0.222:5000",
+        local_enabled=True,
+        services=[proxy, client, alias],
+        peers=peers,  # type: ignore[arg-type]
+        live={
+            "role": "proxy",
+            "mdns_name": "OLDMAC",
+            "mesh_mdns_name": "OfficeHDMI1-mesh",
+            "link": "up",
+            "generation": 2,
+            "peers": [
+                {"mdns_name": "OLDMAC", "role": "proxy", "self": True},
+                {"mdns_name": "OfficeHDMI2", "role": "client", "url": "http://172.16.0.131:7272"},
+            ],
+        },
+        live_url="http://10.255.0.1:7272",
+        color=False,
+    )
+    assert "remote listener" in remote
+    assert "(answering listener)" in remote
+    assert "this computer owns the session" not in remote
+    assert "Mesh: proxy is OLDMAC" in remote
 
 
 def test_discover_flags_standalone_same_switch() -> None:
@@ -575,6 +600,44 @@ def test_handle_join_and_leave(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     assert left["removed"] is True
 
 
+def test_mesh_config_pull_preserves_local_mdns_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tesmart.mesh import apply_mesh_shared_config
+
+    env = tmp_path / "env"
+    monkeypatch.setenv("TESMART_ENV_FILE", str(env))
+    config.write_env_file(
+        env,
+        {
+            "TESMART_HOST": "10.0.0.8",
+            "TESMART_PORT": "5000",
+            "TESMART_MDNS_NAME": "OfficeHDMI2-2",
+            "TESMART_HTTP": "0.0.0.0:7273",
+            "TESMART_HTTP_MESH": "1",
+        },
+    )
+    bundle = {
+        "format": "tesmartctl-config",
+        "version": 1,
+        "env": {
+            "TESMART_HOST": "10.0.0.8",
+            "TESMART_PORT": "5000",
+            "TESMART_MDNS_NAME": "OLDMAC",
+            "TESMART_HTTP": "0.0.0.0:7271",
+            "TESMART_HTTP_MESH": "1",
+            "TESMART_HTTP_MESH_MDNS_NAME": "OfficeHDMI2-mesh",
+            "TESMART_NAME_1": "Mac",
+        },
+    }
+    apply_mesh_shared_config(bundle, str(env))
+    got = config.read_env_file(env)
+    assert got["TESMART_MDNS_NAME"] == "OfficeHDMI2-2"
+    assert got["TESMART_HTTP"] == "0.0.0.0:7273"
+    assert got["TESMART_HTTP_MESH_MDNS_NAME"] == "OfficeHDMI2-mesh"
+    assert got["TESMART_NAME_1"] == "Mac"
+
+
 def test_join_learns_mesh_mdns_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     env = tmp_path / "env"
     monkeypatch.setenv("TESMART_ENV_FILE", str(env))
@@ -620,3 +683,270 @@ def test_join_rejects_wrong_switch(tmp_path: Path, monkeypatch: pytest.MonkeyPat
         {"switch_id": "tcp:10.0.0.9:5000", "node_id": "x", "started_at": 1}
     )
     assert reply["accepted"] is False
+
+
+def test_find_live_proxy_url_prefers_alias(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    env = tmp_path / "env"
+    monkeypatch.setenv("TESMART_ENV_FILE", str(env))
+    alias = DiscoveredListener(
+        instance_name="OfficeHDMI2-mesh",
+        port=7271,
+        addresses=("172.16.0.109",),
+        properties={
+            "mesh": "1",
+            "kind": "mesh",
+            "switch": "tcp:10.0.0.8:5000",
+            "role": "proxy",
+            "mesh_name": "OfficeHDMI2-mesh",
+            "started": "1000",
+        },
+    )
+    other = DiscoveredListener(
+        instance_name="OfficeHDMI2-2",
+        port=7273,
+        addresses=("172.16.0.131",),
+        properties={
+            "mesh": "1",
+            "switch": "tcp:10.0.0.8:5000",
+            "role": "proxy",
+            "mesh_name": "OfficeHDMI2-mesh",
+            "started": "5000",
+        },
+    )
+
+    def fake_http(base: str, path: str, *, method: str = "GET", body: dict | None = None) -> dict:
+        if path == "/mesh":
+            return {
+                "role": "proxy",
+                "switch_id": "tcp:10.0.0.8:5000",
+                "node_id": "oldmac",
+            }
+        raise AssertionError(path)
+
+    node = MeshController(
+        env_file=str(env),
+        switch_id="tcp:10.0.0.8:5000",
+        started_at=9000,
+        mesh_mdns_name="OfficeHDMI2-mesh",
+        browse_fn=lambda: [alias, other],
+        request_json=fake_http,
+    )
+    node.set_identity(mdns_name="NewNode", base_url="http://10.0.0.3:8080")
+    assert node.find_live_proxy_url() == "http://172.16.0.109:7271"
+
+
+def test_find_mesh_alias_owner() -> None:
+    alias = DiscoveredListener(
+        instance_name="OfficeHDMI2-mesh",
+        port=7271,
+        addresses=("172.16.0.109",),
+        properties={
+            "mesh": "1",
+            "kind": "mesh",
+            "switch": "tcp:172.16.0.222:5000",
+            "role": "proxy",
+            "mesh_name": "OfficeHDMI2-mesh",
+            "started": "1000",
+        },
+    )
+    peer = DiscoveredListener(
+        instance_name="OfficeHDMI2-2",
+        port=7273,
+        addresses=("172.16.0.131",),
+        properties={
+            "mesh": "1",
+            "switch": "tcp:172.16.0.222:5000",
+            "role": "proxy",
+            "mesh_name": "OfficeHDMI2-mesh",
+        },
+    )
+    owner = find_mesh_alias_owner(
+        [alias, peer],
+        mesh_name="OfficeHDMI2-mesh",
+        switch_id="tcp:172.16.0.222:5000",
+    )
+    assert owner is not None
+    assert owner["url"] == "http://172.16.0.109:7271"
+    assert owner.get("alias") is True
+
+
+def test_try_join_alias_owner_demotes_on_live_alias(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    env = tmp_path / "env"
+    monkeypatch.setenv("TESMART_ENV_FILE", str(env))
+    config.write_env_file(env, {"TESMART_HOST": "10.0.0.8", "TESMART_PORT": "5000"})
+
+    alias = DiscoveredListener(
+        instance_name="OfficeHDMI2-mesh",
+        port=8080,
+        addresses=("10.0.0.1",),
+        properties={
+            "mesh": "1",
+            "kind": "mesh",
+            "switch": "tcp:10.0.0.8:5000",
+            "role": "proxy",
+            "mesh_name": "OfficeHDMI2-mesh",
+            "started": "1000",
+        },
+    )
+    calls: list[str] = []
+
+    def fake_http(base: str, path: str, *, method: str = "GET", body: dict | None = None) -> dict:
+        calls.append(f"{method}:{path}")
+        if path == "/mesh":
+            return {
+                "role": "proxy",
+                "switch_id": "tcp:10.0.0.8:5000",
+                "node_id": "other",
+            }
+        if path == "/mesh/join":
+            return {
+                "accepted": True,
+                "mesh_mdns_name": "OfficeHDMI2-mesh",
+                "generation": 2,
+                "mesh": {"mesh_mdns_name": "OfficeHDMI2-mesh"},
+            }
+        if path == "/api/config":
+            return {"bundle": {"version": 1, "env": {}, "kit": None, "messages": []}}
+        raise AssertionError(path)
+
+    younger = MeshController(
+        env_file=str(env),
+        switch_id="tcp:10.0.0.8:5000",
+        started_at=5000,
+        mesh_mdns_name="OfficeHDMI2-mesh",
+        browse_fn=lambda: [alias],
+        request_json=fake_http,
+    )
+    younger.set_identity(mdns_name="OfficeHDMI2-2", base_url="http://10.0.0.2:8080")
+    younger._become_proxy(reason="join-failed")
+    assert younger.state.role == "proxy"
+    assert younger.handle_alias_claim_failed() is True
+    assert younger.state.role == "client"
+    assert younger.state.proxy_url == "http://10.0.0.1:8080"
+    assert any(c.startswith("POST:/mesh/join") for c in calls)
+
+
+def test_try_join_alias_owner_ignores_stale_alias(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    env = tmp_path / "env"
+    monkeypatch.setenv("TESMART_ENV_FILE", str(env))
+    alias = DiscoveredListener(
+        instance_name="OfficeHDMI2-mesh",
+        port=8080,
+        addresses=("10.0.0.1",),
+        properties={
+            "mesh": "1",
+            "kind": "mesh",
+            "switch": "tcp:10.0.0.8:5000",
+            "role": "proxy",
+            "mesh_name": "OfficeHDMI2-mesh",
+        },
+    )
+
+    def dead_http(base: str, path: str, *, method: str = "GET", body: dict | None = None) -> dict:
+        raise MeshError("unreachable")
+
+    node = MeshController(
+        env_file=str(env),
+        switch_id="tcp:10.0.0.8:5000",
+        started_at=1000,
+        mesh_mdns_name="OfficeHDMI2-mesh",
+        browse_fn=lambda: [alias],
+        request_json=dead_http,
+    )
+    node.set_identity(mdns_name="Survivor", base_url="http://10.0.0.2:8080")
+    node._become_proxy(reason="elected")
+    assert node.try_join_alias_owner() is False
+    assert node.state.role == "proxy"
+
+
+def test_instance_label_from_service_name() -> None:
+    from tesmart.mdns import SERVICE_TYPE, _instance_label_from_service_name
+
+    assert (
+        _instance_label_from_service_name(f"OfficeHDMI2-2.{SERVICE_TYPE}")
+        == "OfficeHDMI2-2"
+    )
+
+
+def test_advertise_avoids_mesh_alias_as_instance_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Instance registration must not steal the shared …-mesh failover label."""
+    pytest.importorskip("zeroconf")
+    import socket
+
+    import zeroconf as zc_mod
+
+    from tesmart import mdns as mdns_mod
+
+    registered: list[tuple[str, bool]] = []
+
+    class _FakeZc:
+        def register_service(self, info: object, *args: object, **kwargs: object) -> None:
+            allow = bool(kwargs.get("allow_name_change"))
+            registered.append((getattr(info, "name", ""), allow))
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(zc_mod, "Zeroconf", lambda *a, **k: _FakeZc())
+    monkeypatch.setattr(
+        mdns_mod,
+        "_ipv4_addresses",
+        lambda preferred=None: [socket.inet_aton("172.16.0.131")],
+    )
+
+    adv = mdns_mod.advertise(
+        port=7272,
+        bind_host="0.0.0.0",
+        instance_name="OfficeHDMI2-mesh",
+        version="0.0.7.19",
+        panel=True,
+        input_count=8,
+        mesh=True,
+        switch_id="tcp:172.16.0.222:5000",
+        mesh_name="OfficeHDMI2-mesh",
+    )
+    assert adv.instance_name.casefold() != "officehdmi2-mesh"
+    assert registered and registered[0][1] is True
+    assert "OfficeHDMI2-mesh." not in registered[0][0]
+
+
+def test_set_alias_fails_fast_on_nonunique() -> None:
+    pytest.importorskip("zeroconf")
+    import socket
+
+    from zeroconf import NonUniqueNameException, ServiceInfo
+
+    from tesmart.mdns import MdnsAdvertisement
+
+    info = ServiceInfo(
+        "_wbevan-tesmart._tcp.local.",
+        "RoleTest._wbevan-tesmart._tcp.local.",
+        addresses=[socket.inet_aton("127.0.0.1")],
+        port=7272,
+        properties={"role": "proxy"},
+    )
+
+    class _FakeZc:
+        def register_service(self, svc: object) -> None:
+            raise NonUniqueNameException()
+
+        def unregister_service(self, svc: object) -> None:
+            return None
+
+    adv = MdnsAdvertisement(
+        zeroconf=_FakeZc(),
+        info=info,
+        instance_name="RoleTest",
+    )
+    adv._addresses = [socket.inet_aton("127.0.0.1")]
+    adv._port = 7272
+    assert adv.set_alias("OfficeHDMI2-mesh", {"kind": "mesh", "role": "proxy"}) is False
+    assert adv.alias_info is None

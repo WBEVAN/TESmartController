@@ -1151,9 +1151,11 @@ def cmd_mesh(args: argparse.Namespace) -> int:
         except Exception as exc:  # noqa: BLE001 - surface as status text
             live_error = str(exc)
     elif peers:
-        # Prefer an advertised proxy, else the first peer.
-        preferred = next((p for p in peers if p.get("role") == "proxy"), peers[0])
-        live_url = str(preferred.get("url") or "").rstrip("/") or None
+        from .mesh import prefer_live_peer_url
+
+        # Prefer a listener on this computer so LIVE matches where the CLI runs;
+        # otherwise the advertised proxy (mesh-wide view).
+        live_url = prefer_live_peer_url(peers)
         if live_url:
             try:
                 live = via_client.request_json(live_url, "/mesh", timeout=8.0)

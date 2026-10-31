@@ -101,6 +101,8 @@ Listeners publish both `mdns_name` (instance) and `mesh_mdns_name` (failover ali
 
 **Rejoin:** election prefers an existing `role=proxy` peer so a restarted listener joins instead of stealing.
 
+**Dual-proxy guard:** only the proxy may advertise the shared `…-mesh` alias. If a node claims proxy but **fails to register** that alias (conflict — already on the LAN), it treats the alias owner as the live proxy and **joins it** instead of staying a second owner. A stale alias that points at an unreachable host is ignored so failover can still promote.
+
 ## Locked decisions
 
 | Topic | Decision |
@@ -124,17 +126,17 @@ Listeners publish both `mdns_name` (instance) and `mesh_mdns_name` (failover ali
 
 1. Resolve switch id from `TESMART_HOST` + `TESMART_PORT` (serial paths refuse mesh).
 2. Browse mDNS (`_wbevan-tesmart._tcp`).
-3. Keep peers with `mesh=1` and the same `switch` id.
-4. If a proxy exists: `POST /mesh/join`, pull config, **do not** open TCP, serve as relay.
-5. If join fails: re-browse and re-elect.
-6. If none older (or last standing): open the switch, become proxy, advertise mesh TXT.
+3. **If the shared `…-mesh` alias (or any live `role=proxy` peer) already exists for this switch:** join that host — **do not** open TCP or try to claim the alias.
+4. Else keep peers with `mesh=1` and the same `switch` id and elect (oldest `started_at`).
+5. If join fails: re-browse; only become proxy when no live alias owner remains.
+6. If none (or last standing): open the switch, become proxy, advertise mesh TXT + alias.
 7. Background: watch proxy health; on loss, re-elect (may open TCP and become proxy).
 
 ## Relay vs local
 
 **Relay to proxy:** input / next / previous / peek / cycle start·stop; buzzer / LED / autodetect / network write; names; enable/disable; peek-default / peek-follow; banner; callbacks (canonical list on proxy); switch fields of status / `/api/state`.
 
-**Local on every node:** static `/panel`, `/kit`, `/static`; own mDNS name; `/mesh` self view; kit prefs file (`kit.json`) — look/feel is not overwritten from the proxy. Outbound Hubitat callbacks (including peek-follow) fire from the **proxy only**; after promote, that is whichever peer won, so Hubitat must stay reachable from all mesh instances.
+**Local on every node:** static `/panel`, `/kit`, `/static`; **own instance mDNS name** (`TESMART_MDNS_NAME`); HTTP bind; `/mesh` self view; kit prefs file (`kit.json`) — look/feel is not overwritten from the proxy. Config pull from the proxy shares switch/panel state and the **mesh failover alias** (`TESMART_HTTP_MESH_MDNS_NAME`) only — it must not rewrite another host’s instance name. Outbound Hubitat callbacks (including peek-follow) fire from the **proxy only**; after promote, that is whichever peer won, so Hubitat must stay reachable from all mesh instances.
 
 ## APIs
 
