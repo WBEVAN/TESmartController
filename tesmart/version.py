@@ -12,7 +12,7 @@ from typing import Any
 
 # Keep in sync with ``pyproject.toml`` ``[project].version`` (fallback when the
 # package metadata is unavailable, e.g. running from a raw source tree).
-VERSION = "0.0.7.19.1"
+VERSION = "0.0.7.20"
 PACKAGE_NAME = "tesmartctl"
 
 # Capability tags clients may require. Add new ones when introducing a
@@ -24,6 +24,7 @@ FEATURES: tuple[str, ...] = (
     "callbacks.name",
     "callbacks.health",
     "callbacks.timeout",
+    "callbacks.listener",
     "names_changed",
     "enabled_changed",
     "enable",

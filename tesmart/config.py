@@ -39,6 +39,9 @@ DEFAULT_CYCLE_SECONDS = 10
 # Peek: show another input briefly, then return. Local; the switch has no such command.
 PEEK_SECONDS_KEY = "TESMART_PEEK_SECONDS"
 DEFAULT_PEEK_SECONDS = 5
+# Mesh-shared peek-follow mode (off | once | always). Duration stays in PEEK_SECONDS_KEY.
+PEEK_FOLLOW_KEY = "TESMART_PEEK_FOLLOW"
+PEEK_FOLLOW_MODES = frozenset({"off", "once", "always"})
 # Last write-only switch settings this host sent (buzzer / LED / auto-detect).
 # The KVM cannot report these back; we remember them so other clients can read them.
 LAST_SENT_KEY = "TESMART_LAST_SENT"
@@ -433,6 +436,31 @@ def set_peek_seconds(seconds: int, env_file: str | None = None) -> Path:
 def peek_info(env_file: str | None = None) -> dict:
     """What status reports about peek: the saved duration."""
     return {"supported": True, "seconds": read_peek_seconds(env_file)}
+
+
+def read_peek_follow(env_file: str | None = None) -> str:
+    """Saved peek-follow mode for this listener (``off``, ``once``, or ``always``)."""
+    raw = read_env_file(env_file_path(env_file)).get(PEEK_FOLLOW_KEY, "").strip().lower()
+    if not raw:
+        return "off"
+    if raw not in PEEK_FOLLOW_MODES:
+        raise ConfigError(f"{PEEK_FOLLOW_KEY} must be off, once, or always, got {raw!r}")
+    return raw
+
+
+def set_peek_follow(mode: str, env_file: str | None = None) -> Path:
+    """Persist peek-follow so mesh peers / failover can restore it."""
+    text = str(mode or "").strip().lower()
+    if text not in PEEK_FOLLOW_MODES:
+        raise ConfigError(f"peek follow must be once, always, or off, got {mode!r}")
+    path = env_file_path(env_file)
+    values = read_env_file(path)
+    if text == "off":
+        values.pop(PEEK_FOLLOW_KEY, None)
+    else:
+        values[PEEK_FOLLOW_KEY] = text
+    write_env_file(path, values)
+    return path
 
 
 def read_last_sent(env_file: str | None = None) -> dict[str, Any]:

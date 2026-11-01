@@ -405,6 +405,10 @@ class _Handler(BaseHTTPRequestHandler):
                     )
                 except Exception:
                     pass
+                try:
+                    config.set_peek_follow(str(follow), self.server.env_file)
+                except Exception:
+                    pass
                 panel._publish_peek_follow(
                     self.server,
                     {"mode": follow, "seconds": seconds},
@@ -413,6 +417,10 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send(HTTPStatus.OK, payload, request.as_text, text)
                 return
             state = self.server.peek_follow.set_mode(request.label or "off", request.seconds)
+            try:
+                config.set_peek_follow(str(state["mode"]), self.server.env_file)
+            except Exception:
+                pass
             payload = {"peek_follow": state["mode"]}
             if state["seconds"] is not None:
                 payload["seconds"] = state["seconds"]
@@ -956,6 +964,7 @@ class WebServer(ThreadingHTTPServer):
             ),
         )
         # Armed by /peek/once or /peek/always. The next plain input change peeks.
+        # Mode is restored from the env file so mesh failover keeps the setting.
         self.peek_follow = PeekFollow(
             events=self.events,
             notify_peek_follow=lambda mode, seconds=None, source="command", **extra: (
@@ -964,6 +973,15 @@ class WebServer(ThreadingHTTPServer):
                 )
             ),
         )
+        try:
+            saved_follow = config.read_peek_follow(env_file)
+        except Exception:
+            saved_follow = "off"
+        if saved_follow != "off":
+            try:
+                self.peek_follow.set_mode(saved_follow, config.read_peek_seconds(env_file))
+            except Exception:
+                pass
         # Listener-owned automatic cycle; kit/panel/CLI start and stop it.
         self.cycler = Cycler(
             switch,
@@ -1015,7 +1033,9 @@ def serve_http(
     ``mdns`` is True/False for ``--mdns`` / ``--no-mdns``, or None for the
     default (advertise when the bind is not loopback-only).
 
-    ``mesh`` enables mesh mode (or reads ``TESMART_HTTP_MESH``). When mesh is on
+    ``mesh`` enables mesh mode when True. Pass False for a standalone listener
+    (do not pass None from ``listen`` — that used to fall through to
+    ``TESMART_HTTP_MESH`` and join a mesh without ``--mesh``). When mesh is on
     and this node becomes a client, ``open_switch`` is unused and the real
     ``switch`` may be ``None``; pass a factory via ``open_switch`` so failover
     to proxy can open TCP later.
@@ -1223,6 +1243,11 @@ def serve_http(
                 except Exception:
                     pass
                 server.mesh_sse_stop = None
+            # Restore shared banner history / peek-follow from env (synced while
+            # we were a client, or from the last config pull).
+            from .mesh import hydrate_shared_runtime
+
+            hydrate_shared_runtime(server, env_file=env_file)
             if isinstance(server.switch, ProxySwitch):
                 if not _open_owned_switch():
                     # TESmart often keeps the dying proxy's TCP for a few seconds.
@@ -1305,12 +1330,18 @@ def serve_http(
                     mesh_controller._become_proxy(reason="join-failed")
             if mesh_controller.state.role == "client" and mesh_controller.state.proxy_url:
                 _start_mesh_sse_bridge(server, mesh_controller.state.proxy_url)
+                from .mesh import hydrate_shared_runtime
+
+                hydrate_shared_runtime(server, env_file=env_file)
         else:
             # Alias already held → join that proxy instead of opening a second TCP.
             if not mesh_controller.try_join_alias_owner():
                 mesh_controller._become_proxy(reason="elected")
             elif mesh_controller.state.proxy_url:
                 _start_mesh_sse_bridge(server, mesh_controller.state.proxy_url)
+                from .mesh import hydrate_shared_runtime
+
+                hydrate_shared_runtime(server, env_file=env_file)
         mesh_role = mesh_controller.state.role
         server.mesh = mesh_controller
 
@@ -1377,6 +1408,24 @@ def serve_http(
         mesh_controller.tick = _tick_with_link  # type: ignore[method-assign]
         mesh_controller.start_watcher()
 
+    def _callback_listener_identity() -> dict | None:
+        """LAN HTTP + mDNS / mesh fields for Hubitat callback follow-up."""
+        mesh_snap: dict = {}
+        mesh = getattr(server, "mesh", None)
+        if mesh is not None:
+            try:
+                mesh_snap = mesh.snapshot() or {}
+            except Exception:
+                mesh_snap = {}
+        return callbacks.build_listener_identity(
+            base_url=base_url,
+            mdns_name=getattr(server, "mdns_name", None) or mesh_snap.get("mdns_name"),
+            mesh_mdns_name=mesh_snap.get("mesh_mdns_name"),
+            role=mesh_snap.get("role"),
+            switch_id=mesh_snap.get("switch_id") or advertise_switch,
+        )
+
+    server.callbacks.identity_fn = _callback_listener_identity
     server.callbacks.start()
     try:
         server.serve_forever()

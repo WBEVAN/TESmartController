@@ -1,6 +1,6 @@
 # Mesh support (experimental)
 
-**Status: experimental** — TCP switches only; **off by default**. Expect sharp edges; Hubitat and other typed URLs still need a manual update when the proxy host changes.
+**Status: experimental** — TCP switches only; **off by default** (explicit `--mesh` required on `listen` / `quickstart`). Expect sharp edges. Hubitat Manager **1.8.0+** can Discover the `…-mesh` alias and follow `listener.base_url` on callbacks when mesh failover is enabled in the app.
 
 ## What it is for
 
@@ -74,7 +74,7 @@ tesmartctl mesh status
 tesmartctl --via auto kit --mdns-name OfficeHDMI2-mesh
 ```
 
-Also: `TESMART_HTTP_MESH=1`, `tesmartctl quickstart --mesh`, and an install prompt that can persist the flag.
+Also: `tesmartctl quickstart --mesh`. **Mesh is opt-in only:** both `listen --http` and `quickstart` join a mesh **only** with an explicit `--mesh`. A leftover `TESMART_HTTP_MESH=1` in the env file does not start mesh. Use `--no-mesh` to clear the persisted flag / force standalone.
 
 Different mDNS instance names are fine. Peers group by **switch identity** (`tcp:host:port`), not by mDNS name.
 
@@ -111,7 +111,7 @@ Listeners publish both `mdns_name` (instance) and `mesh_mdns_name` (failover ali
 | Maturity | **Experimental** in 0.0.7.19 |
 | Kit UI | No dedicated mesh chrome; status on `/panel` |
 | Serial / RS232 | Out of scope (TCP only for now) |
-| Hubitat / sticky URLs | Every mesh host must reach the Hubitat callback URL; operators move Manager / typed base URLs **manually** when the proxy host changes |
+| Hubitat / sticky URLs | Every mesh host must reach the Hubitat callback URL. Manager **1.8.0+**: mDNS Discover → pick `…-mesh` → optional **Follow listener endpoint** (mesh path only; Hubitat 2.5.1+) |
 | Clock skew | Election uses each instance’s reported `started_at` (epoch ms). Tie-break: mDNS instance name, then base URL |
 
 ## Roles
@@ -136,7 +136,7 @@ Listeners publish both `mdns_name` (instance) and `mesh_mdns_name` (failover ali
 
 **Relay to proxy:** input / next / previous / peek / cycle start·stop; buzzer / LED / autodetect / network write; names; enable/disable; peek-default / peek-follow; banner; callbacks (canonical list on proxy); switch fields of status / `/api/state`.
 
-**Local on every node:** static `/panel`, `/kit`, `/static`; **own instance mDNS name** (`TESMART_MDNS_NAME`); HTTP bind; `/mesh` self view; kit prefs file (`kit.json`) — look/feel is not overwritten from the proxy. Config pull from the proxy shares switch/panel state and the **mesh failover alias** (`TESMART_HTTP_MESH_MDNS_NAME`) only — it must not rewrite another host’s instance name. Outbound Hubitat callbacks (including peek-follow) fire from the **proxy only**; after promote, that is whichever peer won, so Hubitat must stay reachable from all mesh instances.
+**Local on every node:** static `/panel`, `/kit`, `/static`; **own instance mDNS name** (`TESMART_MDNS_NAME`); HTTP bind; `/mesh` self view; kit prefs file (`kit.json`) — look/feel is not overwritten from the proxy. Config pull from the proxy shares switch/panel state (names, banners, callbacks, cycle, **peek-follow**, etc.) and the **mesh failover alias** (`TESMART_HTTP_MESH_MDNS_NAME`) — it must not rewrite another host’s instance name. On promote, the new proxy reloads banner history and peek-follow from that synced env. Outbound Hubitat callbacks (including peek-follow) fire from the **proxy only**; after promote, that is whichever peer won, so Hubitat must stay reachable from all mesh instances.
 
 ## APIs
 

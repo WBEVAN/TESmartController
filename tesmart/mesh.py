@@ -146,7 +146,13 @@ class MeshError(Exception):
 
 
 def mesh_enabled(env_file: str | None = None, *, flag: bool | None = None) -> bool:
-    """True when CLI ``--mesh`` or the env flag enables mesh."""
+    """True when mesh should run for this process.
+
+    ``flag=True`` / ``False`` come from CLI ``--mesh`` / ``--no-mesh`` and win
+    over the env file. Listeners and quickstart always pass an explicit flag so
+    a leftover ``TESMART_HTTP_MESH`` cannot start mesh without ``--mesh``.
+    ``flag=None`` still reads the env (e.g. ``tesmartctl mesh status``).
+    """
     if flag is True:
         return True
     if flag is False:
@@ -1571,6 +1577,36 @@ def forward_to_proxy(
         raise MeshError(f"mesh proxy request failed: {exc}") from exc
 
 
+def hydrate_shared_runtime(server: Any, *, env_file: str | None = None) -> None:
+    """Load mesh-shared banner history and peek-follow from the env into memory.
+
+    Call after a mesh config pull and when promoting to proxy so failover does
+    not drop messages / peek-follow that were only on the previous proxy.
+    """
+    path = env_file if env_file is not None else getattr(server, "env_file", None)
+    board = getattr(server, "banner", None)
+    if board is not None:
+        try:
+            history = config.read_banner_history(path)
+            board.replace_history(history)
+        except Exception:
+            pass
+    follow = getattr(server, "peek_follow", None)
+    if follow is not None:
+        try:
+            mode = config.read_peek_follow(path)
+        except Exception:
+            mode = "off"
+        try:
+            seconds = config.read_peek_seconds(path) if mode != "off" else None
+        except Exception:
+            seconds = None
+        try:
+            follow.set_mode(mode, seconds)
+        except Exception:
+            pass
+
+
 def sync_shared_state_from_proxy(server: Any, state: dict[str, Any]) -> None:
     """Copy proxy-owned peek-follow / banner / active into this client's memory."""
     peek = state.get("peek") if isinstance(state, dict) else None
@@ -1586,6 +1622,15 @@ def sync_shared_state_from_proxy(server: Any, state: dict[str, Any]) -> None:
                 server.peek_follow.set_mode(str(follow), secs)
             except Exception:
                 pass
+            try:
+                config.set_peek_follow(str(follow), getattr(server, "env_file", None))
+            except Exception:
+                pass
+            if secs is not None:
+                try:
+                    config.set_peek_seconds(int(secs), getattr(server, "env_file", None))
+                except Exception:
+                    pass
     hub = getattr(server, "callbacks", None)
     if hub is not None and isinstance(state, dict):
         active = state.get("active_input")

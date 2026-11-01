@@ -96,7 +96,7 @@ def test_notify_shutdown_publishes_then_posts(monkeypatch) -> None:
 def test_note_online_reports_the_current_input(monkeypatch) -> None:
     import threading
 
-    from tesmart.callbacks import CallbackHub
+    from tesmart.callbacks import CallbackHub, build_listener_identity
 
     events = EventHub()
 
@@ -104,7 +104,19 @@ def test_note_online_reports_the_current_input(monkeypatch) -> None:
         input_count = 8
         endpoint = "sim://8"
 
-    hub = CallbackHub(Switch(), threading.Lock(), None, events=events)  # type: ignore[arg-type]
+    hub = CallbackHub(
+        Switch(),
+        threading.Lock(),
+        None,
+        events=events,
+        identity_fn=lambda: build_listener_identity(
+            base_url="http://172.16.0.109:7271",
+            mdns_name="OLDMAC",
+            mesh_mdns_name="OfficeHDMI2-mesh",
+            role="proxy",
+            switch_id="tcp:172.16.0.222:5000",
+        ),
+    )  # type: ignore[arg-type]
     hub._last_active = 2
     queue_ = events.subscribe()
     monkeypatch.setattr("tesmart.callbacks.config.read_names", lambda _env: {2: "Office"})
@@ -118,3 +130,7 @@ def test_note_online_reports_the_current_input(monkeypatch) -> None:
     assert payload["active_name"] == "Office"
     assert payload["disabled"] == [4]
     assert payload["input_count"] == 8
+    assert payload["listener"]["base_url"] == "http://172.16.0.109:7271"
+    assert payload["listener"]["mdns_name"] == "OLDMAC"
+    assert payload["listener"]["mesh_mdns_name"] == "OfficeHDMI2-mesh"
+    assert payload["listener"]["role"] == "proxy"

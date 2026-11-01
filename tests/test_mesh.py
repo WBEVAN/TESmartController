@@ -564,6 +564,20 @@ def test_mesh_env_flag(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     write_mesh_enabled(True, str(env))
     assert mesh_enabled(str(env)) is True
     assert config.read_env_file(env)["TESMART_HTTP_MESH"] == "1"
+    # Explicit False wins over env (listen without --mesh).
+    assert mesh_enabled(str(env), flag=False) is False
+    assert mesh_enabled(str(env), flag=True) is True
+
+
+def test_cli_mesh_flag_requires_explicit_opt_in() -> None:
+    from argparse import Namespace
+
+    from tesmart.cli import _cli_mesh_flag
+
+    for listen in (True, False):
+        assert _cli_mesh_flag(Namespace(mesh=False, no_mesh=False), listen=listen) is False
+        assert _cli_mesh_flag(Namespace(mesh=True, no_mesh=False), listen=listen) is True
+        assert _cli_mesh_flag(Namespace(mesh=False, no_mesh=True), listen=listen) is False
 
 
 def test_handle_join_and_leave(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -598,6 +612,49 @@ def test_handle_join_and_leave(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     assert any(p.get("node_id") == "abc123" for p in peers)
     left = controller.handle_leave({"node_id": "abc123"})
     assert left["removed"] is True
+
+
+def test_hydrate_shared_runtime_restores_banner_and_peek_follow(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tesmart.banner import BannerBoard
+    from tesmart.mesh import hydrate_shared_runtime
+    from tesmart.peek import PeekFollow
+
+    env = tmp_path / "env"
+    monkeypatch.setenv("TESMART_ENV_FILE", str(env))
+    config.write_env_file(env, {"TESMART_HOST": "10.0.0.8", "TESMART_PORT": "5000"})
+    config.set_peek_follow("always", str(env))
+    config.set_peek_seconds(9, str(env))
+    config.write_banner_history(
+        [
+            {
+                "id": 1,
+                "text": "Failover keep me",
+                "mode": "timed",
+                "seconds": 5,
+                "at": 1.0,
+                "from": "MESSAGE",
+            }
+        ],
+        str(env),
+    )
+
+    class _Server:
+        env_file = str(env)
+        peek_follow = PeekFollow()
+        banner = BannerBoard(
+            history=[],
+            persist=lambda entries: config.write_banner_history(entries, str(env)),
+        )
+
+    server = _Server()
+    assert server.peek_follow.status()["mode"] == "off"
+    hydrate_shared_runtime(server, env_file=str(env))
+    assert server.peek_follow.status()["mode"] == "always"
+    assert server.peek_follow.status()["seconds"] == 9
+    history = server.banner.payload()["banner_history"]
+    assert history and history[0]["text"] == "Failover keep me"
 
 
 def test_mesh_config_pull_preserves_local_mdns_name(
@@ -948,5 +1005,12 @@ def test_set_alias_fails_fast_on_nonunique() -> None:
     )
     adv._addresses = [socket.inet_aton("127.0.0.1")]
     adv._port = 7272
-    assert adv.set_alias("OfficeHDMI2-mesh", {"kind": "mesh", "role": "proxy"}) is False
+    assert (
+        adv.set_alias(
+            "OfficeHDMI2-mesh",
+            {"kind": "mesh", "role": "proxy"},
+            _retry_delays=(0.0, 0.0),
+        )
+        is False
+    )
     assert adv.alias_info is None

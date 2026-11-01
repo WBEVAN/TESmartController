@@ -52,8 +52,9 @@ class PeekFollow:
 
     ``once`` applies to a single later input change (``/input/3``, ``set 3``,
     next, previous) and then clears. ``always`` keeps applying until set back
-    to ``off``. An explicit peek does not consume either mode. The state is
-    in this process only; it is not written to the env file.
+    to ``off``. An explicit peek does not consume either mode. The HTTP
+    listener persists the mode in the env file (``TESMART_PEEK_FOLLOW``) so
+    mesh failover can restore it on the new proxy.
     """
 
     def __init__(

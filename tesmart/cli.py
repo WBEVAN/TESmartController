@@ -466,15 +466,29 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="simulate input changes, peek, and cycle on this computer and do not talk to an HDMI switch",
     )
-    p_listen.add_argument(
+    listen_mesh = p_listen.add_mutually_exclusive_group()
+    listen_mesh.add_argument(
         "--mesh",
         action="store_true",
-        help="with --http: join a mesh for this TCP switch (oldest peer owns the switch connection)",
+        help="with --http: join a mesh for this TCP switch (oldest peer owns the switch connection). "
+             "Without this flag the listener stays standalone even if TESMART_HTTP_MESH=1 is in the env file",
     )
-    p_quick.add_argument(
+    listen_mesh.add_argument(
+        "--no-mesh",
+        action="store_true",
+        help="with --http: force standalone (clear TESMART_HTTP_MESH for this env file)",
+    )
+    quick_mesh = p_quick.add_mutually_exclusive_group()
+    quick_mesh.add_argument(
         "--mesh",
         action="store_true",
-        help="enable mesh for this quickstart (or use TESMART_HTTP_MESH=1 from install)",
+        help="opt in to mesh for this quickstart (required; TESMART_HTTP_MESH in the env "
+             "file alone does not start mesh). Persists TESMART_HTTP_MESH=1 when used",
+    )
+    quick_mesh.add_argument(
+        "--no-mesh",
+        action="store_true",
+        help="force standalone and clear TESMART_HTTP_MESH in the env file",
     )
     p_listen.add_argument(
         "--mesh-mdns-name",
@@ -980,6 +994,22 @@ def cmd_monitor(switch: TesmartSwitch, args: argparse.Namespace) -> int:
     return 0
 
 
+def _cli_mesh_flag(args: argparse.Namespace, *, listen: bool = False) -> bool | None:
+    """Resolve ``--mesh`` / ``--no-mesh`` for serve_http.
+
+    Mesh is a confirmed opt-in: only an explicit ``--mesh`` enables it for
+    ``listen`` and ``quickstart``. A leftover ``TESMART_HTTP_MESH=1`` in the env
+    file must not start mesh. ``--no-mesh`` → False (and clears the env flag at
+    the call site). ``listen`` is unused but kept for call-site clarity.
+    """
+    del listen  # both listen and quickstart require explicit --mesh
+    if getattr(args, "no_mesh", False):
+        return False
+    if getattr(args, "mesh", False):
+        return True
+    return False
+
+
 def cmd_quickstart(args: argparse.Namespace) -> int:
     """Open the switch and serve HTTP using the listener saved by install.
 
@@ -994,8 +1024,13 @@ def cmd_quickstart(args: argparse.Namespace) -> int:
 
     def serve(ready: Quickstart) -> int:
         settings = resolve_settings(args)
-        mesh_flag = True if getattr(args, "mesh", False) else None
-        use_mesh = mesh_enabled(args.env_file, flag=mesh_flag)
+        mesh_flag = _cli_mesh_flag(args)
+        if mesh_flag is False and getattr(args, "no_mesh", False):
+            from .mesh import write_mesh_enabled
+
+            write_mesh_enabled(False, args.env_file)
+        # quickstart: mesh only with explicit --mesh (never infer from env)
+        use_mesh = mesh_enabled(args.env_file, flag=True if mesh_flag else False)
 
         def open_live():
             transport = open_transport(settings)
@@ -1018,7 +1053,7 @@ def cmd_quickstart(args: argparse.Namespace) -> int:
                     panel_enabled=ready.panel,
                     mdns=ready.mdns,
                     mdns_name=ready.mdns_name,
-                    mesh=mesh_flag if use_mesh or mesh_flag else False,
+                    mesh=True if use_mesh else False,
                     mesh_mdns_name=getattr(args, "mesh_mdns_name", None),
                     open_switch=lambda: SimulatedSwitch(input_count=settings.inputs),
                 )
@@ -1063,7 +1098,13 @@ def cmd_listen(switch: TesmartSwitch | None, args: argparse.Namespace) -> int:
             mdns = False
         else:
             mdns = None
-        mesh_flag = True if getattr(args, "mesh", False) else None
+        # listen: --mesh required to join; env alone must not pull a standalone
+        # process into the mesh. --no-mesh clears the persisted env flag.
+        mesh_flag = _cli_mesh_flag(args, listen=True)
+        if mesh_flag is False and getattr(args, "no_mesh", False):
+            from .mesh import write_mesh_enabled
+
+            write_mesh_enabled(False, args.env_file)
         return serve_http(
             switch,
             host,
@@ -1072,7 +1113,7 @@ def cmd_listen(switch: TesmartSwitch | None, args: argparse.Namespace) -> int:
             panel_enabled=args.panel,
             mdns=mdns,
             mdns_name=args.mdns_name,
-            mesh=mesh_flag,
+            mesh=True if mesh_flag else False,
             mesh_mdns_name=getattr(args, "mesh_mdns_name", None),
             open_switch=getattr(args, "_open_switch", None),
         )
@@ -1807,9 +1848,8 @@ def main(argv: list[str] | None = None) -> int:
                 switch.close()
 
         if args.command == "listen" and args.http is not None:
-            from .mesh import mesh_enabled
-
-            if mesh_enabled(args.env_file, flag=True if getattr(args, "mesh", False) else None):
+            # Only an explicit --mesh opens without a local TCP session (client role).
+            if _cli_mesh_flag(args, listen=True) is True:
                 settings = resolve_settings(args)
 
                 def open_live():

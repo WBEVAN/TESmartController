@@ -4,9 +4,10 @@ Drive the TESmart switch from Hubitat Elevation: one Manager app, one controller
 
 ## What you need
 
-1. A server started with `tesmartctl install`, then left running with `tesmartctl quickstart` (**0.0.7.18+**, on a host and port Hubitat can reach)
-2. The Hubitat package from this repo (`hubitat/`) — currently **1.7.1** (shown on the Manager screen)
-3. Network path from the Hub to the machine running the listener
+1. A server started with `tesmartctl install`, then left running with `tesmartctl quickstart` (**0.0.7.20+**, on a host Hubitat can reach). Use `quickstart --mesh` / `listen --http … --mesh` only if you want mesh.
+2. The Hubitat package from this repo (`hubitat/`) — currently **1.8.0** (shown on the Manager screen)
+3. Hubitat platform **2.5.1+** if you use optional mDNS Discover
+4. Network path from the Hub to the machine running the listener (and to every mesh host if you use mesh callbacks)
 
 ## Install the package
 
@@ -21,12 +22,17 @@ Manual Groovy import paths (if not using HPM):
 - `hubitat/TESmart-Controller.groovy`
 - `hubitat/TESmart-Input.groovy`
 
-## Configure
+## Configure connection
 
-1. Open **TESmart Manager**
-2. Set the HTTP base URL of the listener, e.g. `http://192.168.1.20:8765`
-3. Create / refresh the controller and child input devices
-4. Map input names to match your local `tesmartctl name` labels if you use them
+Open **TESmart Manager** → **Configure server connection**. Choose **one** path (existing installs keep mDNS off until you opt in):
+
+1. **Fixed IP** — leave **Use mDNS discovery** off; enter host/port.
+2. **mDNS + mesh** — mDNS on → **Discover listeners** → **Use mesh failover** on → pick `…-mesh` → **Use selected mesh**. Optionally leave **Follow listener endpoint from callbacks** on (only shown for mesh).
+3. **mDNS + specific name** — mDNS on → Discover → mesh failover off → pick an instance name → **Use selected name**.
+
+While mDNS is on, you do **not** type an IP — Discover fills **Active**. Need a fixed IP? Turn mDNS off.
+
+Then run the connection test (`POST /compat`, needs tesmartctl **0.0.7.20+**), create/refresh devices, and map port names as needed.
 
 Selecting an input child (or the controller command) issues HTTP to the listener, which talks to the switch.
 
@@ -34,12 +40,14 @@ Selecting an input child (or the controller command) issues HTTP to the listener
 
 So Hubitat reflects changes made from the kit, CLI, or Stream Deck:
 
-1. Point the listener’s Hubitat callback URL at the Manager / controller endpoint (see repo [Docs/hubitat.md](https://github.com/WBEVAN/TESmartController/blob/main/Docs/hubitat.md))
-2. Keep `tesmartctl quickstart` running whenever you want live sync
+1. Leave **Push notifications** on in Manager (OAuth) so the hub registers a callback URL with the listener
+2. Keep `tesmartctl quickstart` (or `listen --http`) running whenever you want live sync
 
 Ctrl-C on the listener posts `event: shutdown` on that same callback. The controller `healthStatus` becomes `shutdown`. A later poll that cannot connect leaves it there until the listener answers again. A crash or a network drop, with no `shutdown` event, sets `healthStatus` to `offline`. Starting the listener posts `event: online` with the current input, names, and disabled list, and Hubitat sets `healthStatus` back to `online`.
 
 The listener also posts `enabled_changed` to the same callback URL when an input is enabled or disabled (`GET /enable/N`, `GET /disable/N`, `tesmartctl --via auto enable 4`, or the panel checkbox). The Manager stores the enabled and disabled lists. Each TESmart Input child updates `inputEnabled` and keeps its switch for whichever input is selected. A command on the listener machine without `--via` is not posted; the next Refresh reads `disabled` from `GET /status`.
+
+With **mesh** and **Follow listener endpoint** on, `online` (and similar) callbacks can include `listener.base_url` so Manager updates host/port when the proxy moves. Every mesh host must still reach Hubitat.
 
 The Manager main screen has **Status**, which reads `GET /status` and shows the server version and active input. It can also enable or disable one input itself. That calls the same short routes.
 
@@ -83,6 +91,7 @@ Repo doc: [Docs/hubitat.md](https://github.com/WBEVAN/TESmartController/blob/mai
 
 ## Next
 
+- [Mesh](Mesh)
 - [Control panel](Control-Panel)
 - [Listener & HTTP](Listener-and-HTTP)
 - [Troubleshooting](Troubleshooting)

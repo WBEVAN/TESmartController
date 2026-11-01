@@ -377,13 +377,24 @@ class MdnsAdvertisement:
         except Exception as exc:
             print(f"warning: mDNS TXT update failed: {exc}", file=sys.stderr)
 
-    def set_alias(self, name: str, properties: dict[str, str]) -> bool:
+    def set_alias(
+        self,
+        name: str,
+        properties: dict[str, str],
+        *,
+        _retry_delays: tuple[float, ...] = (0.0, 1.0, 2.0, 4.0),
+    ) -> bool:
         """Register or refresh the mesh failover DNS-SD name (proxy only).
 
         Returns ``True`` when this process holds the alias. ``False`` means
-        registration failed (usually another live proxy already owns
-        ``OfficeHDMI…-mesh``) — callers should join that owner instead of
+        registration failed after retries (usually another live proxy already
+        owns ``OfficeHDMI…-mesh``) — callers should join that owner instead of
         staying a second proxy.
+
+        ``NonUniqueNameException`` is retried with backoff: hard-killed proxies
+        and same-host Zeroconf ghosts often look like a live claim for a few
+        seconds. Returning false immediately left ``…-mesh`` unpublished forever
+        while ``tesmartctl discover`` showed ``alias not advertised yet``.
         """
         wanted = _normalize_instance(name)
         if not wanted:
@@ -412,10 +423,8 @@ class MdnsAdvertisement:
         )
         registered = False
         last_exc: Exception | None = None
-        # Hard-killed previous proxies leave a stale alias in LAN caches briefly;
-        # retry with backoff. A live name conflict (NonUniqueNameException) means
-        # another proxy already holds …-mesh — fail fast so mesh can join them.
-        for attempt, delay in enumerate((0.0, 1.0, 2.0, 4.0)):
+        delays = _retry_delays or (0.0,)
+        for attempt, delay in enumerate(delays):
             if delay:
                 time.sleep(delay)
             try:
@@ -426,28 +435,34 @@ class MdnsAdvertisement:
                 last_exc = exc
                 detail = str(exc).strip() or type(exc).__name__
                 unique = type(exc).__name__ == "NonUniqueNameException"
+                # Drop a half-registered / ghost record this Zeroconf may hold
+                # so the next attempt can probe cleanly.
+                try:
+                    self.zeroconf.unregister_service(info)
+                except BaseException:
+                    pass
+                if attempt + 1 < len(delays):
+                    why = "already claimed" if unique else "conflict"
+                    print(
+                        f"warning: mDNS mesh alias {wanted!r} {why} ({detail}); retrying",
+                        file=sys.stderr,
+                    )
+                    continue
                 if unique:
                     print(
                         f"warning: mDNS mesh alias {wanted!r} already claimed "
                         f"({detail}); not stealing",
                         file=sys.stderr,
                     )
-                    return False
-                if attempt == 0:
-                    print(
-                        f"warning: mDNS mesh alias {wanted!r} conflict ({detail}); retrying",
-                        file=sys.stderr,
-                    )
         if not registered:
-            detail = (
-                str(last_exc).strip()
-                if last_exc is not None
-                else "unknown error"
-            ) or (type(last_exc).__name__ if last_exc is not None else "unknown error")
-            print(
-                f"warning: mDNS mesh alias {wanted!r} not registered: {detail}",
-                file=sys.stderr,
-            )
+            if last_exc is not None and type(last_exc).__name__ != "NonUniqueNameException":
+                detail = (
+                    str(last_exc).strip() or type(last_exc).__name__
+                )
+                print(
+                    f"warning: mDNS mesh alias {wanted!r} not registered: {detail}",
+                    file=sys.stderr,
+                )
             return False
         self.alias_info = info
         self.alias_name = wanted

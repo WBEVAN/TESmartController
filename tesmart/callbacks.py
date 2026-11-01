@@ -20,7 +20,7 @@ import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 from urllib.parse import urlsplit
 
 from . import config
@@ -360,11 +360,54 @@ def build_names_event(
     return payload
 
 
+def build_listener_identity(
+    *,
+    base_url: str | None = None,
+    mdns_name: str | None = None,
+    mesh_mdns_name: str | None = None,
+    role: str | None = None,
+    switch_id: str | None = None,
+) -> dict[str, Any] | None:
+    """Connection identity for Hubitat (and others) to follow after mesh failover.
+
+    ``base_url`` is the LAN HTTP root Hubitat should call (host + port). Empty
+    values are omitted; returns ``None`` when nothing useful is known.
+    """
+    from urllib.parse import urlparse
+
+    out: dict[str, Any] = {}
+    url = (base_url or "").strip().rstrip("/")
+    if url:
+        out["base_url"] = url
+        try:
+            parsed = urlparse(url)
+            if parsed.hostname:
+                out["host"] = parsed.hostname
+            if parsed.port:
+                out["port"] = int(parsed.port)
+        except Exception:
+            pass
+    name = (mdns_name or "").strip() or None
+    if name:
+        out["mdns_name"] = name
+    mesh_name = (mesh_mdns_name or "").strip() or None
+    if mesh_name:
+        out["mesh_mdns_name"] = mesh_name
+    role_text = (role or "").strip() or None
+    if role_text:
+        out["role"] = role_text
+    switch = (switch_id or "").strip() or None
+    if switch:
+        out["switch_id"] = switch
+    return out or None
+
+
 def build_online_event(
     *,
     switch: TesmartSwitch,
     env_file: str | None = None,
     active: int | None = None,
+    source: str = "startup",
 ) -> dict[str, Any]:
     """Payload when this listener process starts and can take clients again."""
     names = config.read_names(env_file)
@@ -372,7 +415,7 @@ def build_online_event(
     payload: dict[str, Any] = {
         "event": "online",
         "input_count": switch.input_count,
-        "source": "startup",
+        "source": source,
         "endpoint": switch.endpoint,
         "names": {str(number): label for number, label in names.items()},
         "disabled": disabled,
@@ -498,6 +541,9 @@ def notify_shutdown(hub: CallbackHub, *, reason: str = "signal") -> None:
         "reason": reason,
         "source": "listener",
     }
+    enrich = getattr(hub, "_with_listener", None)
+    if callable(enrich):
+        payload = enrich(payload)
     if hub.events is not None:
         hub.events.publish(payload)
     urls = read_callback_urls(hub.env_file)
@@ -589,11 +635,14 @@ class CallbackHub:
         *,
         events: EventHub | None = None,
         outbound_http: bool | None = None,
+        identity_fn: Callable[[], dict[str, Any] | None] | None = None,
     ):
         self.switch = switch
         self.lock = lock
         self.env_file = env_file
         self.events = events
+        # Optional: returns listener identity for Hubitat mesh follow-up.
+        self.identity_fn = identity_fn
         # Mesh clients use ProxySwitch: no local TCP pump, and Hubitat POSTs stay on the proxy.
         remote = bool(getattr(switch, "mesh_remote", False) or getattr(switch, "proxy_url", None))
         self.outbound_http = (not remote) if outbound_http is None else bool(outbound_http)
@@ -602,6 +651,20 @@ class CallbackHub:
         self._thread: threading.Thread | None = None
         self._last_active: int | None = None
         self._state_lock = threading.Lock()
+
+    def _with_listener(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Attach ``listener`` identity when an identity_fn is configured."""
+        if self.identity_fn is None:
+            return payload
+        try:
+            identity = self.identity_fn()
+        except Exception:
+            return payload
+        if not identity:
+            return payload
+        enriched = dict(payload)
+        enriched["listener"] = identity
+        return enriched
 
     def start(self) -> None:
         try:
@@ -659,7 +722,7 @@ class CallbackHub:
                 file=sys.stderr,
             )
             if self.outbound_http:
-                self.note_online()
+                self.note_online(source="mesh-promote")
         elif self.outbound_http is False and self.events is not None:
             print(
                 "callbacks: mesh client — Hubitat-style POSTs stay on the proxy; local SSE only",
@@ -695,15 +758,20 @@ class CallbackHub:
                 self.note_active(int(active), previous=previous, source="probe")
             return
 
-    def note_online(self) -> None:
+    def note_online(self, *, source: str = "startup") -> None:
         """Tell registered clients this listener is accepting commands again."""
         with self._state_lock:
             active = self._last_active
-        payload = build_online_event(switch=self.switch, env_file=self.env_file, active=active)
+        payload = build_online_event(
+            switch=self.switch,
+            env_file=self.env_file,
+            active=active,
+            source=source,
+        )
         urls = read_callback_urls(self.env_file)
         if urls:
             print(
-                f"callbacks: listener online, notifying {len(urls)} client(s)",
+                f"callbacks: listener online ({source}), notifying {len(urls)} client(s)",
                 file=sys.stderr,
             )
         self._fanout(payload)
@@ -790,6 +858,7 @@ class CallbackHub:
 
     def _fanout(self, payload: dict[str, Any]) -> None:
         """Push to browser SSE first, then Hubitat-style callback URLs if any."""
+        payload = self._with_listener(payload)
         if self.events is not None:
             self.events.publish(payload)
         if not self.outbound_http:

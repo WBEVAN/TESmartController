@@ -676,6 +676,10 @@ def _action_peek_follow(handler: "_Handler", body: dict[str, Any]) -> dict[str, 
     if isinstance(seconds, int) and seconds >= 1:
         config.set_peek_seconds(seconds, handler.server.env_file)
         state = {**state, "seconds": seconds}
+    try:
+        config.set_peek_follow(str(state["mode"]), handler.server.env_file)
+    except config.ConfigError:
+        pass
     _publish_peek_follow(handler.server, state)
     return {"peek_follow": state["mode"], "seconds": state.get("seconds")}
 
@@ -1092,11 +1096,15 @@ def _api(handler: "_Handler", method: str, segments: list[str], query_text: str)
                     )
                 except Exception:
                     pass
+                try:
+                    config.set_peek_follow(str(mode), handler.server.env_file)
+                except Exception:
+                    pass
                 _publish_peek_follow(
                     handler.server,
                     {"mode": mode, "seconds": seconds},
                 )
-        return result
+            return result
     actions = {
         "input": lambda: _action_input(handler, body),
         "next": lambda: _action_step(handler, 1),

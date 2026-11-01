@@ -28,7 +28,7 @@ Browser kit/panel clients do **not** use this outbound POST path. They open `GET
 
 ## Prerequisites
 
-On a host Hubitat can reach, run a recent enough `tesmartctl` (this Hubitat package **1.7.1** checks `/compat` and requires **0.0.7.18+**). Configure that server first, and choose a listen address the hub can open:
+On a host Hubitat can reach, run a recent enough `tesmartctl` (this Hubitat package **1.8.0** checks `/compat` and requires **0.0.7.20+**; Hubitat platform **2.5.1+** for mDNS Discover). Configure that server first, and choose a listen address the hub can open:
 
 ```bash
 tesmartctl install
@@ -41,7 +41,7 @@ Confirm the server version:
 curl http://192.168.1.20:8080/version
 curl -X POST http://192.168.1.20:8080/compat \
   -H 'Content-Type: application/json' \
-  -d '{"min_server":"0.0.7.18","client":"hubitat","client_version":"1.7.1"}'
+  -d '{"min_server":"0.0.7.20","client":"hubitat","client_version":"1.8.0"}'
 ```
 
 Optional local names (shown in Hubitat as `2 — Office`):
@@ -59,7 +59,19 @@ curl http://192.168.1.20:8080/status?network=0
 
 There is no authentication on the server — only do this on a trusted network. Details: [`listener.md`](listener.md).
 
-Hubitat does **not** browse mDNS. Always enter the listener’s LAN IP (or a stable hostname) and port in Manager. For CLI discovery on other machines, see [`mdns.md`](mdns.md).
+**Connection paths (TESmart Manager):** Choose **one** path on **Configure server connection**. Existing installs keep mDNS **off** until you opt in.
+
+| Path | What you do |
+| --- | --- |
+| **Fixed IP** | Leave **Use mDNS discovery** off. Enter host/port (and optional HTTPS). |
+| **mDNS + mesh** | Turn **Use mDNS discovery** on → **Discover listeners** → turn **Use mesh failover** on → pick a `…-mesh` name → **Use selected mesh**. Optional **Follow listener endpoint from callbacks** (only shown when mesh is on). |
+| **mDNS + specific name** | mDNS on → Discover → mesh failover **off** → pick a standalone or instance name → **Use selected name**. |
+
+While mDNS is on, host/port are **not** typed — Discover fills the **Active** endpoint. Need a fixed IP instead? Turn mDNS off.
+
+Discover is a one-shot browse of `_wbevan-tesmart._tcp` on Hubitat **2.5.1+** ([`NetworkUtils.getMDNSServiceResults`](https://docs2.hubitat.com/en/developer/networkutils-object), plus the hub’s mDNS cache). The page reports whether a mesh failover name was found. Prefer the live proxy IP if the same `…-mesh` name appears more than once (stale ads can linger). For CLI discovery, see [`mdns.md`](mdns.md).
+
+**Mesh failover:** Server-side mesh is opt-in (`tesmartctl listen --http … --mesh` or `quickstart --mesh` only — see [`mesh.md`](mesh.md)). With push callbacks enabled, the proxy POSTs a `listener` object (`base_url`, host, port, mDNS / mesh names, role) on events such as `online`. Manager’s **Follow listener endpoint from callbacks** (mesh path only, default on) updates host/port when the proxy moves. Every mesh host must be able to reach Hubitat’s callback URL.
 
 ## Install
 
@@ -93,7 +105,7 @@ Packaging follows the [HPM developer documentation](https://hubitatpackagemanage
 
 1. **Apps** → **Add User App** → **TESmart Manager** (skipped if HPM already opened it)
 2. Read the intro (banner loads from GitHub).
-3. **Configure server host & port** — enter the machine running `tesmartctl`, run the connection test. Manager calls `POST /compat` first (needs **tesmartctl 0.0.7.18+**); an old server fails with an upgrade message. The Manager main screen shows Hubitat package **1.7.1**. **Status** reads `GET /status` and shows the server version and active input, refreshes the enabled and disabled lists, and marks the controller online. The main screen also lists those inputs and can enable or disable one input on the listener.
+3. **Configure server connection** — pick **fixed IP** or **mDNS** (see table above). For mesh, Discover then pick `…-mesh` and leave **Follow listener endpoint** on. Connection test uses `POST /compat` (**tesmartctl 0.0.7.20+**). The Manager main screen shows Hubitat package **1.8.0**. **Status** reads `GET /status` and shows the server version and active input, refreshes the enabled and disabled lists, and marks the controller online. The main screen also lists those inputs and can enable or disable one input on the listener.
 4. **Edit port names** — **Refresh Names**, edit the fields, then **Done**. Hubitat writes them with `POST /names` to the tesmartctl server. You can still use `tesmartctl name set N Label` on the host; name changes also notify Hubitat when callbacks are enabled.
 5. Set the device label, leave **Create child switch per input** on if you want dashboard tiles.
 6. Leave **Push notifications** on so Manager registers a named callback with the server (OAuth access token).

@@ -27,14 +27,25 @@ If Uninstall already lists a package named **`null`**, uninstall that entry firs
 
 ## Server requirement
 
-This Hubitat package expects a recent tesmartctl server on a host the hub can reach. On that computer run `tesmartctl install`, then leave `tesmartctl quickstart` running.
+This Hubitat package expects a recent tesmartctl server on a host the hub can reach. On that computer run `tesmartctl install`, then leave `tesmartctl quickstart` running (add `--mesh` only if you want mesh).
 
-- Minimum server: **0.0.7.18+** (Manager checks `POST /compat` on connection test)
-- Hubitat package version: **1.7.1** (shown on the Manager main screen)
+- Minimum server: **0.0.7.20+** (Manager checks `POST /compat` on connection test)
+- Minimum Hubitat platform: **2.5.1+** for optional mDNS Discover
+- Hubitat package version: **1.8.0** (shown on the Manager main screen)
 - Namespace: **`wbevan_tesmart`**
 - Push notifications need OAuth on the Manager app (set via `"oauth": true` in the manifest)
 
 Upgrade the host package when the connection test reports incompatible / missing `/compat`.
+
+## Connection setup (Manager)
+
+One path at a time (mDNS default **off** for existing IP installs):
+
+1. **Fixed IP** — mDNS off → enter host/port.
+2. **mDNS + mesh** — mDNS on → Discover → mesh failover on → pick `…-mesh` → optional follow callbacks.
+3. **mDNS + name** — mDNS on → Discover → mesh off → pick a specific instance.
+
+While mDNS is on, IP fields are hidden; Discover fills **Active**. Full walkthrough: [`Docs/hubitat.md`](../Docs/hubitat.md).
 
 ## Versioning
 
