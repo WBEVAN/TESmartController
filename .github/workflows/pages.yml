@@ -37,7 +37,7 @@ jobs:
           cp Docs/images/readme-banner.png Docs/images/kit.png _site/assets/
           cp streamdeck/StreamDeckPlugin.gif _site/assets/
           mkdir -p _site/assets/streamdeck
-          cp site/assets/streamdeck/*.png _site/assets/streamdeck/
+          cp site/assets/streamdeck/*.png site/assets/streamdeck/*.mp4 _site/assets/streamdeck/
 
           # Ship kit look-and-feel (CSS + SVG icons) for the interactive demo.
           rsync -a --include='*/' \

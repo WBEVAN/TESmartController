@@ -4,6 +4,11 @@ A native Stream Deck plugin is coming soon. The public page, with each key’s p
 
 ![Stream Deck plugin preview](../streamdeck/StreamDeckPlugin.gif)
 
+Two recordings are on the public page:
+
+- [Configuring the keys](../site/assets/streamdeck/tesmart.mp4) — the Stream Deck app, adding TESmart Controller keys and choosing a listener.
+- [The keys in use](../site/assets/streamdeck/tesmart-in-action.mp4) — a Stream Deck running the plugin.
+
 The action list group is **TESmart Controller**. Every key talks to a running `tesmartctl listen` HTTP listener.
 
 ## Connection
