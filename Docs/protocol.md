@@ -1,6 +1,6 @@
 # TESmart HDMI Switch Control Protocol
 
-Applies to the TESmart 8x1 (HSW0801 family: HSW0801A10 / A1U, HKS0801A30 / A40 / A1U, HKE0802A10) and 16x1 (HSW1601 / HKS1601) HDMI switches and KVMs. The 16x1 uses the same frames with input values up to 16.
+Applies to the TESmart 8x1 (HSW0801 family: HSW0801A10 / A1U, HKS0801A30 / A40 / A1U, HKE0802A10, HKS801-P23) and 16x1 (HSW1601 / HKS1601) HDMI switches and KVMs. The 16x1 uses the same frames with input values up to 16.
 
 Sources: TESmart "8x1 HDMI Switch (KVM) Communication Protocol v2" and the HSW0801 user manual (section 10.6), plus community packet captures for the undocumented ASCII network protocol.
 
@@ -46,7 +46,24 @@ The switch emits an `0x11` report on its own whenever the active input changes (
 
 ### Terminator byte
 
-The documentation says frames end in `0xEE`, but `0x16` and `0x1C` have been observed in the field on `0x11` reports. Parsers should key on the `AA BB 03` header and frame length, not the terminator.
+The documentation says frames end in `0xEE`, but some devices use a different last byte on `0x11` reports. Parsers should key on the `AA BB 03` header and frame length, not the terminator. Host → switch frames still use `0xEE`.
+
+#### Device note: HKS801-P23
+
+On the HKS801-P23 8×1 HDMI KVM, `0x11` reports end with `0x16` plus the 0-based port value rather than `0xEE`. Credit: [robloh](https://github.com/robloh).
+
+| Input | Reply |
+| --- | --- |
+| 1 | `AA BB 03 11 00 16` |
+| 2 | `AA BB 03 11 01 17` |
+| 3 | `AA BB 03 11 02 18` |
+| 4 | `AA BB 03 11 03 19` |
+| 5 | `AA BB 03 11 04 1A` |
+| 6 | `AA BB 03 11 05 1B` |
+| 7 | `AA BB 03 11 06 1C` |
+| 8 | `AA BB 03 11 07 1D` |
+
+Earlier field observations of `0x16` and `0x1C` on other captures match inputs 1 and 7 under this rule. `tesmartctl` ignores the last byte on receive, so this device needs no special handling.
 
 ### Timing
 

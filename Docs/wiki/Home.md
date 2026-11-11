@@ -31,5 +31,6 @@ Control TESmart 8- and 16-port HDMI / KVM switches over LAN or RS232 — CLI, HT
 | [Docs/mdns.md](https://github.com/WBEVAN/TESmartController/blob/main/Docs/mdns.md) | mDNS discovery + connection fallbacks |
 | [Docs/mesh.md](https://github.com/WBEVAN/TESmartController/blob/main/Docs/mesh.md) | Mesh support (experimental) |
 | [Docs/hubitat.md](https://github.com/WBEVAN/TESmartController/blob/main/Docs/hubitat.md) | Hubitat package detail |
+| [Docs/streamdeck.md](https://github.com/WBEVAN/TESmartController/blob/main/Docs/streamdeck.md) | Elgato Stream Deck plugin (Marketplace) |
 | [Docs/protocol.md](https://github.com/WBEVAN/TESmartController/blob/main/Docs/protocol.md) | Wire protocol |
 | [Docs/embed.md](https://github.com/WBEVAN/TESmartController/blob/main/Docs/embed.md) | Embed input buttons on your page |

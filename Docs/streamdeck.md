@@ -1,6 +1,8 @@
 # Elgato Stream Deck
 
-A native Stream Deck plugin is coming soon. The public page, with each key’s property inspector, is [Elgato Stream Deck](https://wbevan.github.io/TESmartController/streamdeck.html).
+The native **TESmart Controller** plugin is on the [Elgato Marketplace](https://marketplace.elgato.com/product/tesmart-controller-5a3360b1-6ec8-4808-b228-59ec57266844). Install it from the Stream Deck app (Store / Marketplace), then keep a `tesmartctl listen` HTTP listener running so the keys can reach the switch.
+
+The public page, with each key’s property inspector, is [Elgato Stream Deck](https://wbevan.github.io/TESmartController/streamdeck.html).
 
 ![Stream Deck plugin preview](../streamdeck/StreamDeckPlugin.gif)
 
@@ -35,4 +37,4 @@ Auto tries the last URL this key reached, `_wbevan-tesmart._tcp` advertisements,
 | Banner | Banner | Show the listener message. Press dismisses it. | **Dismiss:** This Stream Deck, or TESmart Controller for every device. **Sound:** None, or Play a file. **Sound file** when a file is selected. |
 | Peek Settings Toggle | Peek Mode | Off, then Once, then Always, then Off. Does not move the switch. | **Seconds,** 1–30, default 5. Used by Once and Always. The mode is one setting for the whole listener. |
 
-Until that plugin is published, a Stream Deck Website action can call the listener. See [Stream Deck, macro pads, and home control](../README.md#stream-deck-macro-pads-and-home-control) in the README.
+A Stream Deck Website action can still call the listener directly if you prefer raw URLs. See [Stream Deck, macro pads, and home control](../README.md#stream-deck-macro-pads-and-home-control) in the README.

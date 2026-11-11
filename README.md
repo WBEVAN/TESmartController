@@ -235,7 +235,7 @@ Each input change is one URL or one command, so anything that can open a URL or 
 
 | Controller | How to wire one button |
 | --- | --- |
-| Elgato Stream Deck | **Website** action with `http://127.0.0.1:8080/input/3` and "GET request in background" ticked, or a **System > Open** action running `tesmartctl input 3`. |
+| Elgato Stream Deck | Native [TESmart Controller](https://marketplace.elgato.com/product/tesmart-controller-5a3360b1-6ec8-4808-b228-59ec57266844) plugin from the Elgato Marketplace (needs a running `tesmartctl` HTTP listener). Detail: [`Docs/streamdeck.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/streamdeck.md). Or a **Website** action with `http://127.0.0.1:8080/input/3` and "GET request in background" ticked. |
 | Bitfocus Companion | **Generic HTTP**, GET `http://<host>:8080/input/3`. |
 | Home Assistant | A `rest_command` (`url: http://<host>:8080/input/{{ input }}`) called from a button, script, or automation. A `rest` sensor on `/input?format=text` shows the active input. |
 | Hubitat | [`hubitat/`](https://github.com/WBEVAN/TESmartController/tree/main/hubitat): **TESmart Manager** setup app (HPM or manual), parent `MediaInputSource` device, child switches per port. See [`Docs/hubitat.md`](https://github.com/WBEVAN/TESmartController/blob/main/Docs/hubitat.md). |
