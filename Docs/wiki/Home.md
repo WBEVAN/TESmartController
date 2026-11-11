@@ -1,6 +1,6 @@
 # tesmartctl wiki
 
-Control TESmart 8- and 16-port HDMI / KVM switches over LAN or RS232 — CLI, HTTP listener, floating kit, full panel, and Hubitat.
+Control TESmart 8- and 16-port HDMI / KVM switches over LAN or RS232 — CLI, HTTP listener, floating kit, full panel, Hubitat, and Stream Deck.
 
 **Independent community project.** Not affiliated with or endorsed by TESmart.
 

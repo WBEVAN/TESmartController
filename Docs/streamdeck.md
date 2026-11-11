@@ -37,4 +37,4 @@ Auto tries the last URL this key reached, `_wbevan-tesmart._tcp` advertisements,
 | Banner | Banner | Show the listener message. Press dismisses it. | **Dismiss:** This Stream Deck, or TESmart Controller for every device. **Sound:** None, or Play a file. **Sound file** when a file is selected. |
 | Peek Settings Toggle | Peek Mode | Off, then Once, then Always, then Off. Does not move the switch. | **Seconds,** 1–30, default 5. Used by Once and Always. The mode is one setting for the whole listener. |
 
-A Stream Deck Website action can still call the listener directly if you prefer raw URLs. See [Stream Deck, macro pads, and home control](../README.md#stream-deck-macro-pads-and-home-control) in the README.
+Install from the Marketplace for the full key set. You can also drive the listener with a Stream Deck Website action and a plain HTTP URL — see [Stream Deck, macro pads, and home control](../README.md#stream-deck-macro-pads-and-home-control) in the README.
